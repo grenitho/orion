@@ -11,7 +11,7 @@ const backend = new BackendService();
 export async function activate(context: vscode.ExtensionContext) {
 	console.log('Orion Extension Active!');
 
-	// TUNGGU backend siap sebelum lanjut
+	// WAIT for the backend to be ready before continuing
 	await ensureBackendRunning();
 
 	const activityProvider = new ActivityProvider();

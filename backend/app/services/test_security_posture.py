@@ -1,17 +1,17 @@
 """
-test_security_posture.py — penjaga postur keamanan (ORION-37)
-==============================================================
-Test ini tidak menguji perilaku, melainkan MENOLAK REGRESI KONFIGURASI yang
-pernah membentuk lubang keamanan nyata:
+test_security_posture.py — guardian of the security posture (ORION-37)
+=======================================================================
+These tests do not exercise behaviour; they REJECT CONFIGURATION REGRESSIONS
+that once formed real security holes:
 
-  1. CORS `allow_origins=["*"]` + /execute-terminal tanpa auth = RCE lokal
-     lewat halaman web jahat selagi backend hidup.
-  2. Backend bind ke antarmuka selain loopback.
-  3. Path pribadi pemilik tertanam di kode yang dipublikasikan.
-  4. Artefak pribadi (.orion, .vsix) tidak masuk kemasan/repo.
+  1. CORS `allow_origins=["*"]` + /execute-terminal without auth = local RCE
+     via a malicious web page while the backend is alive.
+  2. Backend binding to a non-loopback interface.
+  3. The owner's personal paths embedded in published code.
+  4. Personal artifacts (.orion, .vsix) leaking into the package/repo.
 
-Kalau seseorang "merapikan" konfigurasi ini dan membukanya kembali,
-test ini gagal sebelum kode itu sempat ter-push.
+If someone "tidies up" this configuration and opens it back up, these tests
+fail before that code can ever be pushed.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ from pathlib import Path
 import pytest
 
 def _cari_root_repo() -> Path | None:
-    """Naik dari file ini sampai menemukan folder yang memuat backend/ DAN orion/.
-    Tidak mengandalkan kedalaman tetap, supaya test tetap benar walau struktur
-    folder berubah atau dijalankan dari harness sementara."""
+    """Walk up from this file until finding the folder that contains backend/ AND orion/.
+    Does not rely on a fixed depth, so the test stays correct even when the
+    folder structure changes or it runs from a temporary harness."""
     sini = Path(__file__).resolve()
     for induk in sini.parents:
         if (induk / "backend" / "app" / "main.py").is_file() and (induk / "orion").is_dir():
@@ -42,8 +42,8 @@ pytestmark = pytest.mark.skipif(REPO is None, reason="root repo ORION tidak dite
 
 
 def test_cors_tidak_terbuka_ke_semua_origin():
-    """Periksa BARIS ASSIGNMENT saja, bukan substring mentah: komentar yang
-    menjelaskan bug lama wajar menyebut bentuk lamanya."""
+    """Check the ASSIGNMENT LINE only, not raw substrings: a comment explaining
+    the old bug may legitimately mention the old shape."""
     src = MAIN.read_text(encoding="utf-8")
     nilai = [
         b.split("=", 1)[1].strip()

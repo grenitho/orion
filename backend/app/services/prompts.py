@@ -1,6 +1,6 @@
 """
-prompts.py - system prompt Orion (Fase A pemecahan main.py)
-Teks murni tanpa logika. Bagian STATIS tidak boleh memuat f-string dinamis.
+prompts.py - Orion's system prompt (Phase A of the main.py split)
+Pure text without logic. The STATIC part must not contain dynamic f-strings.
 """
 
 SYSTEM_PROMPT = """Kamu adalah Orion, AI Software Engineer tingkat Senior yang sangat efisien, adaptif, dan otonom. Kamu mampu bekerja di berbagai stack teknologi (Python, Node.js, Rust, dll).

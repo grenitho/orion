@@ -9,22 +9,22 @@ sys.stdout = open(
 )
 sys.stderr = sys.stdout
 
-# >>> FIX KRITIS: load_dotenv() HARUS dipanggil DI SINI, PALING AWAL, SEBELUM
-# modul apa pun di bawah ini di-import. Sebelumnya load_dotenv() dipanggil
-# jauh di bawah (setelah `from app.services.llm_router import get_ai_response`).
-# llm_router.py membaca os.getenv("GEMINI_API_KEY_1/2/3", "DEFAULT_MODEL", dst)
-# LANGSUNG di level atas modul (dieksekusi SEKALI saat modul di-import, bukan
-# di dalam fungsi) -- jadi kalau load_dotenv() belum dipanggil pada saat itu,
-# .env belum masuk ke os.environ sama sekali, dan GEMINI_API_KEYS akan
-# menjadi list KOSONG. Akibatnya kondisi `if GEMINI_API_KEYS and PRIMARY_MODEL`
-# di llm_router.py gagal, dan Gemini (Tier 1) DILEWATI TOTAL tanpa pernah
-# dicoba sama sekali -- router langsung loncat ke Tier 2 (OpenRouter) / Tier 3
-# (Cloudflare) walau kuota Gemini sama sekali belum habis. Ini penyebab nyata
-# dari laporan "Orion tidak pernah pakai Gemini, langsung loncat ke fallback".
+# >>> CRITICAL FIX: load_dotenv() MUST be called HERE, FIRST, BEFORE any
+# module below is imported. Previously load_dotenv() was called far below
+# (after `from app.services.llm_router import get_ai_response`).
+# llm_router.py reads os.getenv("GEMINI_API_KEY_1/2/3", "DEFAULT_MODEL", etc)
+# DIRECTLY at module top level (executed ONCE when the module is imported, not
+# inside a function) -- so if load_dotenv() has not run by then, .env has not
+# entered os.environ at all, and GEMINI_API_KEYS becomes an EMPTY list. The
+# condition `if GEMINI_API_KEYS and PRIMARY_MODEL` in llm_router.py then fails,
+# and Gemini (Tier 1) is SKIPPED ENTIRELY without ever being tried -- the
+# router jumps straight to Tier 2 (OpenRouter) / Tier 3 (Cloudflare) even
+# though the Gemini quota is nowhere near exhausted. This was the real cause
+# of the report "Orion never uses Gemini, jumps straight to fallback".
 from dotenv import load_dotenv
 
 load_dotenv()
-# >>> AKHIR FIX KRITIS <<<
+# >>> END OF CRITICAL FIX <<<
 
 import asyncio
 import json
@@ -39,18 +39,18 @@ _token_encoder = tiktoken.get_encoding("cl100k_base")
 
 
 def validate_project_structure(project_path: str) -> list:
-    """Cek dan laporkan struktur folder yang mencurigakan (duplikat, sampah, dll)."""
+    """Check and report suspicious folder structures (duplicates, junk, etc.)."""
     warnings = []
 
-    # Cek duplikasi folder assets
+    # Check for duplicate assets folders
     for root, dirs, _files in os.walk(project_path):
-        # Abaikan folder venv dan target agar tidak false positive
+        # Ignore venv and target folders to avoid false positives
         if "venv" in root or "target" in root or ".git" in root:
             continue
 
         if "assets" in dirs:
             assets_path = os.path.join(root, "assets")
-            # Jika ada folder assets di dalam folder lain (bukan root project), warning
+            # If there is an assets folder inside another folder (not the project root), warn
             expected_assets = os.path.join(project_path, "assets")
             if os.path.normpath(assets_path) != os.path.normpath(expected_assets):
                 warnings.append(f"⚠️ Duplicate folder detected: {assets_path}")
@@ -59,23 +59,25 @@ def validate_project_structure(project_path: str) -> list:
 
 
 def fix_over_escaped_text(text) -> str:
-    """Beberapa model (terutama tier fallback OpenRouter/Cloudflare) kadang
-    men-double-escape newline saat generate JSON 'arguments' untuk tool call
-    yang berisi teks multi-baris (misal 'question' di ask_user) — menulis
-    '\\\\n' alih-alih '\\n' di dalam JSON. Setelah json.loads(), ini muncul
-    sebagai literal dua-karakter '\\n' (bukan newline asli) di layar user.
-    Fungsi ini menormalkan itu tanpa merusak string yang memang sudah benar.
+    """Some models (especially the OpenRouter/Cloudflare fallback tiers)
+    sometimes double-escape newlines when generating the JSON 'arguments'
+    of a tool call containing multi-line text (e.g. the 'question' in
+    ask_user) — writing '\\\\n' instead of '\\n' inside the JSON. After
+    json.loads(), this shows up on the user's screen as the two-character
+    literal '\\n' (not a real newline). This function normalizes that
+    without breaking strings that were already correct.
 
-    >>> FIX: versi lama cuma .replace("\\n", "\n") sekali jalan (1 pass).
-    Itu cukup untuk over-escape 1 lapis, tapi kalau modelnya over-escape
-    2x lipat atau lebih (mis. JSON mentah berisi banyak backslash beruntun
-    sebelum 'n'), 1 pass replace / bahkan replace berulang tetap menyisakan
-    backslash nyasar di depan newline (mis. jadi '\\\\n' bukan newline
-    bersih) karena replace() mencocokkan tepat 1 backslash + 'n', bukan
-    RANGKAIAN backslash + 'n'. Sekarang pakai regex \\+n / \\+t / \\+r yang
-    menyapu SELURUH rentetan backslash di depan n/t/r sekaligus jadi satu
-    whitespace asli, berapa pun lapisan escape-nya, dalam 1 pass — tidak
-    ada lagi sisa backslash."""
+    >>> FIX: the old version only did .replace("\\n", "\n") in a single
+    pass. That is enough for 1 layer of over-escaping, but when the model
+    over-escapes 2x or more (e.g. raw JSON containing many consecutive
+    backslashes before 'n'), a single replace pass — or even repeated
+    replaces — still leaves stray backslashes in front of the newline (e.g.
+    it becomes '\\\\n' instead of a clean newline) because replace()
+    matches exactly 1 backslash + 'n', not a RUN of backslashes + 'n'.
+    It now uses the regex \\+n / \\+t / \\+r which sweeps the ENTIRE
+    run of backslashes in front of n/t/r into a single real whitespace
+    character, however many escape layers there are, in 1 pass — no
+    leftover backslashes."""
     if not isinstance(text, str):
         return text
     text = re.sub(r"\\+n", "\n", text)
@@ -85,9 +87,9 @@ def fix_over_escaped_text(text) -> str:
 
 
 def strip_thinking_blocks(text: str) -> str:
-    """Hapus blok <thinking>...</thinking> sebelum ditampilkan ke user di frontend.
-    Versi RAW (dengan thinking) tetap disimpan ke context_manager untuk memori
-    internal Orion — hanya yang di-yield ke stream yang dibersihkan."""
+    """Strip <thinking>...</thinking> blocks before showing text to the user in the frontend.
+    The RAW version (with thinking) is still saved to context_manager for Orion's
+    internal memory — only what is yielded to the stream gets cleaned."""
     if not text:
         return text
     return _THINKING_BLOCK_RE.sub("", text).strip()
@@ -103,19 +105,19 @@ def estimate_tokens(text: str) -> int:
 
 
 def estimate_message_tokens(msg: dict) -> int:
-    """Estimasi token untuk 1 pesan, TERMASUK tool_calls (name + arguments).
-    Sebelumnya hanya menghitung 'content', sehingga pesan dengan tool_calls
-    besar (misal 'diff' panjang di edit_file) diremehkan estimasinya."""
-    # >>> FITUR LAMPIRAN: content bisa berupa LIST part (multimodal).
-    # Tanpa ini, str(list) menghasilkan repr Python yang memuat seluruh base64
-    # -> estimasi token meledak dan auto-summarize salah memotong riwayat.
+    """Estimate tokens for 1 message, INCLUDING tool_calls (name + arguments).
+    Previously it only counted 'content', so messages with large tool_calls
+    (e.g. a long 'diff' in edit_file) were underestimated."""
+    # >>> ATTACHMENT FEATURE: content can be a LIST of parts (multimodal).
+    # Without this, str(list) produces a Python repr containing all the base64
+    # -> the token estimate explodes and auto-summarize cuts history wrongly.
     _c = msg.get("content")
     if isinstance(_c, list):
         _teks = " ".join(
             str(p.get("text", "")) for p in _c
             if isinstance(p, dict) and p.get("type") == "text"
         )
-        # Gemini menagih +/- 258 token per gambar, jauh lebih murah dari base64-nya
+        # Gemini charges +/- 258 tokens per image, far cheaper than its base64
         _n_img = sum(1 for p in _c if isinstance(p, dict) and p.get("type") == "image_url")
         total = estimate_tokens(_teks) + (_n_img * 258)
     else:
@@ -140,16 +142,17 @@ from app.services.prompts import SYSTEM_PROMPT
 from app.services.tools_schema import TOOLS
 from app.services.context_manager import ContextManager
 from app.services.dependency_scanner import DependencyScanner
-from app.services.llm_router import get_ai_response  # <-- Satu-satunya gerbang ke LLM
+from app.services.llm_router import get_ai_response  # <-- The only gateway to the LLM
 from app.services.tool_executor import ToolExecutor
 
-# >>> FIX KRITIS: 3 modul tambahan (todo tracking, verifikasi pasca-edit,
-# permission/sandboxing) SEBELUMNYA hard-import -- kalau salah satu file ini
-# belum ditaruh di app/services/ (atau typo/rusak), SELURUH backend akan
-# ModuleNotFoundError dan gagal start TOTAL sebelum sempat listen di port
-# mana pun (persis gejala "backend tidak bisa dipakai sama sekali").
-# Sekarang jadi soft-dependency: kalau gagal import, fitur terkait saja yang
-# nonaktif (dengan fallback aman), backend tetap menyala normal.
+# >>> CRITICAL FIX: 3 additional modules (todo tracking, post-edit
+# verification, permission/sandboxing) were PREVIOUSLY hard-imported -- if any
+# of these files had not been placed in app/services/ (or had a typo/was
+# broken), the ENTIRE backend would ModuleNotFoundError and fail to start AT
+# ALL before ever listening on any port (exactly the symptom "the backend is
+# completely unusable"). They are now soft dependencies: if the import fails,
+# only the related feature is disabled (with a safe fallback) and the backend
+# still starts normally.
 try:
     from app.services.todo_manager import TodoManager
 except Exception as e:
@@ -202,10 +205,10 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
 )
 
-# (load_dotenv() sudah dipanggil di paling atas file, sebelum import
-# app.services.* -- lihat komentar FIX KRITIS di baris ~11)
+# (load_dotenv() has already been called at the very top of this file, before
+# the app.services.* imports -- see the CRITICAL FIX comment around line ~11)
 
-# --- DAFTAR PERINTAH BERBAHAYA ---
+# --- LIST OF DANGEROUS COMMANDS ---
 DANGEROUS_PATTERNS = [
     "rm -rf",
     "rm -r",
@@ -235,19 +238,19 @@ BLOCKING_SERVER_PATTERNS = [
     "node server",
     "next dev",
     "django runserver",
-    "tauri dev",  # <-- TAMBAHKAN INI
-    "cargo run",  # <-- TAMBAHKAN INI
+    "tauri dev",  # <-- ADDED THIS
+    "cargo run",  # <-- ADDED THIS
 ]
 
 
 def is_long_running_server(cmd: str) -> bool:
-    """Cek apakah perintah ini menjalankan server yang berjalan selamanya."""
+    """Check whether this command starts a server that runs forever."""
     cmd_lower = cmd.lower()
     return any(pattern in cmd_lower for pattern in BLOCKING_SERVER_PATTERNS)
 
 
 def is_dangerous_command(cmd: str) -> bool:
-    """Cek apakah perintah terminal mengandung kata kunci berbahaya."""
+    """Check whether a terminal command contains dangerous keywords."""
     cmd_lower = cmd.lower()
     for pattern in DANGEROUS_PATTERNS:
         if pattern in cmd_lower:
@@ -256,7 +259,7 @@ def is_dangerous_command(cmd: str) -> bool:
 
 
 def is_terminal_failure(output: str) -> bool:
-    """Mendeteksi apakah output terminal mengandung error fatal yang butuh perbaikan kode."""
+    """Detect whether terminal output contains a fatal error that needs a code fix."""
     out_lower = output.lower()
     fatal_errors = [
         "traceback (most recent call last)",
@@ -278,8 +281,8 @@ def is_terminal_failure(output: str) -> bool:
 
 
 async def summarize_old_history(old_messages: list) -> str:
-    """Memanggil LLM untuk merangkum riwayat chat lama.
-    PENTING: Fungsi ini TIDAK MENELAN EXCEPTION. Jika API gagal, error akan dilempar ke pemanggil.
+    """Call the LLM to summarize old chat history.
+    IMPORTANT: this function does NOT swallow exceptions. If the API fails, the error is raised to the caller.
     """
     prompt = "Rangkum percakapan berikut menjadi 1 paragraf padat yang berisi konteks utama, keputusan yang diambil, dan status tugas saat ini. Abaikan basa-basi.\n\n"
     for msg in old_messages:
@@ -288,7 +291,7 @@ async def summarize_old_history(old_messages: list) -> str:
         if content:
             prompt += f"{role}: {content[:500]}\n"
 
-    # HAPUS try/except di sini. Biarkan exception naik ke main.py agar clear_history() tidak dipanggil saat gagal.
+    # REMOVED the try/except here. Let exceptions bubble up to main.py so clear_history() is not called on failure.
     response = await get_ai_response(
         messages=[{"role": "user", "content": prompt}], tools=None
     )
@@ -303,13 +306,13 @@ def log_performance(
     duration_ms: float,
     status: str,
 ):
-    """Mencatat statistik penggunaan API ke file .orion/performance_log.jsonl"""
+    """Record API usage statistics to the .orion/performance_log.jsonl file"""
     try:
         orion_dir = os.path.join(project_path, ".orion")
         os.makedirs(orion_dir, exist_ok=True)
         log_file = os.path.join(orion_dir, "performance_log.jsonl")
 
-        # >>> HARGA REALISTIS (DeepSeek V3/R1 via API) <<<
+        # >>> REALISTIC PRICING (DeepSeek V3/R1 via API) <<<
         price_input_per_million = 0.14
         price_output_per_million = 0.28
 
@@ -334,19 +337,19 @@ def log_performance(
         print(f"[ORION PERF LOG WARNING] Failed to record log: {e}")
 
 
-# >>> PATCH ORION-5: logging terstruktur ke FILE.
-# CATATAN KOREKSI: dugaan awal saya bahwa 122 print() menyebabkan backpressure
-# stdout TIDAK TEPAT -- baris 4-10 file ini sudah mengalihkan sys.stdout/stderr
-# ke ~/orion_stdout.log dengan buffering=1, jadi pipe induk tidak pernah dibanjiri.
-# Masalah itu sudah Anda selesaikan sendiri lebih dulu.
+# >>> PATCH ORION-5: structured logging to a FILE.
+# CORRECTION NOTE: the initial suspicion that the 122 print() calls caused
+# stdout backpressure was NOT accurate -- lines 4-10 of this file already
+# redirect sys.stdout/stderr to ~/orion_stdout.log with buffering=1, so the
+# parent pipe is never flooded. That problem had already been solved.
 #
-# Yang MASIH benar dan diperbaiki di sini:
-#   1. ~/orion_stdout.log dibuka mode "a" TANPA ROTASI -> tumbuh selamanya.
-#      RotatingFileHandler di bawah membatasi 5 MB x 5 file.
-#   2. print() tidak punya level/timestamp/nama modul -> sulit menyaring.
-#   3. Lokasinya di HOME, bukan per-proyek -> log beberapa proyek tercampur.
-# Redirect stdout yang lama SENGAJA dibiarkan supaya tidak ada perubahan perilaku
-# yang tidak perlu; keduanya bisa hidup berdampingan.
+# What is STILL true and fixed here:
+#   1. ~/orion_stdout.log is opened in "a" mode WITHOUT ROTATION -> grows forever.
+#      The RotatingFileHandler below caps it at 5 MB x 5 files.
+#   2. print() has no level/timestamp/module name -> hard to filter.
+#   3. It lives in HOME, not per-project -> logs of several projects mix.
+# The old stdout redirect is DELIBERATELY kept so there is no unnecessary
+# behaviour change; the two can coexist.
 try:
     from app.logging_setup import get_logger, setup_logging
 except ImportError:  # pragma: no cover
@@ -358,12 +361,13 @@ logger = get_logger("orion.main")
 app = FastAPI(title="Project Orion Backend", version="0.4.1")
 app.add_middleware(
     CORSMiddleware,
-    # >>> PATCH ORION-37 (KEAMANAN): allow_origins=["*"] + /execute-terminal tanpa
-    # auth = lubang RCE lokal: selagi backend hidup, halaman web jahat yang dibuka
-    # user bisa POST lintas-origin ke 127.0.0.1:8000 dan menjalankan perintah shell,
-    # melewati modal persetujuan VS Code. Request JSON lintas-origin memicu preflight;
-    # dengan origin tidak diizinkan, browser tidak mengirim request itu sama sekali.
-    # Klien sah (extension host / Node) tidak tunduk pada CORS, jadi tidak ada yang rusak.
+    # >>> PATCH ORION-37 (SECURITY): allow_origins=["*"] + /execute-terminal
+    # without auth = a local RCE hole: while the backend is alive, a malicious
+    # web page opened by the user could POST cross-origin to 127.0.0.1:8000
+    # and run shell commands, bypassing the VS Code approval modal. Cross-origin
+    # JSON requests trigger a preflight; with the origin not allowed, the
+    # browser never sends the request at all. Legitimate clients (extension
+    # host / Node) are not subject to CORS, so nothing breaks.
     allow_origins=[],
     allow_origin_regex=r"^vscode-webview://",
     allow_credentials=False,
@@ -374,15 +378,15 @@ context_manager = ContextManager()
 tool_executor = None
 todo_manager = (
     TodoManager() if TodoManager else None
-)  # >>> FIX: None-safe kalau import gagal
+)  # >>> FIX: None-safe if the import fails
 orion_config = {"max_iterations": 20}  # Default config
 
-# File untuk menyimpan project terakhir
+# File for storing the last project
 LAST_PROJECT_FILE = os.path.join(os.path.expanduser("~"), ".orion_last_project.json")
 
 
 def save_last_project(path: str):
-    """Simpan path project terakhir ke disk."""
+    """Save the last project path to disk."""
     try:
         with open(LAST_PROJECT_FILE, "w", encoding="utf-8") as f:
             json.dump({"path": path}, f)
@@ -392,7 +396,7 @@ def save_last_project(path: str):
 
 
 def load_last_project():
-    """Load project path terakhir dari disk."""
+    """Load the last project path from disk."""
     try:
         if os.path.exists(LAST_PROJECT_FILE):
             with open(LAST_PROJECT_FILE, "r", encoding="utf-8") as f:
@@ -403,7 +407,7 @@ def load_last_project():
 
 
 def load_orion_config(project_path: str):
-    """Membaca atau membuat file config default di .orion/orion_config.json"""
+    """Read or create the default config file at .orion/orion_config.json"""
     global orion_config
     config_path = os.path.join(project_path, ".orion", "orion_config.json")
 
@@ -425,9 +429,9 @@ def load_orion_config(project_path: str):
     else:
         default_config = {
             "max_iterations": 20,
-            # >>> BARU: threshold token budget bisa dikonfigurasi per-project.
-            # Sesuaikan dengan context window model yang benar-benar Anda pakai
-            # (jangan asumsikan 8K jika model Anda mendukung context lebih besar).
+            # >>> NEW: the token budget threshold is configurable per project.
+            # Match it to the context window of the model you actually use
+            # (do not assume 8K if your model supports a larger context).
             "token_budget_threshold": 12000,
             "description": "Pengaturan Orion. Ubah max_iterations untuk membatasi loop berpikir AI. token_budget_threshold mengatur kapan emergency pruning context terjadi.",
         }
@@ -445,13 +449,13 @@ def load_orion_config(project_path: str):
 
 
 
-# >>> PATCH ORION-15: PEMERIKSA KONSISTENSI TOOL =====================
-# Bug "3 tool mati" terjadi karena skema TOOLS dan rantai dispatch di /chat
-# dikelola terpisah, jadi keduanya bisa menyimpang tanpa terdeteksi.
-# Pemeriksa ini berjalan sekali saat startup dan MELAPORKAN ke log kalau ada
-# tool yang dideklarasikan tapi tidak punya method di tool_executor.
-# (Dispatch-nya sendiri tetap harus ditambahkan manual di /chat -- lihat
-#  pesan peringatannya.)
+# >>> PATCH ORION-15: TOOL CONSISTENCY CHECKER =====================
+# The "3 dead tools" bug happened because the TOOLS schema and the /chat
+# dispatch chain were maintained separately, so the two could diverge
+# undetected. This checker runs once at startup and REPORTS to the log when
+# a tool is declared but has no method on tool_executor.
+# (The dispatch branch itself still has to be added manually in /chat -- see
+#  the warning message.)
 # =====================================================================
 _NAMA_TOOL_AKTIF = {
     "ask_user", "update_todos", "list_files", "read_file", "read_file_range",
@@ -464,7 +468,7 @@ _NAMA_TOOL_AKTIF = {
 
 
 def periksa_konsistensi_tools() -> None:
-    """Bandingkan skema TOOLS vs daftar dispatch. Log peringatan bila menyimpang."""
+    """Compare the TOOLS schema against the dispatch list. Log a warning when they diverge."""
     dideklarasikan = set()
     for t in TOOLS:
         nama = (t.get("function") or {}).get("name")
@@ -492,7 +496,7 @@ def periksa_konsistensi_tools() -> None:
 
 
 periksa_konsistensi_tools()
-# >>> AKHIR PATCH ORION-15
+# >>> END OF PATCH ORION-15
 
 
 class ProjectPathRequest(BaseModel):
@@ -501,11 +505,11 @@ class ProjectPathRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    # >>> FITUR LAMPIRAN: daftar {name, mime, data(base64)} dari extension.
-    # Default [] supaya request lama (tanpa field ini) tetap valid.
+    # >>> ATTACHMENT FEATURE: list of {name, mime, data(base64)} from the extension.
+    # Default [] so old requests (without this field) stay valid.
     attachments: list = []
-    # >>> PATCH ORION-20c: "mata" Orion dari VS Code.
-    # {activeFile, selection, diagnostics[]}. Kosong kalau extension lama.
+    # >>> PATCH ORION-20c: Orion's "eyes" from VS Code.
+    # {activeFile, selection, diagnostics[]}. Empty with an old extension.
     editor: dict = {}
 
 
@@ -521,19 +525,19 @@ async def set_project(request: ProjectPathRequest):
     if not os.path.isdir(request.path):
         return {"success": False, "error": "Folder not found."}
 
-    # 1. Validasi struktur folder
+    # 1. Validate the folder structure
     structure_warnings = validate_project_structure(request.path)
 
-    # 2. Set path dan inisialisasi tool executor
+    # 2. Set the path and initialize the tool executor
     context_manager.set_project_path(request.path)
     tool_executor = ToolExecutor(request.path)
     if todo_manager:
-        todo_manager.set_project_path(request.path)  # >>> FIX: guard None-safe
+        todo_manager.set_project_path(request.path)  # >>> FIX: None-safe guard
 
-    # 3. Simpan ke disk untuk auto-restore
+    # 3. Save to disk for auto-restore
     save_last_project(request.path)
 
-    # 4. Inisialisasi folder .orion/
+    # 4. Initialize the .orion/ folder
     orion_dir = os.path.join(request.path, ".orion")
     if not os.path.exists(orion_dir):
         os.makedirs(orion_dir)
@@ -550,7 +554,7 @@ async def set_project(request: ProjectPathRequest):
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
-    # 5. Scan dependency dan simpan ke project_map
+    # 5. Scan dependencies and save to project_map
     try:
         scanner = DependencyScanner(request.path)
         scan_result = scanner.scan()
@@ -558,7 +562,7 @@ async def set_project(request: ProjectPathRequest):
             f"[ORION INIT] Dependency Map generated. Total {scan_result['total_files']} files scanned."
         )
 
-        # Buat string struktur project dan simpan ke context_manager
+        # Build the project structure string and save it to context_manager
         map_lines = [f"📁 {path}" for path in scan_result["files"].keys()]
         project_map_str = "Struktur Project:\n" + "\n".join(map_lines)
         context_manager.set_project_map(project_map_str)
@@ -574,16 +578,16 @@ async def set_project(request: ProjectPathRequest):
         "success": True,
         "message": "Project scanned successfully.",
         "project_map_preview": context_manager.get_project_map()[:500] + "...",
-        "structure_warnings": structure_warnings,  # Kirim warning ke frontend
+        "structure_warnings": structure_warnings,  # Send warnings to the frontend
     }
 
 
 async def execute_summarize(context_manager, history, threshold=15):
-    """Helper untuk menjalankan sliding window summarize. Mengembalikan True jika berhasil."""
+    """Helper that runs the sliding-window summarize. Returns True on success."""
     if len(history) <= threshold:
         return False
 
-    # Gunakan safe_split_index agar tidak memutus pasangan assistant+tool
+    # Use safe_split_index so the assistant+tool pair is never split
     split_idx = context_manager.safe_split_index(history, 10)
     messages_to_summarize = history[:split_idx]
     recent_messages = history[split_idx:]
@@ -594,13 +598,13 @@ async def execute_summarize(context_manager, history, threshold=15):
         content = str(msg.get("content", ""))[:1000]
         prompt += f"{role}: {content}\n"
 
-    # Buat backup sebelum operasi berisiko
+    # Create a backup before the risky operation
     context_manager.create_backup()
 
-    # Panggil API (akan raise exception jika gagal, berkat perbaikan Kritikal #1)
+    # Call the API (raises on failure, thanks to Critical fix #1)
     summary_text = await summarize_old_history(messages_to_summarize)
 
-    # Hapus history lama dan isi dengan ringkasan + pesan terbaru
+    # Remove old history and fill it with the summary + the most recent messages
     context_manager.clear_history()
     context_manager.add_message("user", f"[RINGKASAN SESI SEBELUMNYA]: {summary_text}")
     for m in recent_messages:
@@ -615,11 +619,11 @@ async def execute_summarize(context_manager, history, threshold=15):
 
 
 def prune_history_safely(context_manager, keep_last_n: int, notice: str = None):
-    """Helper terpusat untuk memangkas history context_manager secara PERMANEN
-    menggunakan safe_split_index (agar pasangan assistant tool_calls + tool
-    response tidak pernah terputus / menjadi 'yatim piatu').
-    Dipakai baik oleh recovery error 400 maupun oleh token budget guard,
-    supaya pemangkasan konsisten dan tidak perlu diulang tiap iterasi."""
+    """Centralized helper for PERMANENTLY pruning the context_manager history
+    using safe_split_index (so an assistant tool_calls + tool response pair
+    is never cut apart / left 'orphaned').
+    Used by both the 400-error recovery and the token budget guard, so
+    pruning is consistent and need not be repeated every iteration."""
     history = context_manager.get_history()
     if len(history) <= keep_last_n:
         return False
@@ -645,7 +649,7 @@ def prune_history_safely(context_manager, keep_last_n: int, notice: str = None):
 
 @app.on_event("startup")
 async def auto_restore_project():
-    """Auto-restore project terakhir saat backend baru menyala."""
+    """Auto-restore the last project when the backend starts up."""
     global tool_executor
     last_path = load_last_project()
     if last_path and os.path.isdir(last_path):
@@ -653,7 +657,7 @@ async def auto_restore_project():
         context_manager.set_project_path(last_path)
         tool_executor = ToolExecutor(last_path)
         if todo_manager:
-            todo_manager.set_project_path(last_path)  # >>> FIX: guard None-safe
+            todo_manager.set_project_path(last_path)  # >>> FIX: None-safe guard
         load_orion_config(last_path)
         print("[ORION STARTUP] ✅ Project restored successfully. Tool executor ready.")
     else:
@@ -671,41 +675,41 @@ async def chat_with_orion(request: ChatRequest):
 
         return StreamingResponse(error_gen(), media_type="text/event-stream")
 
-    # >>> FITUR LAMPIRAN ==============================================
-    # Gambar TIDAK disimpan ke riwayat. Base64 satu screenshot 1 MB menjadi
-    # +/- 1,4 juta karakter; kalau masuk session_history.json maka setiap
-    # iterasi agent mengirim ulangnya dan kuota free tier habis cepat.
-    # Riwayat hanya menyimpan placeholder teks; gambar asli disuntikkan ke
-    # api_messages HANYA pada iterasi pertama (lihat patch B4b).
+    # >>> ATTACHMENT FEATURE ==============================================
+    # Images are NOT stored in the history. The base64 of one 1 MB screenshot
+    # becomes +/- 1.4 million characters; if it entered session_history.json then
+    # every agent iteration would resend it and the free-tier quota would run out fast.
+    # The history only stores a text placeholder; the actual image is injected
+    # into api_messages ONLY on the first iteration (see patch B4b).
     # ==================================================================
     from app.services.attachments import build_user_content, describe_attachments
 
     _lamp_desc = describe_attachments(request.attachments)
     _content_parts, _riwayat_text = build_user_content(request.message, request.attachments)
-    # Holder mutable (list 1 elemen), BUKAN variabel biasa. Alasannya: kalau
-    # generate_stream() melakukan `_pending = None`, Python menganggapnya
-    # variabel LOKAL generator itu (bukan closure), sehingga akses pertama
-    # melempar UnboundLocalError. Dengan list, kita memutasi isinya, bukan
-    # mengikat ulang namanya -- closure tetap berlaku. (Ditangkap oleh ruff F823.)
+    # A mutable holder (1-element list), NOT a plain variable. Reason: if
+    # generate_stream() did `_pending = None`, Python would treat it as a
+    # LOCAL variable of that generator (not a closure), so the first access
+    # would raise UnboundLocalError. With a list we mutate its contents instead
+    # of rebinding the name -- the closure keeps working. (Caught by ruff F823.)
     _pending_image_parts = [_content_parts if isinstance(_content_parts, list) else None]
     if _lamp_desc:
         logger.info("[ATTACHMENT] %s", _lamp_desc)
 
     context_manager.add_message("user", _riwayat_text)
 
-    # >>> OPTIMASI CACHE: Pisahkan Pesan Statis dan Dinamis <<<
+    # >>> CACHE OPTIMIZATION: separate static and dynamic messages <<<
 
-    # 1. SYSTEM PROMPT (100% STATIS - Tidak boleh ada f-string dinamis di sini)
+    # 1. SYSTEM PROMPT (100% STATIC - no dynamic f-strings allowed here)
     static_system_prompt = SYSTEM_PROMPT
 
     # >>> PATCH ORION-20d ================================================
-    # SUNTIKAN KONTEKS EDITOR. Ini yang membuat Orion "melihat":
-    #   - tahu file mana yang sedang Anda buka
-    #   - tahu teks mana yang Anda sorot (konteks paling relevan, gratis)
-    #   - tahu error yang dilaporkan VS Code di panel Problems
-    # Bagian terakhir adalah pencegah halusinasi paling kuat: kalau Orion
-    # baru mengedit file X dan Problems menyebut ERROR di file X, ia diberi
-    # instruksi eksplisit untuk memperbaikinya sebelum mengaku selesai.
+    # INJECT THE EDITOR CONTEXT. This is what makes Orion "see":
+    #   - which file you currently have open
+    #   - which text you have selected (the most relevant context, for free)
+    #   - the errors VS Code reports in the Problems panel
+    # The last part is the strongest hallucination preventer: if Orion just
+    # edited file X and Problems mentions an ERROR in file X, it gets explicit
+    # instructions to fix it before claiming completion.
     # ====================================================================
     _editor_ctx = request.editor if isinstance(request.editor, dict) else {}
     _editor_block = ""
@@ -737,12 +741,12 @@ async def chat_with_orion(request: ChatRequest):
         + _editor_block,
     }
 
-    # >>> AKHIR OPTIMASI CACHE <<<
+    # >>> END OF CACHE OPTIMIZATION <<<
 
     async def _aliran_inti():
         # >>> AUTO-SUMMARIZE CONTEXT WINDOW (SLIDING WINDOW) <<<
-        # Jika history lebih dari 15 pesan, ringkas yang lama
-        # >>> AUTO-SUMMARIZE CONTEXT WINDOW (AWAL CHAT) <<<
+        # If the history exceeds 15 messages, summarize the old ones
+        # >>> AUTO-SUMMARIZE CONTEXT WINDOW (START OF CHAT) <<<
         history = context_manager.get_history()
         if len(history) > 15:
             yield sse.ev('status', text='🧠 Memory full, compressing context...')
@@ -753,18 +757,18 @@ async def chat_with_orion(request: ChatRequest):
                 print(
                     f"[ORION SUMMARIZE WARNING] Initial summarization failed: {e}. History preserved."
                 )
-        # >>> AKHIR AUTO-SUMMARIZE <<<
+        # >>> END OF AUTO-SUMMARIZE <<<
 
-        # >>> PATCH ORION-4: default fallback (500) berbeda dari default config
-        # di atas (20). Kalau orion_config.json rusak/hilang, limit melompat dari
-        # 20 ke 500 tanpa peringatan. Disamakan + diberi rem pengaman.
+        # >>> PATCH ORION-4: the fallback default (500) differed from the config
+        # default above (20). If orion_config.json was broken/missing, the limit
+        # jumped from 20 to 500 without warning. Aligned + given a safety brake.
         max_iter = orion_config.get("max_iterations", 20)
         if not isinstance(max_iter, int) or max_iter < 1:
             max_iter = 20
-        max_iter = min(max_iter, 200)   # rem pengaman: cegah loop tak berujung
+        max_iter = min(max_iter, 200)   # safety brake: prevent an endless loop
 
-        # >>> BARU: threshold token budget dibaca dari config, bukan hardcode.
-        # Sesuaikan dengan context window model aktual (sisakan buffer untuk output).
+        # >>> NEW: the token budget threshold is read from config, not hardcoded.
+        # Match it to the actual model's context window (leave a buffer for output).
         token_budget_threshold = orion_config.get("token_budget_threshold", 12000)
         if not isinstance(token_budget_threshold, int) or token_budget_threshold < 1000:
             token_budget_threshold = 12000
@@ -779,37 +783,37 @@ async def chat_with_orion(request: ChatRequest):
             analyzed_files = set()
             last_tool_calls = []
 
-            # >>> FIX KRITIS: tracker file yang BENAR-BENAR diubah pada TURN ini saja.
-            # Sebelumnya, checkpoint "TASK COMPLETED" hanya mengandalkan keyword
-            # generik ("selesai", "berhasil", dll) pada teks model — kata yang SANGAT
-            # umum muncul di kalimat audit/laporan biasa sekalipun TIDAK ADA tool
-            # edit_file/write_file/create_file yang benar-benar dipanggil. Akibatnya
-            # Orion bisa "mengaku selesai" padahal tidak mengerjakan apa pun, atau
-            # mengulang audit yang sama karena tidak pernah benar-benar mengeksekusi
-            # perubahan. Tracker ini dipakai sebagai syarat WAJIB sebelum checkpoint
-            # completion boleh memicu pause (lihat pemakaiannya di bawah).
+            # >>> CRITICAL FIX: tracker of files ACTUALLY changed on THIS turn only.
+            # Previously the "TASK COMPLETED" checkpoint relied solely on generic
+            # keywords ("selesai", "berhasil", etc.) in the model's text — words that are
+            # VERY common in ordinary audit/report sentences even when NO
+            # edit_file/write_file/create_file tool was actually called. As a result,
+            # Orion could "claim completion" without doing any work, or repeat the
+            # same audit because it never actually executed the changes. This tracker
+            # is a MANDATORY precondition before the completion checkpoint may trigger
+            # a pause (see its usage below).
             files_changed_this_turn = []
 
             # >>> ANTI-INFINITE-LOOP GUARD <<<
             consecutive_400_errors = 0
             last_400_error_msg = ""
 
-            # >>> PATCH ORION-1b: batas berapa kali loop boleh "menyenggol" model
-            # untuk melanjutkan todo yang tersisa. Mencegah loop tak berujung kalau
-            # model terus menulis "selesai" tanpa benar-benar mengerjakan apa pun.
+            # >>> PATCH ORION-1b: cap on how many times the loop may "nudge" the model
+            # to continue with the remaining todos. Prevents an endless loop when the
+            # model keeps writing "done" without actually doing anything.
             _nudge_count = 0
             MAX_TODO_NUDGE = int(os.getenv("ORION_MAX_TODO_NUDGE", "10"))
 
-            # >>> PATCH ORION-17a: penghitung "verifikasi klaim".
-            # Dipakai untuk menantang model yang mengaku selesai tanpa mengubah file.
+            # >>> PATCH ORION-17a: the "claim verification" counter.
+            # Used to challenge a model that claims completion without changing files.
             _verifikasi_count = 0
             MAX_VERIFIKASI = int(os.getenv("ORION_MAX_VERIFIKASI", "2"))
 
-            # >>> KONVENSI: `_` di bawah adalah PENGHITUNG LOOP agent.
-            # Jangan pernah memakai `_` sebagai variabel buang di dalam loop ini
-            # (lihat test_loop_counter_guard.py yang menjaganya).
+            # >>> CONVENTION: `_` below is the agent LOOP COUNTER.
+            # Never use `_` as a throwaway variable inside this loop
+            # (see test_loop_counter_guard.py which guards this).
             for _ in range(max_iter):
-                # >>> LANGKAH 1: DYNAMIC SLIDING WINDOW SUMMARIZE (DI DALAM LOOP) <<<
+                # >>> STEP 1: DYNAMIC SLIDING WINDOW SUMMARIZE (INSIDE THE LOOP) <<<
                 history = context_manager.get_history()
                 if len(history) > 20:
                     yield sse.ev('status', text='🧠 Memory full, compressing context...')
@@ -822,10 +826,10 @@ async def chat_with_orion(request: ChatRequest):
                         print(
                             f"[ORION SUMMARIZE WARNING] In-loop summarization failed: {e}. History preserved."
                         )
-                # >>> AKHIR DYNAMIC SLIDING WINDOW SUMMARIZE <<<
+                # >>> END OF DYNAMIC SLIDING WINDOW SUMMARIZE <<<
 
-                # >>> BARU: SOFT LIMIT CHECKPOINT (Human-in-the-Loop) <<<
-                # Jika sudah mencapai 80% dari max_iter, paksa Orion untuk melapor dan meminta izin
+                # >>> NEW: SOFT LIMIT CHECKPOINT (Human-in-the-Loop) <<<
+                # Once 80% of max_iter is reached, force Orion to report and ask permission
                 soft_limit = int(max_iter * 0.8)
                 if _ == soft_limit:
                     warning_msg = (
@@ -838,43 +842,43 @@ async def chat_with_orion(request: ChatRequest):
                         f"2. Give new instructions if I seem to be going in circles or off track.\n"
                     )
 
-                    # Simpan ke history agar Orion ingat dia sudah diperingatkan
+                    # Save to history so Orion remembers it was already warned
                     context_manager.add_message(
                         "user", f"[PERINGATAN SISTEM]: {warning_msg}"
                     )
 
-                    # Kirim ke frontend dan PAUSE
+                    # Send to the frontend and PAUSE
                     yield sse.ev('token', text=warning_msg)
                     yield sse.ev('ask_user', question='Soft limit reached. Continue, or give new instructions?')
                     yield sse.ev('done')
                     print(
                         "[ORION SOFT LIMIT] Reached 80% of iterations. Waiting for user instructions."
                     )
-                    return  # Hentikan stream, tunggu user mengetik 'lanjut'
-                # >>> AKHIR SOFT LIMIT CHECKPOINT <<<
+                    return  # Stop the stream, wait for the user to type 'continue'
+                # >>> END OF SOFT LIMIT CHECKPOINT <<<
 
-                # >>> LANGKAH 2: REBUILD PAYLOAD DARI SUMBER KEBENARAN <<<
-                # JANGAN gunakan variabel 'messages' lokal yang menumpuk. Ambil fresh dari history yang sudah diringkas.
+                # >>> STEP 2: REBUILD THE PAYLOAD FROM THE SOURCE OF TRUTH <<<
+                # Do NOT use the accumulating local 'messages' variable. Take it fresh from the summarized history.
                 current_history = context_manager.get_history()
                 api_messages = [
                     {"role": "system", "content": static_system_prompt},
                     context_message,
                 ] + current_history
 
-                # >>> FITUR LAMPIRAN (B4b): suntik gambar hanya di iterasi pertama.
-                # Setelah itu riwayat sudah berisi placeholder teks, jadi iterasi
-                # berikutnya tidak mengirim ulang base64 (hemat kuota free tier).
+                # >>> ATTACHMENT FEATURE (B4b): inject images only on the first iteration.
+                # After that the history contains text placeholders, so later
+                # iterations do not resend the base64 (saves free-tier quota).
                 if _ == 0 and _pending_image_parts[0]:
                     for _i in range(len(api_messages) - 1, -1, -1):
                         if api_messages[_i].get("role") == "user":
                             api_messages[_i] = {**api_messages[_i], "content": _pending_image_parts[0]}
                             break
-                    _pending_image_parts[0] = None   # sekali pakai
+                    _pending_image_parts[0] = None   # single use
                     if _lamp_desc:
                         yield sse.ev('status', text=f'📎 {_lamp_desc}')
-                # >>> AKHIR FITUR LAMPIRAN
+                # >>> END OF ATTACHMENT FEATURE
 
-                # >>> LANGKAH 3: SHORT REPLY ANTI-AMNESIA GUARD <<<
+                # >>> STEP 3: SHORT REPLY ANTI-AMNESIA GUARD <<<
                 if _ == 0:
                     last_user_idx = -1
                     for i in range(len(api_messages) - 1, -1, -1):
@@ -896,18 +900,18 @@ async def chat_with_orion(request: ChatRequest):
                                 last_assistant_msg = api_messages[i]
                                 break
 
-                        # PERBAIKAN KRITIS: Ambil content HANYA JIKA last_assistant_msg tidak None
+                        # CRITICAL FIX: take the content ONLY IF last_assistant_msg is not None
                         last_assistant_content = (
                             (last_assistant_msg.get("content") or "")
                             if last_assistant_msg
                             else ""
                         )
 
-                        # PERBAIKAN KRITIS: Pastikan last_assistant_msg is not None sebelum mengecek panjangnya
-                        # >>> FIX ANTI-AMNESIA #2: threshold 500 char pada pesan assistant
-                        # sebelumnya menggagalkan guard justru untuk pertanyaan klarifikasi
-                        # yang SINGKAT & FOKUS (kasus paling umum) — diturunkan ke 30 char
-                        # dan ditambah deteksi universal "diakhiri tanda tanya".
+                        # CRITICAL FIX: make sure last_assistant_msg is not None before checking its length
+                        # >>> ANTI-AMNESIA FIX #2: the previous 500-char threshold on the assistant
+                        # message defeated the guard exactly for SHORT & FOCUSED clarification
+                        # questions (the most common case) — lowered to 30 chars and extended
+                        # with the universal "ends with a question mark" detection.
                         if (
                             last_assistant_msg is not None
                             and len(user_content) < 150
@@ -949,19 +953,19 @@ async def chat_with_orion(request: ChatRequest):
                                 print(
                                     "[ORION ANTI-AMNESIA] Short reply detected. Context reminder injected."
                                 )
-                # >>> AKHIR ANTI-AMNESIA GUARD <<<
+                # >>> END OF ANTI-AMNESIA GUARD <<<
 
-                # >>> LANGKAH 4: AGGRESSIVE CONTEXT PRUNING <<<
+                # >>> STEP 4: AGGRESSIVE CONTEXT PRUNING <<<
                 compressed_messages = []
-                total_msgs = len(api_messages)  # ✅ DIPERBAIKI: Gunakan api_messages
+                total_msgs = len(api_messages)  # ✅ FIXED: use api_messages
 
                 for i, msg in enumerate(
                     api_messages
-                ):  # ✅ DIPERBAIKI: Iterate api_messages
+                ):  # ✅ FIXED: iterate api_messages
                     content_len = len(str(msg.get("content") or ""))
 
-                    # LAYER 3: Pemotongan History Lama (Aman, tidak membuat bodoh)
-                    # Jika pesan tool sangat lama (>15 pesan ke belakang), potong jadi 500 char
+                    # LAYER 3: trimming old history (safe, does not make the model dumb)
+                    # If a tool message is very old (>15 messages back), cut it to 500 chars
                     if (
                         msg.get("role") == "tool"
                         and i < total_msgs - 15
@@ -974,7 +978,7 @@ async def chat_with_orion(request: ChatRequest):
                         )
                         compressed_messages.append(compressed_msg)
 
-                    # LAYER 1: Turunkan threshold dari 5000 ke 3000
+                    # LAYER 1: lower the threshold from 5000 to 3000
                     elif msg.get("role") == "tool" and content_len > 3000:
                         if i < total_msgs - 2:
                             compressed_msg = msg.copy()
@@ -988,11 +992,11 @@ async def chat_with_orion(request: ChatRequest):
                         compressed_messages.append(msg)
 
                 api_messages = compressed_messages
-                # >>> AKHIR CONTEXT PRUNING <<<
+                # >>> END OF CONTEXT PRUNING <<<
 
                 # >>> TOKEN BUDGET GUARD (Emergency Check) <<<
-                # PERBAIKAN: estimasi sekarang menghitung tool_calls (name + arguments) juga,
-                # bukan cuma 'content' — sebelumnya diremehkan untuk pesan dengan diff/edit besar.
+                # FIX: the estimate now counts tool_calls (name + arguments) too,
+                # not just 'content' — it used to underestimate messages with large diffs/edits.
                 estimated_tokens = sum(estimate_message_tokens(m) for m in api_messages)
 
                 if estimated_tokens > token_budget_threshold:
@@ -1000,13 +1004,13 @@ async def chat_with_orion(request: ChatRequest):
                         f"[TOKEN GUARD] High token estimate ({estimated_tokens} > {token_budget_threshold}). Performing PERMANENT emergency pruning..."
                     )
 
-                    # PERBAIKAN KRITIS: pruning sekarang dilakukan LANGSUNG ke
-                    # context_manager (bukan hanya ke variabel lokal api_messages)
-                    # menggunakan safe_split_index, supaya:
-                    #   1) Tidak perlu diulang setiap iterasi (persisten).
-                    #   2) Tidak pernah memotong pasangan assistant.tool_calls
-                    #      dan tool response secara terpisah (yang bisa
-                    #      menyebabkan error 400 "tool_call_id not found").
+                    # CRITICAL FIX: pruning is now applied DIRECTLY to the
+                    # context_manager (not just to the local api_messages variable)
+                    # using safe_split_index, so that:
+                    #   1) It need not be repeated every iteration (persistent).
+                    #   2) It never cuts an assistant.tool_calls and its tool response
+                    #      apart (which could cause the 400 error
+                    #      "tool_call_id not found").
                     try:
                         pruned = prune_history_safely(
                             context_manager,
@@ -1026,7 +1030,7 @@ async def chat_with_orion(request: ChatRequest):
                             f"[TOKEN GUARD WARNING] Failed to prune history permanently: {e}"
                         )
 
-                    # Rebuild api_messages dari history yang sudah dipangkas
+                    # Rebuild api_messages from the pruned history
                     current_history = context_manager.get_history()
                     api_messages = [
                         {"role": "system", "content": static_system_prompt},
@@ -1035,15 +1039,15 @@ async def chat_with_orion(request: ChatRequest):
 
                     new_est = sum(estimate_message_tokens(m) for m in api_messages)
                     print(f"[TOKEN GUARD] Successfully reduced to: {new_est} tokens")
-                # >>> AKHIR TOKEN BUDGET GUARD <<<
+                # >>> END OF TOKEN BUDGET GUARD <<<
 
-                # >>> LANGKAH 5: PANGGILAN BERSIH KE LLM_ROUTER (RESILIENT) <<<
+                # >>> STEP 5: CLEAN CALL TO LLM_ROUTER (RESILIENT) <<<
                 yield sse.ev('status', text='⏳ Thinking...')
 
-                response = None  # Reset variabel agar tidak memakai nilai stale dari iterasi sebelumnya
+                response = None  # Reset the variable so it cannot use a stale value from the previous iteration
                 start_time = asyncio.get_event_loop().time()
 
-                # --- 1. BERSIHKAN & GABUNGKAN PESAN (WAJIB DIBUAT DULU) ---
+                # --- 1. CLEAN & MERGE MESSAGES (MUST BE BUILT FIRST) ---
                 merged_messages = []
                 for msg in api_messages:
                     clean_msg = {"role": msg.get("role")}
@@ -1060,11 +1064,11 @@ async def chat_with_orion(request: ChatRequest):
                     if "name" in msg:
                         clean_msg["name"] = msg["name"]
 
-                    # >>> PERBAIKAN KRITIS #1: JANGAN PERNAH MERGE PESAN 'tool' <<<
-                    # Setiap pesan tool WAJIB punya tool_call_id sendiri yang match
-                    # 1-ke-1 dengan tool_calls di pesan assistant sebelumnya. Jika dua
-                    # pesan tool berurutan digabung, tool_call_id pesan kedua HILANG
-                    # dan request akan ditolak API dengan error 400
+                    # >>> CRITICAL FIX #1: NEVER MERGE 'tool' MESSAGES <<<
+                    # Every tool message MUST have its own tool_call_id matching
+                    # 1-to-1 with the tool_calls in the preceding assistant message. If two
+                    # consecutive tool messages are merged, the second one's tool_call_id is LOST
+                    # and the API will reject the request with a 400 error
                     # ("tool_call_id ... not found" / "bad request").
                     if (
                         merged_messages
@@ -1087,28 +1091,28 @@ async def chat_with_orion(request: ChatRequest):
                         merged_messages.append(clean_msg)
 
                 clean_api_messages = merged_messages
-                # --- AKHIR PEMBUATAN VARIABEL ---
+                # --- END OF VARIABLE CREATION ---
 
-                # --- 2. DEBUG: CEK UKURAN PAYLOAD (Sekarang aman karena variabel sudah ada) ---
+                # --- 2. DEBUG: CHECK PAYLOAD SIZE (safe now that the variables exist) ---
                 print(
                     f"[DEBUG] Number of messages to send: {len(clean_api_messages)}"
                 )
                 print(f"[DEBUG] Number of tools to send: {len(TOOLS)}")
-                # --- AKHIR DEBUG ---
+                # --- END OF DEBUG ---
 
-                # --- 3. PANGGIL LLM ---
+                # --- 3. CALL THE LLM ---
                 try:
-                    # >>> PATCH ORION-29: HEARTBEAT SELAMA MENUNGGU LLM ==========
-                    # Sebelumnya UI benar-benar senyap 30-60 detik selama await ini,
-                    # dan keheningan itu tidak bisa dibedakan dari "mati" -- sisa
-                    # terakhir dari keluarga keluhan "berhenti diam-diam".
-                    # Sekarang tiap 15 detik dikirim status "masih berpikir... N detik".
+                    # >>> PATCH ORION-29: HEARTBEAT WHILE WAITING FOR THE LLM ==========
+                    # The UI used to be completely silent for 30-60 seconds during this await,
+                    # and that silence was indistinguishable from "dead" -- the last
+                    # remnant of the "stops silently" family of complaints.
+                    # Now a "still thinking... N seconds" status is sent every 15 seconds.
                     #
-                    # Desain SENGAJA tidak memakai stream=True: merangkai tool_call
-                    # dari aliran token jauh lebih rapuh, sedangkan heartbeat memberi
-                    # umpan balik tanpa menyentuh logika respons sama sekali.
-                    # Jika tugas melempar exception, .result() melemparnya kembali
-                    # di dalam try ini, sehingga seluruh jalur recovery lama tetap utuh.
+                    # The design DELIBERATELY avoids stream=True: assembling tool_calls
+                    # from a token stream is far more fragile, while a heartbeat provides
+                    # feedback without touching the response logic at all.
+                    # If the task raises, .result() re-raises it inside this try,
+                    # so the entire old recovery path stays intact.
                     # ============================================================
                     _loop_waktu = asyncio.get_running_loop()
                     _tugas_llm = asyncio.create_task(
@@ -1116,10 +1120,10 @@ async def chat_with_orion(request: ChatRequest):
                     )
                     _mulai = _loop_waktu.time()
                     while not _tugas_llm.done():
-                        # CATATAN: JANGAN pakai `_` sebagai variabel buang di fungsi ini.
-                        # `_` adalah PENGHITUNG LOOP agent (for _ in range(max_iter));
-                        # menimpanya membuat `_ > 0` membandingkan set dengan int.
-                        # (Bug nyata ORION-29 v1: asyncio.wait mengembalikan dua set.)
+                        # NOTE: do NOT use `_` as a throwaway variable in this function.
+                        # `_` is the agent LOOP COUNTER (for _ in range(max_iter));
+                        # overwriting it makes `_ > 0` compare a set with an int.
+                        # (Real bug ORION-29 v1: asyncio.wait returns two sets.)
                         _selesai, _tunggu_pending = await asyncio.wait({_tugas_llm}, timeout=15)
                         if not _selesai:
                             _detik = int(_loop_waktu.time() - _mulai)
@@ -1130,7 +1134,7 @@ async def chat_with_orion(request: ChatRequest):
                     err_str = str(api_err)
                     print(f"[ORION RECOVERY] Error detected: {err_str[:150]}")
 
-                    # 1. Cek apakah ini Error 400 (Context Length / Bad Request)
+                    # 1. Check whether this is a 400 error (Context Length / Bad Request)
                     is_400_error = (
                         "400" in err_str
                         or "context length" in err_str.lower()
@@ -1140,13 +1144,13 @@ async def chat_with_orion(request: ChatRequest):
                     if is_400_error:
                         consecutive_400_errors += 1
 
-                        # Cek apakah error yang sama berulang
+                        # Check whether the same error repeats
                         current_error_msg = err_str[:200]
                         if (
                             consecutive_400_errors >= 2
                             and current_error_msg == last_400_error_msg
                         ):
-                            # ERROR YANG SAMA BERULANG - BERHENTI SEKARANG
+                            # SAME ERROR REPEATED - STOP NOW
                             yield sse.ev('error', text=f'⚠️ The current model is probably INCOMPATIBLE with the request format. The same error occurred twice: {err_str[:250]}. Change DEFAULT_MODEL in your .env file or check the provider documentation.')
                             print(
                                 "[ORION RECOVERY] ❌ Same 400 error repeated. Stopping to prevent an infinite loop."
@@ -1164,10 +1168,10 @@ async def chat_with_orion(request: ChatRequest):
                         except Exception as e:
                             print(f"[ORION RECOVERY] Failed to prune history: {e}")
                     else:
-                        consecutive_400_errors = 0  # Reset jika sukses
+                        consecutive_400_errors = 0  # Reset on success
                         last_400_error_msg = ""
 
-                    # 2. Safe Yield (Mencegah crash jika Frontend sudah disconnect)
+                    # 2. Safe Yield (prevent a crash if the frontend already disconnected)
                     try:
                         status_text = (
                             "⚠️ Model slow, switching to fallback..."
@@ -1181,15 +1185,15 @@ async def chat_with_orion(request: ChatRequest):
                         )
                         break
 
-                    # 3. Suntikkan pesan sistem (Hanya jika bukan error 400)
+                    # 3. Inject a system message (only when it is not a 400 error)
                     if not is_400_error:
                         context_manager.add_message(
                             "user",
                             "[SYSTEM RECOVERY]: Koneksi terputus. Lanjutkan dengan model alternatif.",
                         )
 
-                    continue  # Lanjut iterasi berikutnya (Fallback akan dicoba oleh llm_router)
-                # >>> AKHIR PANGGILAN BERSIH <<<
+                    continue  # Continue to the next iteration (the fallback will be tried by llm_router)
+                # >>> END OF CLEAN CALL <<<
 
                 if response is None:
                     continue
@@ -1213,7 +1217,7 @@ async def chat_with_orion(request: ChatRequest):
                     duration_ms,
                     "success",
                 )
-                # >>> AKHIR LOGGING <<<
+                # >>> END OF LOGGING <<<
 
                 if getattr(msg, "tool_calls", None):
                     yield sse.ev('status', text='Processing tool...')
@@ -1235,8 +1239,8 @@ async def chat_with_orion(request: ChatRequest):
                     if reasoning_content:
                         assistant_msg["reasoning_content"] = reasoning_content
                     tool_results = []
-                    # >>> BARU: notifikasi sistem yang HARUS ditunda sampai SETELAH
-                    # semua tool_results tersimpan (agar urutan pesan tetap valid:
+                    # >>> NEW: system notifications that MUST be deferred until AFTER
+                    # all tool_results are stored (so the message order stays valid:
                     # assistant -> tool -> tool -> ... -> user notice).
                     pending_system_notices = []
 
@@ -1264,11 +1268,11 @@ async def chat_with_orion(request: ChatRequest):
                             print(f"[ORION] Error parsing args: {e}")
                             func_args = {}
 
-                        # >>> PERBAIKAN KRITIS #2: ask_user HARUS FLUSH tool_results
-                        # yang sudah terkumpul SEBELUM return, kalau tidak, tool_calls
-                        # sebelumnya di batch yang sama tidak akan pernah punya
-                        # balasan 'tool' di history -> orphaned tool_call -> error 400
-                        # di request berikutnya. <<<
+                        # >>> CRITICAL FIX #2: ask_user MUST FLUSH the tool_results
+                        # collected so far BEFORE returning, otherwise the earlier
+                        # tool_calls in the same batch would never get their
+                        # 'tool' replies in the history -> orphaned tool_call -> 400 error
+                        # on the next request. <<<
                         if func_name == "ask_user":
                             question_text = fix_over_escaped_text(
                                 func_args.get("question", "")
@@ -1282,7 +1286,7 @@ async def chat_with_orion(request: ChatRequest):
                                 reasoning_content=reasoning_content,
                             )
 
-                            # Flush semua tool_results yang SUDAH diproses di batch ini
+                            # Flush all tool_results ALREADY processed in this batch
                             for tr in tool_results:
                                 context_manager.add_message(
                                     "tool",
@@ -1290,25 +1294,25 @@ async def chat_with_orion(request: ChatRequest):
                                     tool_call_id=tr["tool_call_id"],
                                 )
 
-                            # PENTING: Simpan pesan tool placeholder untuk ask_user itu sendiri
+                            # IMPORTANT: store a placeholder tool message for the ask_user itself
                             context_manager.add_message(
                                 "tool",
                                 "[AWAITING USER ANSWER]",
                                 tool_call_id=tc_id,
                             )
 
-                            # Flush notice anti-loop yang mungkin sudah terkumpul
-                            # SEBELUM ask_user dipanggil di batch tool_calls yang sama,
-                            # supaya tidak hilang karena 'return' di bawah ini.
+                            # Flush any anti-loop notices that may have terkumpul
+                            # accumulated BEFORE ask_user was called in the same tool_calls batch,
+                            # so they are not lost due to the 'return' below.
                             for notice in pending_system_notices:
                                 context_manager.add_message("user", notice)
 
-                            return  # HENTIKAN STREAM SEKARANG JUGA. JANGAN LANJUT LOOP!
-                        # >>> AKHIR PERBAIKAN #2 (ask_user) <<<
+                            return  # STOP THE STREAM RIGHT NOW. DO NOT CONTINUE THE LOOP!
+                        # >>> END OF FIX #2 (ask_user) <<<
 
                         try:
-                            # >>> BARU: update_todos tidak butuh tool_executor,
-                            # jadi dicek PALING AWAL sebelum guard tool_executor is None.
+                            # >>> NEW: update_todos does not need tool_executor,
+                            # so it is checked FIRST, before the tool_executor-is-None guard.
                             if func_name == "update_todos":
                                 if todo_manager is None:
                                     result = "Info: The todo-list feature is currently unavailable (module not installed); continue without update_todos."
@@ -1322,9 +1326,9 @@ async def chat_with_orion(request: ChatRequest):
                             elif tool_executor is None:
                                 result = "Error: Tool executor not initialized."
 
-                            # >>> PATCH ORION-38 (Fase B): 14 tool murni ditangani
-                            # tabel dispatch di app/services/tool_dispatch.py.
-                            # Cabang yang rumit/interaktif tetap di bawah ini.
+                            # >>> PATCH ORION-38 (Phase B): 14 pure tools are handled by
+                            # the dispatch table in app/services/tool_dispatch.py.
+                            # The complex/interactive branches remain below.
                             elif tool_dispatch.tool_sederhana(func_name):
                                 _lm, _ls = tool_dispatch.label(func_name, func_args)
                                 yield sse.ev('status', text=_lm)
@@ -1347,7 +1351,7 @@ async def chat_with_orion(request: ChatRequest):
                                 start = func_args.get("start_line", 1)
                                 end = func_args.get("end_line", 50)
 
-                                # Buat kunci unik berdasarkan file DAN rentang barisnya
+                                # Build a unique key based on the file AND its line range
                                 range_key = f"{file_path}:{start}-{end}"
 
                                 if range_key in analyzed_files:
@@ -1356,7 +1360,7 @@ async def chat_with_orion(request: ChatRequest):
                                     yield sse.ev('status', text=f'📖 Reading {file_path} (lines {start}-{end})')
                                     result = tool_executor.read_file_range(**func_args)
 
-                                    # Simpan kunci unik ini, bukan cuma nama file
+                                    # Store this unique key, not just the file name
                                     analyzed_files.add(range_key)
 
                                     yield sse.ev('status', text=f'✅ File {file_path} read')
@@ -1364,8 +1368,8 @@ async def chat_with_orion(request: ChatRequest):
                             elif func_name == "write_file":
                                 file_path = func_args.get("file_path", "unknown")
 
-                                # >>> BARU: PERMISSION/SANDBOXING GUARD <<<
-                                # Cek path traversal SEBELUM menyentuh disk sama sekali.
+                                # >>> NEW: PERMISSION/SANDBOXING GUARD <<<
+                                # Check path traversal BEFORE touching the disk at all.
                                 path_ok, path_reason = is_path_safe(
                                     tool_executor.project_path, file_path
                                 )
@@ -1386,14 +1390,14 @@ async def chat_with_orion(request: ChatRequest):
                                     print(
                                         f"[ORION WRITE_FILE] Wrote successfully: {file_path}"
                                     )
-                                    # Hanya catat sebagai bukti kerja nyata jika benar2 sukses
+                                    # Only record as proof of real work when it truly succeeded
                                     if isinstance(
                                         result, str
                                     ) and result.lower().startswith("success"):
                                         files_changed_this_turn.append(
                                             f"- `{file_path}` (write_file)"
                                         )
-                                        # >>> BARU: VERIFIKASI OTOMATIS PASCA-WRITE <<<
+                                        # >>> NEW: AUTOMATIC POST-WRITE VERIFICATION <<<
                                         try:
                                             full_path = os.path.join(
                                                 tool_executor.project_path, file_path
@@ -1406,20 +1410,20 @@ async def chat_with_orion(request: ChatRequest):
                                             )
                                             result = f"{result}\n{verification_msg}"
                                         except Exception as verify_err:
-                                            # Verifikasi gagal TIDAK BOLEH menggagalkan hasil asli --
-                                            # ini lapisan tambahan, bukan pengganti write_file.
+                                            # A failed verification MUST NOT invalidate the original result --
+                                            # this is an extra layer, not a replacement for write_file.
                                             print(
                                                 f"[POST_EDIT_VERIFIER WARNING] {verify_err}"
                                             )
                                     analyzed_files.discard(
                                         file_path
-                                    )  # FIX: Invalidate cache agar bisa dibaca ulang jika perlu
+                                    )  # FIX: invalidate the cache so it can be re-read if needed
                                     yield sse.ev('status', text=f'✅ File {file_path} created')
 
                             elif func_name == "edit_file":
                                 file_path = func_args.get("file_path", "unknown")
 
-                                # >>> BARU: PERMISSION/SANDBOXING GUARD <<<
+                                # >>> NEW: PERMISSION/SANDBOXING GUARD <<<
                                 path_ok, path_reason = is_path_safe(
                                     tool_executor.project_path, file_path
                                 )
@@ -1440,14 +1444,14 @@ async def chat_with_orion(request: ChatRequest):
                                     print(
                                         f"[ORION EDIT_FILE] Edited successfully: {file_path}"
                                     )
-                                    # Hanya catat sebagai bukti kerja nyata jika benar2 sukses
+                                    # Only record as proof of real work when it truly succeeded
                                     if isinstance(
                                         result, str
                                     ) and result.lower().startswith("success"):
                                         files_changed_this_turn.append(
                                             f"- `{file_path}` (edit_file)"
                                         )
-                                        # >>> BARU: VERIFIKASI OTOMATIS PASCA-EDIT <<<
+                                        # >>> NEW: AUTOMATIC POST-EDIT VERIFICATION <<<
                                         try:
                                             full_path = os.path.join(
                                                 tool_executor.project_path, file_path
@@ -1465,7 +1469,7 @@ async def chat_with_orion(request: ChatRequest):
                                             )
                                     analyzed_files.discard(
                                         file_path
-                                    )  # FIX: Invalidate cache agar bisa dibaca ulang jika perlu
+                                    )  # FIX: invalidate the cache so it can be re-read if needed
                                     yield sse.ev('status', text=f'✅ File {file_path} edited')
 
                             elif func_name == "run_terminal":
@@ -1474,11 +1478,11 @@ async def chat_with_orion(request: ChatRequest):
                                 try:
                                     yield sse.ev('status', text=f'⚙️ Running: {cmd_to_run}')
 
-                                    # 1. Cek Perintah Berbahaya
+                                    # 1. Check for a dangerous command
                                     if is_dangerous_command(cmd_to_run):
-                                        # >>> PERBAIKAN KRITIS #2 (lanjutan): flush
-                                        # tool_results sebelumnya dulu, baru assistant
-                                        # message, baru placeholder konfirmasi. <<<
+                                        # >>> CRITICAL FIX #2 (continued): flush the earlier
+                                        # tool_results first, then the assistant message,
+                                        # then the confirmation placeholder. <<<
                                         context_manager.add_message(
                                             "assistant",
                                             msg.content,
@@ -1496,20 +1500,20 @@ async def chat_with_orion(request: ChatRequest):
                                             f"[AWAITING CONFIRMATION]: {cmd_to_run}",
                                             tool_call_id=tc_id,
                                         )
-                                        # Flush notice anti-loop yang mungkin sudah
-                                        # terkumpul sebelum konfirmasi ini dipicu.
+                                        # Flush any anti-loop notices that may have
+                                        # accumulated before this confirmation was triggered.
                                         for notice in pending_system_notices:
                                             context_manager.add_message("user", notice)
                                         yield sse.ev('confirm_terminal', command=cmd_to_run)
                                         result = "[AWAITING USER CONFIRMATION]"
-                                        return  # Keluar dari loop tool saat ini, biarkan frontend menunggu user
+                                        return  # Exit the current tool loop, let the frontend wait for the user
 
-                                    # 1b. Cek Perintah Server Long-Running (HARD GUARD, bukan cuma imbauan prompt)
-                                    # Sebelumnya fungsi is_long_running_server() sudah ada tapi
-                                    # tidak pernah dipanggil — LLM bisa saja mengabaikan larangan
-                                    # di system prompt. Sekarang ditolak paksa di level kode,
-                                    # SEBELUM subprocess.Popen dipanggil, supaya tidak pernah ada
-                                    # proses server yang benar-benar spawn dan membengkak resource.
+                                    # 1b. Check for long-running server commands (HARD GUARD, not just a prompt plea)
+                                    # The is_long_running_server() function existed before but was
+                                    # never called — the LLM could simply ignore the prohibition
+                                    # in the system prompt. Now it is force-rejected at code level,
+                                    # BEFORE subprocess.Popen is called, so no server process is ever
+                                    # actually spawned and swelling the resources.
                                     if is_long_running_server(cmd_to_run):
                                         result = (
                                             f"🚫 [REJECTED BY SYSTEM]: Command '{cmd_to_run}' was detected as "
@@ -1525,14 +1529,14 @@ async def chat_with_orion(request: ChatRequest):
                                         yield sse.ev('status', text='🚫 Server command denied (prevents a hanging process)')
 
                                     else:
-                                        # 2. JALANKAN DENGAN MEKANISME HEARTBEAT
+                                        # 2. RUN WITH THE HEARTBEAT MECHANISM
                                         loop = asyncio.get_event_loop()
-                                        # >>> PATCH ORION-9 (bug nyata, B023):
-                                        # lambda menangkap `cmd_to_run` BY REFERENCE.
-                                        # Kalau executor baru menjalankannya setelah loop
-                                        # berpindah ke tool_call berikutnya, yang dieksekusi
-                                        # adalah perintah yang SALAH. Diikat eksplisit
-                                        # sebagai default argument supaya nilainya beku.
+                                        # >>> PATCH ORION-9 (real bug, B023):
+                                        # the lambda captured `cmd_to_run` BY REFERENCE.
+                                        # If the executor only ran it after the loop moved on
+                                        # to the next tool_call, the command executed would be
+                                        # the WRONG one. Bound explicitly as a default argument
+                                        # so its value is frozen.
                                         future = loop.run_in_executor(
                                             None,
                                             lambda _cmd=cmd_to_run: tool_executor.run_terminal(
@@ -1540,50 +1544,50 @@ async def chat_with_orion(request: ChatRequest):
                                             ),
                                         )
 
-                                        # 3. HEARTBEAT LOOP: Kirim sinyal ke frontend setiap 10 detik
+                                        # 3. HEARTBEAT LOOP: send a signal to the frontend every 10 seconds
                                         while not future.done():
                                             yield sse.ev('status', text='⏳ Process still running, please wait... (heartbeat)')
                                             await asyncio.sleep(10)
 
-                                        # 4. Ambil hasil setelah proses benar-benar selesai
+                                        # 4. Fetch the result after the process has truly finished
                                         result = future.result()
                                         yield sse.ev('status', text='✅ Terminal command finished')
 
                                 except (RuntimeError, asyncio.CancelledError):
-                                    # Ini tertangkap jika VS Code menutup chat/refresh di tengah proses
+                                    # Caught when VS Code closes the chat/refreshes mid-process
                                     print(
                                         "[ORION] Frontend connection lost during tool execution. Stopping process safely."
                                     )
-                                    return  # Hentikan generator sepenuhnya, jangan lanjut ke tool_results
+                                    return  # Stop the generator entirely, do not continue to tool_results
 
                                 except Exception as e:
-                                    # Menangkap error lain agar result tetap terisi dan bisa dilaporkan ke LLM
+                                    # Catch other errors so result stays filled and can be reported to the LLM
                                     result = f"Terminal execution error: {e!s}"
                                     print(f"[ORION TOOL ERROR] {e}")
                                     import traceback
 
                                     traceback.print_exc()
 
-                            # >>> PATCH ORION-14 (BUG NYATA) ======================
-                            # Tiga tool ini DIDEKLARASIKAN di skema TOOLS dan
-                            # method-nya ADA di tool_executor.py, tapi tidak pernah
-                            # punya cabang dispatch -- jadi setiap kali model
-                            # memanggilnya, yang kembali adalah "Tool tidak dikenal."
+                            # >>> PATCH ORION-14 (REAL BUG) ======================
+                            # These three tools were DECLARED in the TOOLS schema and
+                            # their methods EXIST in tool_executor.py, but they never had
+                            # a dispatch branch -- so every time the model called them,
+                            # what came back was "Unknown tool."
                             #
-                            # Ironisnya, system prompt baris ~956 MEWAJIBKAN model
-                            # memakai web_search untuk error yang tidak dikenal.
-                            # Model patuh -> tool mati -> model bingung -> kadang
-                            # menyerah tanpa laporan. Ini salah satu penyebab
-                            # "berhenti diam-diam" yang belum terdeteksi sebelumnya.
+                            # Ironically, the system prompt around line ~956 REQUIRES the
+                            # model to use web_search for unknown errors.
+                            # Model obeys -> tool is dead -> model gets confused -> sometimes
+                            # gives up without reporting. This was one of the causes of
+                            # "stops silently" that had gone undetected until now.
                             # ==========================================================
                             elif func_name == "git_diff":
                                 yield sse.ev('status', text='🔀 Checking git diff...')
                                 result = tool_executor.git_diff(**func_args)
 
                             else:
-                                # >>> PATCH ORION-14b: pesan yang bisa ditindaklanjuti.
-                                # "Tool tidak dikenal." saja membuat model menebak-nebak.
-                                # Sekarang model diberi daftar tool yang benar-benar jalan.
+                                # >>> PATCH ORION-14b: an actionable message.
+                                # "Unknown tool." alone left the model guessing.
+                                # Now the model gets the list of tools that actually work.
                                 result = (
                                     f"Error: tool '{func_name}' is NOT AVAILABLE. "
                                     f"Tools that actually work: {sorted(_NAMA_TOOL_AKTIF)}. "
@@ -1593,7 +1597,7 @@ async def chat_with_orion(request: ChatRequest):
                                 logger.error("[DEAD TOOL] Model called %r which has no dispatch branch.", func_name)
 
                         except (RuntimeError, asyncio.CancelledError):
-                            # CRITICAL FIX: Mencegah crash/terminate jika VS Code (frontend) memutus koneksi
+                            # CRITICAL FIX: prevent a crash/terminate when VS Code (frontend) drops the connection
                             print(
                                 "[ORION] Frontend connection lost during tool execution. Stopping process safely (Graceful Shutdown)."
                             )
@@ -1628,7 +1632,7 @@ async def chat_with_orion(request: ChatRequest):
                             }
                         )
 
-                        # >>> ANTI-LOOP CHECK (DIPERBAIKI) <<<
+                        # >>> ANTI-LOOP CHECK (IMPROVED) <<<
                         current_action = f"{func_name}"
                         last_tool_calls.append(
                             {
@@ -1641,11 +1645,11 @@ async def chat_with_orion(request: ChatRequest):
                             }
                         )
 
-                        # Batasi hanya menyimpan 3 aksi terakhir
+                        # Keep only the last 3 actions
                         if len(last_tool_calls) > 3:
                             last_tool_calls.pop(0)
 
-                        # Jika 3 aksi terakhir adalah run_terminal/search_code dll, dan SEMUANYA GAGAL
+                        # If the last 3 actions are run_terminal/search_code etc. and ALL FAILED
                         if len(last_tool_calls) == 3:
                             all_failed = all(
                                 not item["success"] for item in last_tool_calls
@@ -1659,25 +1663,25 @@ async def chat_with_orion(request: ChatRequest):
                                 print(
                                     f"[ORION ANTI-LOOP] Detected {func_name} failed 3x in a row. Forcing stop."
                                 )
-                                # >>> PERBAIKAN KRITIS #3: JANGAN append ke variabel
-                                # 'messages' lokal (dead code - tidak pernah dikirim
-                                # ke LLM karena api_messages selalu dibangun ulang
-                                # dari context_manager tiap iterasi). Tunda notice
-                                # ini sampai assistant_msg + tool_results tersimpan,
-                                # supaya urutan pesan tetap valid. <<<
+                                # >>> CRITICAL FIX #3: do NOT append to the local 'messages'
+                                # variable (dead code - never sent to the LLM because
+                                # api_messages is always rebuilt from context_manager
+                                # every iteration). Defer this notice until assistant_msg +
+                                # tool_results are stored, so the message order stays
+                                # valid. <<<
                                 pending_system_notices.append(
                                     f"[SYSTEM EMERGENCY STOP]: Perintah '{func_name}' telah gagal 3 kali berturut-turut. STOP mencoba variasi yang sama. Baca baik-baik pesan error di output sebelumnya, laporkan inti masalahnya ke user, dan minta instruksi baru. JANGAN mencoba menjalankan perintah ini lagi."
                                 )
-                                # >>> PATCH ORION-35: RISET OTOMATIS SAAT MENTOK ====
-                                # Sebelumnya momen anti-loop ini berarti "menyerah dan
-                                # lapor user". Sekarang backend melakukan pencarian web
-                                # SENDIRI atas error terakhir dan menyuntikkan temuannya,
-                                # sehingga Orion mendapat satu kesempatan pendekatan
-                                # berbeda yang berbasis temuan, sebelum benar-benar
-                                # menyerah. Ini jawaban kode untuk "kalau pengetahuannya
-                                # mentok, dia browsing": tidak mengandalkan model ingat
-                                # untuk mencari, karena justru saat mentok ia paling
-                                # mungkin lupa mencari.
+                                # >>> PATCH ORION-35: AUTOMATIC RESEARCH WHEN STUCK ====
+                                # This anti-loop moment used to mean "give up and report
+                                # to the user". Now the backend performs the web search
+                                # ITSELF on the last error and injects its findings, so
+                                # Orion gets one chance at a different, findings-based
+                                # approach before truly giving up. This is the code's
+                                # answer to "when its knowledge is stuck, it browses":
+                                # do not rely on the model remembering to search, because
+                                # exactly when stuck it is most likely to forget
+                                # to search.
                                 # ==================================================
                                 try:
                                     _kueri_riset = research_rules.rancang_kueri_riset(
@@ -1695,11 +1699,11 @@ async def chat_with_orion(request: ChatRequest):
                                     + "\n\nKalau temuan ini tidak memadai, BARU laporkan ke user: "
                                     "apa yang sudah dicoba, apa temuannya, dan apa rekomendasimu."
                                 )
-                                # >>> AKHIR PATCH ORION-35 =========================
-                                last_tool_calls = []  # Reset setelah warning
-                        # >>> AKHIR ANTI-LOOP CHECK <<<
+                                # >>> END OF PATCH ORION-35 =========================
+                                last_tool_calls = []  # Reset after the warning
+                        # >>> END OF ANTI-LOOP CHECK <<<
 
-                    # SIMPAN KE MEMORI SECARA REAL-TIME
+                    # SAVE TO MEMORY IN REAL TIME
                     context_manager.add_message(
                         "assistant",
                         msg.content,
@@ -1710,15 +1714,15 @@ async def chat_with_orion(request: ChatRequest):
                         context_manager.add_message(
                             "tool", tr["content"], tool_call_id=tr["tool_call_id"]
                         )
-                        # Auto-checkpoint system message dihapus untuk menghemat token.
-                        # State file sudah tercatat di tool_calls dan tool_results.
+                        # The auto-checkpoint system message was removed to save tokens.
+                        # The file state is already recorded in tool_calls and tool_results.
 
-                    # >>> Notice darurat (anti-loop) baru ditambahkan SEKARANG,
-                    # setelah assistant+tool tersimpan dengan urutan yang benar. <<<
+                    # >>> Emergency (anti-loop) notices are only added NOW,
+                    # after assistant+tool are stored in the correct order. <<<
                     for notice in pending_system_notices:
                         context_manager.add_message("user", notice)
 
-                    # Self-Correction Injection (Agresif tapi Terkontrol)
+                    # Self-Correction Injection (aggressive but controlled)
                     has_terminal_error = False
                     error_snippet = ""
                     for tr in tool_results:
@@ -1726,7 +1730,7 @@ async def chat_with_orion(request: ChatRequest):
                             tr["content"]
                         ):
                             has_terminal_error = True
-                            # 🛡️ PENGAMAN: Ambil hanya 3 baris pertama error untuk menghemat token input
+                            # 🛡️ SAFEGUARD: take only the first 3 lines of the error to save input tokens
                             error_snippet = "\n".join(
                                 tr["content"].split("\n")[:3]
                             ).strip()
@@ -1742,16 +1746,16 @@ async def chat_with_orion(request: ChatRequest):
                         )
 
                 else:
-                    # >>> FIX: model fallback (OpenRouter/Cloudflare) kadang mengembalikan
-                    # literal '\n' dua-karakter di teks jawaban biasa (bukan cuma di dalam
-                    # argumen JSON tool call). fix_over_escaped_text() sudah dipakai untuk
-                    # path ask_user, tapi path teks biasa ini terlewat — makanya '\n' literal
-                    # masih muncul di layar user untuk balasan normal seperti contoh di atas.
+                    # >>> FIX: fallback models (OpenRouter/Cloudflare) sometimes return the
+                    # two-character literal '\n' in ordinary answer text (not just inside
+                    # tool-call JSON arguments). fix_over_escaped_text() was already used for
+                    # the ask_user path, but this plain-text path was missed — which is why literal '\n'
+                    # still appeared on the user's screen for normal replies like the example above.
                     content = fix_over_escaped_text(msg.content or "")
                     reasoning_content = getattr(msg, "reasoning_content", None)
 
-                    # Deteksi apakah ini adalah "task completion" (Orion selesai mengerjakan task)
-                    # >>> PATCH ORION-34: logika klaim dipindah ke guard_rules supaya bisa di-test.
+                    # Detect whether this is a "task completion" (Orion finished the task)
+                    # >>> PATCH ORION-34: the claim logic moved to guard_rules so it can be tested.
                     is_task_complete = guard_rules.kata_klaim(content)
 
                     if len(content.strip()) < 50 and not is_task_complete:
@@ -1775,29 +1779,29 @@ async def chat_with_orion(request: ChatRequest):
                         continue
                     else:
                         # >>> TASK COMPLETION DETECTED <<<
-                        # Orion selesai mengerjakan task, berikan checkpoint report dan pause
-                        # >>> FIX KRITIS: sebelumnya syaratnya cuma `is_task_complete and _ > 0`.
-                        # Kata kunci seperti "berhasil"/"selesai" SANGAT umum muncul di teks
-                        # audit/laporan biasa meski TIDAK ADA tool edit_file/write_file yang
-                        # benar-benar jalan — akibatnya Orion bisa "mengaku selesai" padahal
-                        # tidak mengerjakan apa pun (dan user melihat siklus audit berulang
-                        # tanpa progres nyata). Sekarang checkpoint HANYA boleh menutup task
-                        # kalau ada bukti nyata: minimal 1 file benar-benar berhasil ditulis/
-                        # diedit pada TURN ini (files_changed_this_turn).
+                        # Orion finished the task, provide a checkpoint report and pause
+                        # >>> CRITICAL FIX: the condition used to be just `is_task_complete and _ > 0`.
+                        # Keywords like "berhasil"/"selesai" are VERY common in ordinary
+                        # audit/report text even when NO edit_file/write_file tool actually
+                        # ran — as a result Orion could "claim completion" while doing
+                        # nothing at all (and the user watched repeating audit cycles
+                        # without real progress). Now the checkpoint may ONLY close the task
+                        # with hard evidence: at least 1 file truly written/edited on
+                        # THIS turn (files_changed_this_turn).
                         if is_task_complete and _ > 0 and files_changed_this_turn:
-                            # >>> PATCH ORION-1 (KRITIS) ============================
-                            # SEBELUMNYA: begitu model menulis kata "selesai"/"berhasil"
-                            # DAN ada file yang berubah, loop langsung `break`. Kalau user
-                            # meminta 3 hal, Orion menyelesaikan yang pertama lalu berhenti
-                            # -- persis keluhan "hanya mengerjakan tugas pertama".
-                            # Kode lama sudah MENDETEKSI todo yang tersisa (pending_warning)
-                            # tapi hanya menampilkannya sebagai peringatan, lalu tetap stop.
+                            # >>> PATCH ORION-1 (CRITICAL) ============================
+                            # BEFORE: as soon as the model wrote the word "done"/"succeeded"
+                            # AND a file had changed, the loop immediately `break`ed. If the
+                            # user asked for 3 things, Orion finished the first one and stopped
+                            # -- exactly the "only does the first task" complaint.
+                            # The old code already DETECTED the remaining todos (pending_warning)
+                            # but only displayed them as a warning, then stopped anyway.
                             #
-                            # SEKARANG: kalau masih ada todo pending/in_progress, loop TIDAK
-                            # berhenti. Disuntikkan pesan sistem yang menunjuk item
-                            # berikutnya, lalu `continue`. Berhenti hanya terjadi kalau
-                            # semua todo selesai ATAU batas nudge tercapai (degradasi anggun
-                            # ke perilaku lama: checkpoint + peringatan).
+                            # NOW: while pending/in_progress todos remain, the loop does NOT
+                            # stop. A system message pointing at the next item is injected,
+                            # then `continue`. Stopping only happens when all todos are
+                            # complete OR the nudge cap is reached (graceful degradation to
+                            # the old behaviour: checkpoint + warning).
                             # ==========================================================
                             _pending_items = []
                             if todo_manager and todo_manager.has_pending_or_in_progress():
@@ -1813,7 +1817,7 @@ async def chat_with_orion(request: ChatRequest):
                                 _next_text = str(_next_todo.get("text", ""))[:300]
                                 _sisa = len(_pending_items)
 
-                                # simpan kemajuan turn ini supaya tidak hilang dari konteks
+                                # save this turn's progress so it is not lost from the context
                                 context_manager.add_message(
                                     "assistant", content,
                                     reasoning_content=reasoning_content,
@@ -1833,7 +1837,7 @@ async def chat_with_orion(request: ChatRequest):
                                 logger.info("[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
                                             _nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
                                 continue
-                            # >>> AKHIR PATCH ORION-1 ================================
+                            # >>> END OF PATCH ORION-1 ================================
 
                             checkpoint_report = (
                                 "\n\n---\n\n"
@@ -1842,24 +1846,24 @@ async def chat_with_orion(request: ChatRequest):
                                 "**Files changed:**\n"
                             )
 
-                            # Pakai daftar file yang benar2 diubah PADA TURN INI SAJA,
-                            # bukan scan seluruh histori sesi (yang bisa menampilkan
-                            # perubahan lama dari task sebelumnya seolah baru terjadi).
+                            # Use the list of files ACTUALLY changed ON THIS TURN ONLY,
+                            # not a scan of the whole session history (which could show
+                            # old changes from a previous task as if they just happened).
                             if files_changed_this_turn:
                                 checkpoint_report += "\n".join(
                                     files_changed_this_turn[-10:]
-                                )  # Max 10 file terakhir
+                                )  # At most the last 10 files
                             else:
                                 checkpoint_report += "- No files changed"
 
-                            # >>> FIX KRITIS: cegah item todo yang diam-diam "hilang".
-                            # Sebelumnya, kalau user minta 3 fitur tapi Orion cuma
-                            # mengerjakan 2, checkpoint tetap bilang "task selesai"
-                            # tanpa pernah menyebut item ke-3 yang terlewat. Sekarang,
-                            # kalau ada todo yang masih pending/in_progress, checkpoint
-                            # WAJIB menampilkannya secara eksplisit -- supaya user
-                            # (bukan cuma Orion) yang menentukan apakah itu memang
-                            # sudah cukup atau harus dilanjutkan.
+                            # >>> CRITICAL FIX: prevent todo items from silently "disappearing".
+                            # Previously, if the user asked for 3 features but Orion only
+                            # did 2, the checkpoint still said "task complete" without
+                            # ever mentioning the missed 3rd item. Now, when todos are
+                            # still pending/in_progress, the checkpoint MUST display them
+                            # explicitly -- so the user (not just Orion) decides whether
+                            # that really is enough or whether the work must
+                            # continue.
                             pending_warning = ""
                             if (
                                 todo_manager
@@ -1888,41 +1892,41 @@ async def chat_with_orion(request: ChatRequest):
                                 "---\n"
                             )
 
-                            # Tampilkan checkpoint report di chat
+                            # Show the checkpoint report in chat
                             yield sse.ev('token', text=strip_thinking_blocks(content) + checkpoint_report)
 
-                            # Simpan ke context
+                            # Save to context
                             context_manager.add_message(
                                 "assistant",
                                 content + checkpoint_report,
                                 reasoning_content=reasoning_content,
                             )
 
-                            # PAUSE: Tunggu respons user
+                            # PAUSE: wait for the user's response
                             yield sse.ev('ask_user', question='Task complete. Is there anything to adjust, or shall I continue to the next task?')
                             yield sse.ev('done')
                             print(
                                 "[ORION TASK COMPLETE] Task finished. Waiting for user response to continue."
                             )
                             break
-                        # >>> PATCH ORION-17b (GERBANG VERIFIKASI KLAIM) ==========
-                        # GEJALA YANG DIPERBAIKI: Orion melaporkan "fitur X telah
-                        # berhasil diintegrasikan" padahal TIDAK ADA satu pun file
-                        # yang diubah pada giliran ini. User memeriksa file dan
-                        # menemukan tidak ada perubahan; Orion lalu meng-audit ulang
-                        # dan mengulang klaim yang sama.
+                        # >>> PATCH ORION-17b (CLAIM VERIFICATION GATE) ==========
+                        # SYMPTOM FIXED: Orion reported "feature X has been
+                        # successfully integrated" while NOT A SINGLE file was
+                        # changed on this turn. The user checked the files and
+                        # found no changes; Orion would then re-audit and repeat
+                        # the same claim.
                         #
-                        # PENYEBAB: `is_task_complete` dideteksi dari pencocokan kata
-                        # ("selesai", "berhasil", "sudah saya"). Model bisa memakai
-                        # kata-kata itu saat MENGANALISIS tanpa mengerjakan apa pun,
-                        # dan klaim itu sering berasal dari .orion/master_context.md
-                        # yang ditulis sesi sebelumnya (lihat PATCH ORION-16).
+                        # CAUSE: `is_task_complete` was detected by word matching
+                        # ("selesai", "berhasil", "sudah saya"). The model can use
+                        # those words while ANALYZING without doing any work,
+                        # and such claims often originate from .orion/master_context.md
+                        # written by a previous session (see PATCH ORION-16).
                         #
-                        # PERBAIKAN: kalau model mengklaim selesai TAPI nol file
-                        # berubah pada giliran ini, klaimnya DITOLAK. Kita suntik
-                        # pesan yang memaksa verifikasi lewat search_code/read_file
-                        # sebelum boleh menyimpulkan apa pun. Dibatasi
-                        # MAX_VERIFIKASI kali supaya tidak jadi loop baru.
+                        # FIX: when the model claims completion BUT zero files
+                        # changed on this turn, the claim is REJECTED. We inject a
+                        # message forcing verification via search_code/read_file
+                        # before concluding anything. Limited to MAX_VERIFIKASI
+                        # times so it cannot become a new loop.
                         # ==========================================================
                         elif (
                             guard_rules.klaim_perlu_ditantang(
@@ -1961,10 +1965,10 @@ async def chat_with_orion(request: ChatRequest):
                             )
                             yield sse.ev('status', text='🔍 Verifying completion claim (0 files changed)...')
                             continue
-                        # >>> AKHIR PATCH ORION-17b
+                        # >>> END OF PATCH ORION-17b
 
                         else:
-                            # Bukan task completion, hanya respons normal
+                            # Not a task completion, just a normal response
                             yield sse.ev('token', text=strip_thinking_blocks(content))
                             context_manager.add_message(
                                 "assistant",
@@ -1973,35 +1977,35 @@ async def chat_with_orion(request: ChatRequest):
                             )
                             yield sse.ev('done')
                             break
-                        # >>> AKHIR TASK COMPLETION DETECTED <<<
+                        # >>> END OF TASK COMPLETION DETECTED <<<
 
         except Exception as e:
             error_msg = str(e)
-            # >>> PATCH ORION-2: pakai logger, bukan print (stdout = pipe ke extension)
+            # >>> PATCH ORION-2: use the logger, not print (stdout = pipe to the extension)
             logger.exception("[ORION EXCEPTION] agent loop failed")
             yield sse.ev('error', text=error_msg)
-            # >>> PATCH ORION-2 (KRITIS): WAJIB kirim 'done' setelah 'error'.
-            # Sebelumnya hanya 'error' yang dikirim, sehingga webview tidak pernah
-            # mendapat sinyal selesai -> UI menggantung dan user melihat assistant
-            # "berhenti diam-diam".
+            # >>> PATCH ORION-2 (CRITICAL): MUST send 'done' after 'error'.
+            # Previously only 'error' was sent, so the webview never got a
+            # completion signal -> the UI hung and the user saw the assistant
+            # "stop silently".
             yield sse.ev('done')
 
     # >>> PATCH ORION-28 ================================================
-    # Audit menemukan SEPULUH jalur keluar di aliran inti yang mengakhiri
-    # stream TANPA mengirim event 'done' (ask_user, menunggu konfirmasi
-    # terminal, emergency stop, batas iterasi, dll). Akibatnya extension
-    # membaca penutupan yang SAH itu sebagai crash dan menampilkan
-    # "Koneksi ke backend terputus" -- alarm palsu.
+    # The audit found TEN exit paths in the core stream that ended the
+    # stream WITHOUT sending a 'done' event (ask_user, waiting for terminal
+    # confirmation, emergency stop, iteration cap, etc). As a result the
+    # extension read those LEGITIMATE closures as crashes and showed
+    # "Connection to the backend was lost" -- a false alarm.
     #
-    # Alih-alih menambal sepuluh tempat (dan tempat baru di masa depan),
-    # satu wrapper menjamin: berapa pun jalurnya, kalau aliran berakhir
-    # tanpa 'done', wrapper yang mengirimkannya. Crash sungguhan (proses
-    # mati) tetap tidak menghasilkan done, sehingga ORION-12 di extension
-    # tetap bisa membedakan putus beneran dari berakhir normal.
+    # Instead of patching ten places (and future ones), a single
+    # wrapper guarantees: whatever the path, if the stream ends
+    # without 'done', the wrapper sends it. A genuine crash (dead
+    # process) still produces no done, so ORION-12 in the extension
+    # can still tell a real disconnect from a normal ending.
     # ==================================================================
     async def generate_stream():
-        # >>> PATCH ORION-36: logika "jamin ada done" dipindah ke stream_utils
-        # supaya bisa di-unit-test tanpa menjalankan FastAPI (test_stream_utils).
+        # >>> PATCH ORION-36: the "guarantee a done" logic moved to stream_utils
+        # so it can be unit-tested without running FastAPI (test_stream_utils).
         async for potongan in stream_utils.jamin_done(_aliran_inti(), logger=logger):
             yield potongan
 
@@ -2020,13 +2024,13 @@ class TerminalRequest(BaseModel):
 
 @app.post("/execute-terminal")
 async def execute_approved_terminal(request: TerminalRequest):
-    """Endpoint khusus untuk mengeksekusi perintah yang sudah disetujui user."""
+    """Dedicated endpoint for executing a command the user already approved."""
     if tool_executor is None:
         return {"success": False, "output": "Tool executor not initialized."}
 
     output = tool_executor.run_terminal(command=request.command)
 
-    # >>> PERBAIKAN KRITIS: Update placeholder dengan hasil asli <<<
+    # >>> CRITICAL FIX: update the placeholder with the real result <<<
     history = context_manager.get_history()
     for i in range(len(history) - 1, -1, -1):
         msg = history[i]
@@ -2046,7 +2050,7 @@ async def execute_approved_terminal(request: TerminalRequest):
 
 @app.get("/performance")
 async def get_performance():
-    """Membaca dan menghitung statistik dari performance_log.jsonl"""
+    """Read and compute statistics from performance_log.jsonl"""
     if tool_executor is None:
         return {"error": "Project not set yet."}
 
@@ -2067,7 +2071,7 @@ async def get_performance():
     logs = []
     total_cost = 0.0
     total_duration = 0.0
-    total_input_tokens = 0  # <<< TAMBAHKAN INI
+    total_input_tokens = 0  # <<< ADDED THIS
     total_output_tokens = 0
     success_count = 0
     error_count = 0
@@ -2088,8 +2092,8 @@ async def get_performance():
                         else:
                             error_count += 1
                     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                        # >>> PATCH ORION-3: `except: pass` menelan SEMUA error termasuk
-                        # KeyboardInterrupt/SystemExit, dan menyembunyikan baris log rusak.
+                        # >>> PATCH ORION-3: `except: pass` swallowed ALL errors including
+                        # KeyboardInterrupt/SystemExit, and hid broken log lines.
                         continue
     except OSError as e:
         return {"error": f"Failed to read log: {e!s}"}
@@ -2102,10 +2106,10 @@ async def get_performance():
             "total_requests": total_requests,
             "total_input_tokens": sum(
                 l.get("input_tokens", 0) for l in logs
-            ),  # <<< TAMBAHKAN
+            ),  # <<< ADDED
             "total_output_tokens": sum(
                 l.get("output_tokens", 0) for l in logs
-            ),  # <<< TAMBAHKAN
+            ),  # <<< ADDED
             "total_cost_usd": round(total_cost, 6),
             "avg_response_time_ms": round(avg_duration, 2),
             "success_count": success_count,

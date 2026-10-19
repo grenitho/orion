@@ -1,36 +1,37 @@
 """
 logging_setup.py
 ================
-PENGGANTI `print()` untuk backend ORION.
+The `print()` REPLACEMENT for the ORION backend.
 
-KENAPA INI PENTING (ini kemungkinan penyebab "berhenti diam-diam"):
+WHY THIS MATTERS (this was a likely cause of "stopping silently"):
 
-Backend ORION dijalankan sebagai PROSES ANAK oleh extension VS Code
-(lihat start-backend.bat). Komentar Anda sendiri di llm_router.py sudah
-menemukan mekanismenya:
+The ORION backend runs as a CHILD PROCESS spawned by the VS Code extension
+(see start-backend.bat). A comment in llm_router.py had already identified
+the mechanism:
 
-    "...ini bisa membanjiri pipe stdout yang ditangkap proses induk
-     (mis. ekstensi VS Code). Kalau proses induk tidak membaca cukup
-     cepat, backend bisa macet menunggu buffer kosong (backpressure),
-     lalu di-kill paksa oleh watchdog/health-check proses induk."
+    "...this can flood the stdout pipe captured by the parent process
+     (e.g. the VS Code extension). If the parent does not read fast
+     enough, the backend can stall waiting for the buffer to drain
+     (backpressure), then get force-killed by the parent's
+     watchdog/health-check."
 
-Anda sudah memperbaiki `litellm._turn_on_debug()` — bagus. Tapi masih ada
-**122 `print()`** di backend. Setiap `print()` menulis ke pipe yang sama.
-Saat agent menjalankan banyak langkah, pipe penuh, backend tersumbat, lalu mati.
-Dari sisi user: assistant berhenti tanpa pesan apa pun.
+Fixing `litellm._turn_on_debug()` was good, but the backend still had
+**122 `print()` calls**. Every `print()` writes to that same pipe. When the
+agent runs many steps, the pipe fills, the backend clogs, then dies. From
+the user's side: the assistant stops without any message.
 
-SOLUSI: log ke FILE, bukan ke stdout. stdout dibiarkan nyaris kosong.
+SOLUTION: log to a FILE, not to stdout. stdout stays nearly empty.
 
-CARA PAKAI (ganti semua `print(...)` di backend):
+USAGE (replace every `print(...)` in the backend):
 
     from logging_setup import get_logger
     log = get_logger(__name__)
 
-    log.info("Mencoba model %s", model_name)
+    log.info("Trying model %s", model_name)
     log.warning("Rate limit: %s", e)
-    log.exception("Gagal tak terduga")     # <- otomatis menyertakan traceback
+    log.exception("Unexpected failure")     # <- automatically includes the traceback
 
-File log ada di:  <proyek>/.orion/logs/backend.log  (rotasi 5 MB x 5 file)
+The log file lives at:  <project>/.orion/logs/backend.log  (rotation 5 MB x 5 files)
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ _LOG_DIR: Path | None = None
 
 
 def _cari_folder_log() -> Path:
-    """Cari .orion/logs, naik ke atas dari lokasi file ini."""
+    """Find .orion/logs, walking upward from this file's location."""
     env = os.getenv("ORION_LOG_DIR")
     if env:
         return Path(env).expanduser()
@@ -61,10 +62,11 @@ def _cari_folder_log() -> Path:
 
 
 def setup_logging(level: str | None = None, *, ke_stdout: bool = False) -> Path:
-    """Panggil SEKALI saat aplikasi mulai (di main.py, paling atas).
+    """Call ONCE when the application starts (in main.py, at the very top).
 
-    ke_stdout=False (default) -> log HANYA ke file. Ini yang Anda inginkan,
-    karena stdout adalah pipe ke extension VS Code dan tidak boleh dibanjiri.
+    ke_stdout=False (default) -> log ONLY to file. That is what you want,
+    because stdout is the pipe to the VS Code extension and must not be
+    flooded.
     """
     global _DISETUP, _LOG_DIR
     if _DISETUP and _LOG_DIR is not None:
@@ -75,7 +77,7 @@ def setup_logging(level: str | None = None, *, ke_stdout: bool = False) -> Path:
 
     akar = logging.getLogger()
     akar.setLevel((level or os.getenv("LOG_LEVEL", "INFO")).upper())
-    # bersihkan handler lama (uvicorn sering sudah menambah beberapa)
+    # clear old handlers (uvicorn often already added a few)
     for h in list(akar.handlers):
         akar.removeHandler(h)
 
@@ -92,12 +94,12 @@ def setup_logging(level: str | None = None, *, ke_stdout: bool = False) -> Path:
     akar.addHandler(berkas)
 
     if ke_stdout:
-        # hanya untuk debugging manual di terminal, JANGAN di produksi
+        # only for manual debugging in a terminal, NEVER in production
         layar = logging.StreamHandler(sys.stdout)
         layar.setFormatter(fmt)
         akar.addHandler(layar)
 
-    # Redam log berisik dari pustaka pihak ketiga
+    # Silence noisy logs from third-party libraries
     for nama in ("litellm", "LiteLLM", "httpx", "httpcore", "urllib3", "asyncio"):
         logging.getLogger(nama).setLevel(logging.WARNING)
 
@@ -106,33 +108,33 @@ def setup_logging(level: str | None = None, *, ke_stdout: bool = False) -> Path:
 
 
 def get_logger(nama: str) -> logging.Logger:
-    """Ambil logger. Otomatis menjalankan setup kalau belum."""
+    """Get a logger. Runs setup automatically if not done yet."""
     if not _DISETUP:
         setup_logging()
     return logging.getLogger(nama)
 
 
 def path_log() -> str:
-    """Path file log saat ini — untuk ditampilkan ke user saat debugging."""
+    """Current log file path — to show the user while debugging."""
     if _LOG_DIR is None:
         setup_logging()
     return str(_LOG_DIR / "backend.log")
 
 
 # ---------------------------------------------------------------------------
-# Trik migrasi bertahap: selama Anda belum sempat mengganti 122 print(),
-# pasang ini di main.py PALING ATAS untuk mengalihkan print() ke file log.
-# Ini jaring pengaman sementara, bukan solusi akhir.
+# Gradual-migration trick: while the 122 print() calls have not all been
+# replaced yet, put this at the VERY TOP of main.py to divert print() into
+# the log file. This is a temporary safety net, not the end state.
 #
 #     import logging_setup
 #     logging_setup.setup_logging()
 #     logging_setup.alihkan_print()      # <- sementara
 #
 def alihkan_print() -> None:
-    """Ubah print() global supaya menulis ke file log, bukan stdout.
+    """Redefine the global print() so it writes to the log file, not stdout.
 
-    PENTING: ini solusi sementara. Tujuan akhirnya tetap mengganti print()
-    dengan log.info()/log.warning() yang sesungguhnya.
+    IMPORTANT: this is a temporary solution. The end goal remains replacing
+    print() with real log.info()/log.warning() calls.
     """
     if not _DISETUP:
         setup_logging()
@@ -142,13 +144,13 @@ def alihkan_print() -> None:
     logger = logging.getLogger("stdout")
 
     def print_ke_log(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        # hanya alihkan kalau memang menuju stdout (bukan ke file lain)
+        # only divert when it really goes to stdout (not to another file)
         if kwargs.get("file") not in (None, sys.stdout):
             return _asli(*args, **kwargs)
         try:
             sep = kwargs.get("sep", " ")
             logger.info(sep.join(str(a) for a in args))
-        except Exception:  # noqa: BLE001 - jangan pernah gagal karena logging
+        except Exception:  # noqa: BLE001 - never fail because of logging
             pass
 
     builtins.print = print_ke_log  # type: ignore[assignment]

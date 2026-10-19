@@ -29,24 +29,24 @@ export async function ensureBackendRunning() {
 
     const folders = vscode.workspace.workspaceFolders;
 
-    // >>> PERBAIKAN 1: Jangan langsung return jika folders kosong, coba fallback absolut
+    // >>> FIX 1: Do not return immediately when folders is empty; try the absolute fallbacks
     let workspacePath = folders && folders.length > 0 ? folders[0].uri.fsPath : '';
     console.log(`[BACKEND] Current workspace root: ${workspacePath || '(no workspace)'}`);
 
-    // >>> PERBAIKAN 2: Gunakan forward slash (/) untuk path absolut agar aman di Node.js
+    // >>> FIX 2: Use forward slashes (/) for absolute paths to be safe in Node.js
     const possiblePaths = [
         path.join(workspacePath, 'backend'),
         path.join(workspacePath, '..', 'backend'),
         path.join(workspacePath, '..', '..', 'backend'),
-        (process.env.ORION_BACKEND_PATH || '')               // Fallback dari env; JANGAN hardcode path pribadi
+        (process.env.ORION_BACKEND_PATH || '')               // Fallback from env; do NOT hardcode personal paths
     ];
 
     let backendPath = '';
     for (const p of possiblePaths) {
         console.log(`[BACKEND] Checking location: ${p}`);
 
-        // >>> PERBAIKAN 3: Validasi KETAT. Jangan hanya cek folder 'backend', 
-        // tapi pastikan file 'app/main.py' ada di dalamnya. Ini mencegah false positive.
+        // >>> FIX 3: STRICT validation. Do not only check for a 'backend' folder, 
+        // but make sure the file 'app/main.py' exists inside it. This prevents false positives.
         if (fs.existsSync(p) && fs.existsSync(path.join(p, 'app', 'main.py'))) {
             backendPath = p;
             console.log(`[BACKEND] ✅ FOUND a valid Orion backend at: ${backendPath}`);

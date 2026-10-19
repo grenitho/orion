@@ -1,12 +1,12 @@
 """
-research_rules.py — aturan "riset otomatis saat mentok" (ORION-35)
-==================================================================
-Fungsi murni supaya bisa di-test tanpa jaringan.
+research_rules.py — the "automatic research when stuck" rules (ORION-35)
+=========================================================================
+Pure functions so they can be tested without a network.
 
-Idenya: kalau sebuah tool gagal berulang, Orion dulu disuruh STOP dan lapor
-user. Itu aman tapi membuang kesempatan belajar. Sekarang backend MELAKUKAN
-pencarian web sendiri pada momen itu dan menyuntikkan temuannya, sehingga
-"pengetahuan mentok" berubah menjadi "pengetahuan yang baru diambil".
+The idea: when a tool failed repeatedly, Orion used to be told to STOP and
+report to the user. That is safe but throws away a learning opportunity.
+Now the backend performs the web search ITSELF at that moment and injects
+the findings, turning "stuck knowledge" into "freshly fetched knowledge".
 """
 
 from __future__ import annotations
@@ -16,22 +16,22 @@ import re
 AMBANG_GAGAL = 3
 MAKS_CHAR_KUERI = 220
 
-# potongan yang tidak berguna dalam kueri pencarian
+# fragments that are useless inside a search query
 _DERAU = re.compile(r"(traceback \(most recent call last\)|file \"[^\"]*\", line \d+|"
                     r"\^+|error:|warning:|\[orion[^\]]*\])", re.I)
 
 
 def perlu_riset_otomatis(gagal_beruntun: int, ambang: int = AMBANG_GAGAL) -> bool:
-    """True saat kegagalan beruntun sudah mencapai ambang riset."""
+    """True once consecutive failures reach the research threshold."""
     return int(gagal_beruntun) >= int(ambang)
 
 
 def rancang_kueri_riset(nama_tool: str, keluaran_error: str,
                         maks_char: int = MAKS_CHAR_KUERI) -> str:
-    """Ubah error mentah jadi kueri pencarian yang masuk akal.
+    """Turn a raw error into a sensible search query.
 
-    Membersihkan derau (traceback, path file, caret), merapatkan spasi,
-    dan membatasi panjang supaya mesin pencari tidak menerima tembakan acak.
+    Strips noise (tracebacks, file paths, carets), collapses whitespace, and
+    caps the length so the search engine does not receive random shotgun text.
     """
     teks = (keluaran_error or "").strip()
     if not teks:

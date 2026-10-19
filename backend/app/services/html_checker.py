@@ -1,8 +1,8 @@
 """
-html_checker.py — pemeriksaan struktur HTML untuk ORION (PATCH ORION-25)
-========================================================================
-Dipisah dari tool_executor supaya pemeriksa HTML bisa dipakai bersama oleh
-tool `verify_html` (lama) dan `verify_code` (baru) tanpa duplikasi logika.
+html_checker.py — HTML structure checking for ORION (PATCH ORION-25)
+=====================================================================
+Split out of tool_executor so the HTML checker can be shared by the
+`verify_html` tool (old) and `verify_code` (new) without duplicated logic.
 """
 
 from __future__ import annotations
@@ -13,17 +13,17 @@ from app.services import code_verifier as cv
 
 
 def cek_html(teks: str) -> list[str]:
-    """Kembalikan daftar temuan untuk satu dokumen HTML."""
+    """Return the list of findings for a single HTML document."""
     temuan: list[str] = []
 
-    # ---- 1. sintaks JavaScript di dalam <script> ----
+    # ---- 1. JavaScript syntax inside <script> ----
     for m in re.finditer(r"<script[^>]*>(.*?)</script>", teks, re.S | re.I):
         awal = teks[:m.start()].count("\n") + 1
         kode = m.group(1)
         if not kode.strip():
             continue
         for t in cv.cek_js("inline.js", kode):
-            # geser nomor baris dari "dalam script" menjadi "dalam file HTML"
+            # shift line numbers from "inside the script" to "inside the HTML file"
             mm = re.match(r"JAVASCRIPT SYNTAX line (\d+): (.*)", t)
             if mm:
                 baris_html = awal + int(mm.group(1)) - 1
@@ -34,14 +34,14 @@ def cek_html(teks: str) -> list[str]:
             else:
                 temuan.append(t)
 
-    # ---- 2. id duplikat ----
+    # ---- 2. duplicate ids ----
     ids = re.findall(r"""\sid=["']([^"']+)["']""", teks)
     dup = sorted({k for k in ids if ids.count(k) > 1})
     if dup:
         temuan.append("DUPLICATE IDs (getElementById only picks the first one, "
                       f"the rest are unreachable): {', '.join(dup[:10])}")
 
-    # ---- 3. referensi DOM tanpa pasangan ----
+    # ---- 3. DOM references without a matching element ----
     set_ids = set(ids)
     refs = set(re.findall(r"""getElementById\(["']([^"']+)["']\)""", teks))
     refs |= set(re.findall(r"""querySelector(?:All)?\(["']#([A-Za-z0-9_\-]+)["']\)""", teks))
@@ -49,7 +49,7 @@ def cek_html(teks: str) -> list[str]:
     if hilang:
         temuan.append("REFERENCED ELEMENTS MISSING FROM HTML: " + ", ".join(hilang[:10]))
 
-    # ---- 4. tag pembuka tanpa penutup untuk tag struktural ----
+    # ---- 4. opening tags without closers for structural tags ----
     for tag in ("div", "section", "main", "body", "html", "script", "style", "table"):
         buka = len(re.findall(rf"<{tag}\b(?![^>]*\/>)", teks, re.I))
         tutup = len(re.findall(rf"</{tag}\s*>", teks, re.I))

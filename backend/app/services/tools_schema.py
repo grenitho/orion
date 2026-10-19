@@ -1,6 +1,6 @@
 """
-tools_schema.py - skema 22 tool Orion (Fase A pemecahan main.py)
-Data murni: tanpa logika, tanpa impor berat.
+tools_schema.py - the schema of Orion's 22 tools (Phase A of the main.py split)
+Pure data: no logic, no heavy imports.
 """
 
 TOOLS = [
@@ -21,7 +21,7 @@ TOOLS = [
                         "description": "Kedalaman folder (default: 2).",
                     },
                 },
-                # TIDAK ADA "required": [] DI SINI
+                # There is NO "required": [] HERE
             },
         },
     },
@@ -384,7 +384,7 @@ TOOLS = [
             "description": "Melihat daftar singkat file yang telah dimodifikasi, ditambah, atau dihapus.",
             "parameters": {
                 "type": "object"
-                # HANYA "type": "object". TIDAK ADA properties atau required.
+                # ONLY "type": "object". NO properties or required.
             },
         },
     },
@@ -401,7 +401,7 @@ TOOLS = [
                         "description": "Path relatif file spesifik (opsional). Kosongkan untuk ringkasan.",
                     }
                 },
-                # TIDAK ADA "required": [] DI SINI
+                # There is NO "required": [] HERE
             },
         },
     },

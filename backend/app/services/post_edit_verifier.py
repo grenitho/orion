@@ -1,16 +1,16 @@
 """
 post_edit_verifier.py
 
-Verifikasi otomatis pasca-edit: setelah write_file/edit_file dieksekusi,
-baca ULANG file dari disk untuk membuktikan perubahan benar-benar tersimpan
-sesuai ekspektasi -- bukan cuma percaya string return value dari tool tanpa
-bukti nyata.
+Automatic post-edit verification: after write_file/edit_file executes,
+RE-READ the file from disk to prove the change really was saved as expected
+-- instead of merely trusting the tool's return-value string without hard
+evidence.
 
-Didesain sebagai LAPISAN TAMBAHAN yang di-append ke hasil tool yang sudah
-ada (lihat integrasi di main.py). Tidak mengubah format lama, tidak mengubah
-perilaku write_file/edit_file itu sendiri -- kalau modul ini gagal impor atau
-error, tool asli tetap bekerja seperti biasa (lihat try/except di sisi
-pemanggil pada main.py).
+Designed as an EXTRA LAYER appended to the existing tool result (see the
+integration in main.py). It does not change the old format and does not
+change write_file/edit_file behaviour itself -- if this module fails to
+import or errors out, the original tools keep working as usual (see the
+try/except on the caller side in main.py).
 """
 
 import os
@@ -21,11 +21,11 @@ _REPLACE_BLOCK_RE = re.compile(r"=======\s*\n(.*?)\n>>>>>>> REPLACE", re.DOTALL)
 
 def extract_replace_snippet(diff_text: str, max_len: int = 200) -> str:
     """
-    Ambil satu baris pertama yang tidak kosong dari blok REPLACE pada format
-    SEARCH/REPLACE (<<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE), untuk
-    dipakai sebagai bukti verifikasi ringan. Sengaja tidak mencocokkan seluruh
-    blok supaya tidak false-negative akibat perbedaan whitespace/indentasi
-    minor yang tidak signifikan.
+    Take the first non-empty line of the REPLACE block in the
+    SEARCH/REPLACE format (<<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE),
+    used as lightweight verification evidence. Deliberately does not match
+    the whole block, to avoid false negatives from insignificant minor
+    whitespace/indentation differences.
     """
     if not diff_text:
         return ""
@@ -41,8 +41,8 @@ def extract_replace_snippet(diff_text: str, max_len: int = 200) -> str:
 
 def verify_file_write(full_path: str, expected_content: str = None) -> str:
     """
-    Verifikasi setelah write_file: pastikan file benar-benar ada di disk,
-    dan (kalau expected_content diberikan) isinya persis cocok.
+    Verification after write_file: make sure the file really exists on disk,
+    and (when expected_content is given) its contents match exactly.
     """
     if not os.path.exists(full_path):
         return (
@@ -76,8 +76,8 @@ def verify_file_write(full_path: str, expected_content: str = None) -> str:
 
 def verify_file_edit(full_path: str, expected_snippet: str) -> str:
     """
-    Verifikasi setelah edit_file: pastikan potongan dari blok REPLACE
-    benar-benar muncul di file hasil akhir.
+    Verification after edit_file: make sure the snippet from the REPLACE
+    block really appears in the final file.
     """
     if not os.path.exists(full_path):
         return "⚠️ [VERIFICATION FAILED] File not found on disk after edit_file was called."
@@ -90,8 +90,8 @@ def verify_file_edit(full_path: str, expected_snippet: str) -> str:
 
     snippet = (expected_snippet or "").strip()
     if not snippet:
-        # Tidak ada snippet spesifik untuk dicocokkan (format diff tidak standar) --
-        # tetap laporkan file ada, tapi jangan klaim isi sudah benar.
+        # No specific snippet to match (non-standard diff format) --
+        # still report that the file exists, but do not claim its contents are correct.
         return "ℹ️ [VERIFICATION PARTIAL] File exists on disk, but there is no specific snippet to match automatically. A manual re-read is recommended if in doubt."
 
     if snippet in actual_content:

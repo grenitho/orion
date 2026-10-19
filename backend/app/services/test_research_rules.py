@@ -1,9 +1,9 @@
 """
-test_research_rules.py — test untuk riset otomatis saat mentok (ORION-35)
-==========================================================================
-Menjaga dua hal: ambang pemicu riset, dan kebersihan kueri yang dibentuk
-dari error mentah (traceback, path file, dan caret tidak boleh ikut terbawa
-ke mesin pencari).
+test_research_rules.py — tests for the automatic research when stuck (ORION-35)
+===============================================================================
+Guards two things: the research trigger threshold, and the cleanliness of the
+query built from a raw error (tracebacks, file paths and carets must not be
+dragged along into the search engine).
 """
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ def test_ambang_bisa_diubah():
 
 
 def test_ambang_default_tidak_bergeser():
-    """Menaikkan/menurunkan ambang mengubah kapan Orion berhenti mencoba sendiri.
-    Perubahan harus disengaja lewat test ini."""
+    """Raising/lowering the threshold changes when Orion stops trying on its own.
+    The change must be deliberate, via this test."""
     assert AMBANG_GAGAL == 3
 
 

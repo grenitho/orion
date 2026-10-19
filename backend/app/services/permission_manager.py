@@ -1,25 +1,25 @@
 """
 permission_manager.py
 
-Lapisan proteksi tambahan (defense-in-depth) untuk memastikan operasi file
-(write_file/edit_file) tidak pernah keluar dari batas project_path --
-mencegah path traversal (mis. file_path="../../../etc/passwd", atau path
-absolut ke lokasi lain) baik akibat kesalahan model maupun kemungkinan
-prompt injection dari isi file yang dibaca sebelumnya.
+An extra protection layer (defense-in-depth) ensuring file operations
+(write_file/edit_file) never leave the project_path boundary -- preventing
+path traversal (e.g. file_path="../../../etc/passwd", or absolute paths to
+other locations) whether caused by a model mistake or by possible prompt
+injection from the contents of a previously read file.
 
-Modul ini bersifat ADDITIVE murni: hanya menambah pemeriksaan BARU sebelum
-tool dieksekusi. Untuk path yang valid (kasus normal, 99.9% penggunaan
-sehari-hari), fungsi ini selalu mengembalikan (True, "OK") dan sama sekali
-tidak mengubah perilaku yang sudah stabil.
+This module is purely ADDITIVE: it only adds a NEW check before the tool
+executes. For valid paths (the normal case, 99.9% of daily use) this
+function always returns (True, "OK") and does not change the already
+stable behaviour at all.
 """
 
 import os
 
-# Pola nama file/folder sensitif yang sebaiknya tidak ditimpa otomatis oleh
-# model tanpa konfirmasi eksplisit dari user, meskipun path-nya valid secara
-# teknis (masih di dalam project). Ini heuristik SOFT -- tujuannya mencegah
-# insiden tidak sengaja (misal model mencoba "membersihkan" .env), bukan
-# proteksi keamanan yang absolut.
+# Sensitive file/folder name patterns that the model should not overwrite
+# automatically without explicit user confirmation, even when the path is
+# technically valid (still inside the project). This is a SOFT heuristic --
+# its goal is preventing accidental incidents (e.g. the model trying to
+# "clean up" .env), not absolute security protection.
 SENSITIVE_PATTERNS = (
     ".env",
     ".git/",
@@ -34,10 +34,10 @@ def is_path_safe(project_path: str, file_path: str):
     """
     Return (is_safe: bool, reason: str).
 
-    is_safe True HANYA jika file_path, setelah di-resolve secara absolut,
-    tetap berada di dalam project_path. False jika terdeteksi path
-    traversal (../..), path absolut ke luar project, atau beda drive
-    (khusus Windows).
+    is_safe is True ONLY if file_path, after being resolved to an absolute
+    path, stays inside project_path. False when path traversal (../..) is
+    detected, an absolute path outside the project, or a different drive
+    (Windows only).
     """
     if not project_path:
         return False, "project_path has not been set in the system."
@@ -53,8 +53,9 @@ def is_path_safe(project_path: str, file_path: str):
     try:
         common = os.path.commonpath([project_root, target_path])
     except ValueError:
-        # Terjadi kalau project & target di drive berbeda (khusus Windows,
-        # misal project di D:\ tapi target ter-resolve ke C:\)
+        # Happens when project & target are on different drives (Windows
+        # only, e.g. the project is on one drive but the target resolves to
+        # another)
         return False, (
             f"Path '{file_path}' points to a different drive/location than the "
             f"project root ('{project_root}'). Operation denied for security."
@@ -70,9 +71,9 @@ def is_path_safe(project_path: str, file_path: str):
 
 
 def is_sensitive_file(file_path: str) -> bool:
-    """Heuristik sederhana: apakah file ini kemungkinan berisi
-    secret/credential yang sebaiknya tidak diedit otomatis tanpa konfirmasi
-    eksplisit dari user."""
+    """Simple heuristic: is this file likely to contain secrets/credentials
+    that should not be edited automatically without the user's explicit
+    confirmation?"""
     if not file_path:
         return False
     normalized = str(file_path).replace("\\", "/").lower()

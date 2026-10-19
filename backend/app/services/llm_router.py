@@ -6,30 +6,30 @@ import re
 
 import litellm
 
-# >>> FIX KRITIS: _turn_on_debug() sebelumnya AKTIF TANPA SYARAT.
-# Ini membuat litellm mencetak raw request/response PENUH (termasuk seluruh
-# histori messages) ke stdout untuk SETIAP panggilan acompletion() — dan
-# dengan max_iterations bisa sampai ratusan per task, ini bisa membanjiri
-# pipe stdout yang ditangkap proses induk (mis. ekstensi VS Code). Kalau
-# proses induk tidak membaca cukup cepat, backend bisa macet menunggu
-# buffer kosong (backpressure), lalu di-kill paksa oleh watchdog/health-check
-# proses induk — inilah salah satu penyebab paling mungkin dari
-# "terminal process terminated" yang muncul acak.
-# Sekarang hanya aktif jika eksplisit di-set via .env, untuk debugging manual.
+# >>> CRITICAL FIX: _turn_on_debug() used to be ON UNCONDITIONALLY.
+# That made litellm print the FULL raw request/response (including the whole
+# message history) to stdout on EVERY acompletion() call — and with
+# max_iterations there can be hundreds per task, which could flood the stdout
+# pipe captured by the parent process (e.g. the VS Code extension). If the
+# parent does not read fast enough, the backend can stall waiting for the
+# buffer to drain (backpressure), then get force-killed by the parent's
+# watchdog/health-check — one of the most likely causes of the random
+# "terminal process terminated" reports.
+# Now it is only enabled when explicitly set via .env, for manual debugging.
 if os.getenv("LITELLM_DEBUG", "false").lower() in ("1", "true", "yes"):
     litellm._turn_on_debug()
 
 from litellm import APIConnectionError, BadRequestError, RateLimitError, Timeout
 
 # ==========================================
-# 1. KONFIGURASI UTAMA: GEMINI (N API KEYS - ROTATION)
+# 1. PRIMARY CONFIGURATION: GEMINI (N API KEYS - ROTATION)
 # ==========================================
-# >>> FIX: sebelumnya hardcode PERSIS 3 baris (GEMINI_API_KEY_1/2/3) -- setiap
-# kali user menambah/mengurangi jumlah key di .env, file ini WAJIB diedit
-# manual lagi. Sekarang otomatis scan SEMUA env var berpola GEMINI_API_KEY_<N>
-# (N = angka berapa pun, tidak harus berurutan/tidak harus mulai dari 1),
-# diurutkan berdasarkan N, supaya menambah GEMINI_API_KEY_4, _5, dst di .env
-# langsung terpakai tanpa perlu menyentuh kode ini lagi.
+# >>> FIX: this used to hardcode EXACTLY 3 lines (GEMINI_API_KEY_1/2/3) --
+# every time the user added/removed keys in .env, this file HAD to be edited
+# manually again. Now it automatically scans ALL env vars matching the
+# GEMINI_API_KEY_<N> pattern (N = any number, need not be consecutive or
+# start at 1), sorted by N, so adding GEMINI_API_KEY_4, _5, etc. to .env
+# just works without touching this code again.
 _gemini_key_pattern = re.compile(r"^GEMINI_API_KEY_(\d+)$")
 _found_gemini_keys = []
 for _env_name, _env_value in os.environ.items():
@@ -37,9 +37,9 @@ for _env_name, _env_value in os.environ.items():
     if _match and _env_value and _env_value.strip():
         _found_gemini_keys.append((int(_match.group(1)), _env_value.strip()))
 
-# Urutkan berdasarkan angka index (GEMINI_API_KEY_1 duluan, lalu _2, dst) --
-# urutan ini tidak memengaruhi cara pakainya (tetap di-random per request),
-# hanya supaya konsisten/predictable di log.
+# Sort by index number (GEMINI_API_KEY_1 first, then _2, etc.) --
+# this order does not affect usage (keys are still randomized per request),
+# it only keeps the logs consistent/predictable.
 _found_gemini_keys.sort(key=lambda pair: pair[0])
 GEMINI_API_KEYS = [key for _, key in _found_gemini_keys]
 
@@ -48,7 +48,7 @@ print(f"[LLM_ROUTER] Detected {len(GEMINI_API_KEYS)} Gemini API keys from .env."
 PRIMARY_MODEL = os.getenv("DEFAULT_MODEL", "gemini/gemini-3.5-flash")
 
 # ==========================================
-# 2. KONFIGURASI FALLBACK 1 (OpenRouter)
+# 2. FALLBACK 1 CONFIGURATION (OpenRouter)
 # ==========================================
 FALLBACK_API_KEY = os.getenv("FALLBACK_API_KEY")
 FALLBACK_BASE_URL = os.getenv("FALLBACK_BASE_URL", "https://openrouter.ai/api/v1")
@@ -56,7 +56,7 @@ raw_fallback_models = os.getenv("FALLBACK_MODELS", "")
 FALLBACK_MODELS = [m.strip() for m in raw_fallback_models.split(",") if m.strip()]
 
 # ==========================================
-# 3. KONFIGURASI FALLBACK 2: CLOUDFLARE
+# 3. FALLBACK 2 CONFIGURATION: CLOUDFLARE
 # ==========================================
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
 CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
@@ -64,13 +64,13 @@ raw_cf_models = os.getenv("CLOUDFLARE_MODELS", "")
 CLOUDFLARE_MODELS = [m.strip() for m in raw_cf_models.split(",") if m.strip()]
 
 # ==========================================
-# 4. KONFIGURASI RETRY & TIMEOUT
+# 4. RETRY & TIMEOUT CONFIGURATION
 # ==========================================
 TIMEOUT_SEC = int(os.getenv("LLM_TIMEOUT", "60"))
 MAX_RETRIES = max(1, int(os.getenv("LLM_MAX_RETRIES_PER_MODEL", "2")))
 
-# >>> PATCH ORION-6b: konfigurasi baru (semua punya default aman)
-# minimal | low | medium | high   -- pakai "high" untuk agent coding
+# >>> PATCH ORION-6b: new configuration (all have safe defaults)
+# minimal | low | medium | high   -- use "high" for a coding agent
 REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "high").strip().lower()
 if REASONING_EFFORT not in {"minimal", "low", "medium", "high"}:
     REASONING_EFFORT = "high"
@@ -80,17 +80,17 @@ BACKOFF_BASE = float(os.getenv("LLM_BACKOFF_BASE", "1.5"))
 BACKOFF_CAP = float(os.getenv("LLM_BACKOFF_CAP", "20.0"))
 
 # ==========================================
-# 5. TEMPERATURE PER TIER
+# 5. PER-TIER TEMPERATURE
 # ==========================================
-# >>> FIX KRITIS: sebelumnya temperature=1.0 di-HARDCODE untuk SEMUA model di
-# SEMUA tier (Gemini, OpenRouter, Cloudflare) sekaligus. Angka 1.0 itu memang
-# perlu KHUSUS untuk Gemini 3.x (supaya tidak hang/timeout — lihat komentar di
-# acompletion() di bawah), TAPI model fallback tier 2/3 biasanya jauh lebih
-# kecil/lemah. Dipaksa temperature setinggi itu membuat model-model kecil ini
-# mengeluarkan output tidak koheren — kata ngawur, tata bahasa rusak, bahkan
-# kata dari bahasa lain nyasar (persis gejala yang dilaporkan user: jawaban
-# "tidak nyambung"). Sekarang tiap tier punya temperature sendiri yang lebih
-# aman untuk fallback, dan tetap bisa dioverride lewat .env kalau perlu.
+# >>> CRITICAL FIX: temperature=1.0 used to be HARDCODED for ALL models on
+# ALL tiers (Gemini, OpenRouter, Cloudflare) at once. That 1.0 value is only
+# needed SPECIFICALLY for Gemini 3.x (to avoid hang/timeout — see the comment
+# at acompletion() below), BUT tier 2/3 fallback models are usually much
+# smaller/weaker. Forcing such a high temperature made these small models
+# produce incoherent output — gibberish words, broken grammar, even stray
+# words from other languages (exactly the symptom users reported: answers
+# that "don't connect"). Now each tier has its own temperature that is safer
+# for fallbacks, and it can still be overridden via .env if needed.
 GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "1.0"))
 FALLBACK_TEMPERATURE = float(os.getenv("FALLBACK_TEMPERATURE", "0.4"))
 CLOUDFLARE_TEMPERATURE = float(os.getenv("CLOUDFLARE_TEMPERATURE", "0.4"))
@@ -102,7 +102,7 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
     """
     execution_queue = []
 
-    # --- TIER 1: GEMINI (3 API KEYS - DIACAK UNTUK LOAD BALANCING) ---
+    # --- TIER 1: GEMINI (3 API KEYS - SHUFFLED FOR LOAD BALANCING) ---
     if GEMINI_API_KEYS and PRIMARY_MODEL:
         gemini_models = []
         for i, api_key in enumerate(GEMINI_API_KEYS):
@@ -118,7 +118,7 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
         random.shuffle(gemini_models)
         execution_queue.extend(gemini_models)
 
-    # --- TIER 2: OPENROUTER (DIACAK) ---
+    # --- TIER 2: OPENROUTER (SHUFFLED) ---
     tier2_models = []
     if FALLBACK_API_KEY:
         for fb_model in FALLBACK_MODELS:
@@ -147,7 +147,7 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
         random.shuffle(tier2_models)
         execution_queue.extend(tier2_models)
 
-    # --- TIER 3: CLOUDFLARE (DIACAK) ---
+    # --- TIER 3: CLOUDFLARE (SHUFFLED) ---
     tier3_models = []
     if CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN:
         cf_base_url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1"
@@ -174,10 +174,10 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
     for target in execution_queue:
         model_name = target["model"]
         provider_name = target["provider"]
-        # >>> FIX: pakai temperature milik tier ini, bukan 1.0 untuk semua.
+        # >>> FIX: use this tier's own temperature, not 1.0 for everything.
         target_temperature = target.get("temperature", 0.4)
 
-        # Set konfigurasi LiteLLM secara dinamis
+        # Configure LiteLLM dynamically
         if "gemini" in model_name.lower():
             os.environ["GEMINI_API_KEY"] = target["api_key"]
             litellm.api_key = target["api_key"]
@@ -194,28 +194,28 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
 
         for attempt in range(MAX_RETRIES):
             try:
-                # >>> Temperature 1.0 WAJIB khusus untuk Gemini 3.x agar tidak
-                # hang/timeout. Model fallback (OpenRouter/Cloudflare) pakai
-                # temperature lebih rendah (default 0.4) karena model-model
-                # itu umumnya lebih kecil dan gampang mengeluarkan output
-                # tidak koheren kalau temperature-nya dipaksa tinggi. <<<
-                # >>> PATCH ORION-6 (KRITIS) ==============================
-                # `reasoning_effort` adalah satu-satunya cara mengirim
-                # `thinking_level` ke Gemini 3+ lewat litellm. Dokumentasi litellm:
+                # >>> Temperature 1.0 is MANDATORY specifically for Gemini 3.x to
+                # avoid hang/timeout. Fallback models (OpenRouter/Cloudflare) use a
+                # lower temperature (default 0.4) because those models are generally
+                # smaller and easily produce incoherent output when the temperature
+                # is forced high. <<<
+                # >>> PATCH ORION-6 (CRITICAL) ==============================
+                # `reasoning_effort` is the only way to send `thinking_level` to
+                # Gemini 3+ through litellm. From the litellm documentation:
                 #   "If you omit reasoning_effort, LiteLLM does NOT send a default
                 #    thinking_level, so the request uses the Gemini API defaults."
-                # Dan default API untuk gemini-3.5-flash-lite adalah MINIMAL, yang
-                # menurut dokumentasi Google menyebabkan
+                # And the API default for gemini-3.5-flash-lite is MINIMAL, which
+                # per Google's documentation causes
                 #   "premature tool termination on multi-step tasks"
-                # -- persis keluhan "hanya mengerjakan tugas pertama".
+                # -- exactly the "only does the first task" complaint.
                 #
-                # Hanya dikirim untuk model Gemini; provider lain bisa menolak.
+                # Only sent for Gemini models; other providers may reject it.
                 # =================================================================
                 extra_kwargs = {}
                 if "gemini" in model_name.lower():
                     extra_kwargs["reasoning_effort"] = REASONING_EFFORT
-                    # gemini-3.5-flash-lite MENGABAIKAN nilai temperature kustom,
-                    # jadi tidak dikirim kecuali diminta eksplisit lewat .env
+                    # gemini-3.5-flash-lite IGNORES custom temperature values,
+                    # so it is not sent unless explicitly requested via .env
                     if not KIRIM_TEMPERATURE_GEMINI:
                         target_temperature = None
 
@@ -264,14 +264,14 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
 
             except (Timeout, APIConnectionError) as e:
                 last_error = e
-                # >>> FIX: sebelumnya selalu `break` walau MAX_RETRIES > 1,
-                # jadi retry per-model tidak pernah benar-benar terjadi.
-                # Error transient (timeout/koneksi) layak dicoba ulang di
-                # MODEL YANG SAMA dulu sebelum menyerah dan pindah provider.
+                # >>> FIX: this used to always `break` even when MAX_RETRIES > 1,
+                # so per-model retry never actually happened.
+                # Transient errors (timeout/connection) deserve a retry on the
+                # SAME MODEL first before giving up and switching providers.
                 if attempt < MAX_RETRIES - 1:
-                    # >>> PATCH ORION-7: sebelumnya `continue` langsung (retry instan).
-                    # Untuk timeout/429, menembak ulang seketika hampir pasti gagal lagi
-                    # dan cuma membakar kuota free tier. Sekarang ada jeda + jitter.
+                    # >>> PATCH ORION-7: this used to `continue` immediately (instant retry).
+                    # For timeout/429, firing again instantly almost certainly fails again
+                    # and just burns free-tier quota. Now there is a delay + jitter.
                     _jeda = min(BACKOFF_BASE ** (attempt + 1), BACKOFF_CAP) * random.uniform(0.7, 1.3)
                     print(
                         f"[LLM_ROUTER] [WARNING] {model_name} TIMEOUT/CONNECTION FAILED! "
@@ -285,7 +285,7 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
                 break
 
             except Exception as e:
-                # TAMBAHKAN INI: Cetak error mentah dari LiteLLM
+                # ADDED: print the raw error from LiteLLM
                 print(f"[LLM_ROUTER] [DEBUG] FULL ERROR: {e!r}")
                 err_str = str(e).lower()
                 if (

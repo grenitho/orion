@@ -10,7 +10,7 @@ import sys
 
 
 class ToolExecutor:
-    # >>> PATCH ORION-27b: daftar operasi git yang dilarang lewat run_terminal.
+    # >>> PATCH ORION-27b: list of git operations forbidden through run_terminal.
     GIT_DIBLOKIR = [
         (r"^git\s+init\b", "restructures folders and is proven to hang",
          "No git repo is needed to work. Safe points are available via .orion/backups "
@@ -35,16 +35,17 @@ class ToolExecutor:
 
     def _resolve_safe_path(self, relative_path: str):
         """
-        >>> FIX (path-traversal guard, defense-in-depth): main.py sudah punya
-        permission_manager.is_path_safe() untuk write_file/edit_file, TAPI itu
-        hanya berlaku kalau caller-nya lewat main.py. ToolExecutor sendiri (read_file,
-        read_file_range, read_json_path, write_file, edit_file, list_files) tidak
-        punya pertahanan apa pun kalau dipanggil langsung — file_path berisi '../../'
-        bisa membocorkan/menimpa file di luar project. Resolve ke absolute path
-        (menangani '..' dan symlink) lalu pastikan hasilnya masih di dalam
-        self.project_path sebelum disentuh sama sekali.
+        >>> FIX (path-traversal guard, defense-in-depth): main.py already has
+        permission_manager.is_path_safe() for write_file/edit_file, BUT that
+        only applies when the caller goes through main.py. ToolExecutor itself
+        (read_file, read_file_range, read_json_path, write_file, edit_file,
+        list_files) had no defense at all when called directly — a file_path
+        containing '../../' could leak/overwrite files outside the project.
+        Resolve to an absolute path (handling '..' and symlinks), then make
+        sure the result is still inside self.project_path before touching
+        anything at all.
 
-        Return: (abs_path, None) kalau aman, atau (None, error_message) kalau tidak.
+        Return: (abs_path, None) when safe, or (None, error_message) when not.
         """
         candidate = os.path.realpath(os.path.join(self.project_path, relative_path))
         project_root = os.path.realpath(self.project_path)
@@ -59,7 +60,7 @@ class ToolExecutor:
         return candidate, None
 
     def list_files(self, path: str = ".", depth: int = 2) -> str:
-        """Membaca struktur folder dan file di path tertentu secara dinamis."""
+        """Read the folder and file structure at a given path, dynamically."""
         target_path, err = self._resolve_safe_path(path)
         if err:
             return err
@@ -78,19 +79,19 @@ class ToolExecutor:
         }
 
         for root, dirs, files in os.walk(target_path):
-            # Filter folder yang diabaikan
+            # Filter out ignored folders
             dirs[:] = [d for d in dirs if d not in ignored_dirs]
 
-            # Batasi kedalaman
-            # >>> FIX: root.replace(target_path, "") rapuh kalau target_path
-            # kebetulan muncul lagi sebagai substring di bagian lain path
-            # (mis. project bernama "app" dan ada subfolder lain bernama "app"
-            # juga). os.path.relpath menghitung dari struktur path yang
-            # sebenarnya, bukan pencocokan string mentah.
+            # Limit the depth
+            # >>> FIX: root.replace(target_path, "") is fragile when target_path
+            # happens to appear again as a substring elsewhere in the path
+            # (e.g. a project named "app" that also has another subfolder named
+            # "app"). os.path.relpath computes from the actual path structure,
+            # not raw string matching.
             rel = os.path.relpath(root, target_path)
             level = 0 if rel == "." else rel.count(os.sep) + 1
             if level >= depth:
-                dirs[:] = []  # Stop menelusuri lebih dalam
+                dirs[:] = []  # Stop descending deeper
                 continue
 
             indent = " " * 4 * level
@@ -98,13 +99,13 @@ class ToolExecutor:
 
             sub_indent = " " * 4 * (level + 1)
             for file in files:
-                if not file.startswith("."):  # Abaikan file hidden
+                if not file.startswith("."):  # Ignore hidden files
                     tree.append(f"{sub_indent}{file}")
 
         return "\n".join(tree) if tree else "Empty folder."
 
     def read_file(self, file_path: str) -> str:
-        """Membaca isi lengkap dari sebuah file."""
+        """Read the full contents of a file."""
         full_path, err = self._resolve_safe_path(file_path)
         if err:
             return err
@@ -117,7 +118,7 @@ class ToolExecutor:
     def read_file_range(
         self, file_path: str, start_line: int = 1, end_line: int = 50
     ) -> str:
-        """Membaca file per rentang baris. Sangat berguna untuk file besar."""
+        """Read a file by line range. Very useful for large files."""
         full_path, err = self._resolve_safe_path(file_path)
         if err:
             return err
@@ -128,7 +129,7 @@ class ToolExecutor:
             return f"Error: Cannot read file. {e!s}"
 
         total_lines = len(lines)
-        # Konversi ke index 0-based dan batasi agar tidak error
+        # Convert to 0-based indices and clamp to avoid errors
         start_idx = max(0, start_line - 1)
         end_idx = min(total_lines, end_line)
 
@@ -137,13 +138,13 @@ class ToolExecutor:
 
         result_lines = []
         for i in range(start_idx, end_idx):
-            # Format: "NomorBaris: IsiBaris"
+            # Format: "LineNumber: LineContent"
             result_lines.append(f"{i + 1}: {lines[i].rstrip()}")
 
         return "\n".join(result_lines)
 
     def read_json_path(self, file_path: str, json_path: str) -> str:
-        """Membaca nilai spesifik dari file JSON menggunakan dot notation."""
+        """Read a specific value from a JSON file using dot notation."""
         full_path, err = self._resolve_safe_path(file_path)
         if err:
             return err
@@ -166,23 +167,24 @@ class ToolExecutor:
         except (KeyError, IndexError, ValueError):
             return f"Error: Path '{json_path}' not found inside the JSON."
 
-        # Format output agar mudah dibaca LLM
+        # Format the output so it is easy for the LLM to read
         if isinstance(current, (dict, list)):
             return json.dumps(current, indent=2)
         return str(current)
 
     def _backup_before_overwrite(self, full_path: str, file_path: str) -> str:
         """
-        >>> FIX: sebelumnya write_file/edit_file langsung menimpa file tanpa
-        jejak sama sekali — kalau LLM salah tulis, versi lama sudah hilang,
-        tidak ada jalan mundur. Simpan salinan file lama (kalau ada) ke
-        .orion/backups/<path>.bak sebelum ditimpa. Backup ditimpa lagi di
-        overwrite berikutnya (cukup 1 generasi mundur, bukan riwayat penuh)
-        supaya tidak membengkak. Kegagalan backup TIDAK BOLEH menggagalkan
-        operasi utama — ini lapisan pengaman tambahan, bukan syarat.
+        >>> FIX: write_file/edit_file used to overwrite files without any
+        trace — if the LLM wrote something wrong, the old version was gone
+        with no way back. Save a copy of the old file (if any) to
+        .orion/backups/<path>.bak before overwriting. The backup is
+        overwritten again on the next overwrite (only 1 generation back, not
+        a full history) so it cannot bloat. A backup failure MUST NOT fail
+        the main operation — this is an extra safety layer, not a
+        precondition.
         """
         if not os.path.exists(full_path):
-            return ""  # File baru, tidak ada yang perlu di-backup
+            return ""  # New file, nothing to back up
         try:
             backup_root = os.path.join(self.project_path, ".orion", "backups")
             backup_path = os.path.join(backup_root, file_path + ".bak")
@@ -193,7 +195,7 @@ class ToolExecutor:
             return f" [WARNING: backup could not be created: {e}]"
 
     def write_file(self, file_path: str, content: str) -> str:
-        """Membuat file baru atau menimpa file yang ada."""
+        """Create a new file or overwrite an existing one."""
         full_path, err = self._resolve_safe_path(file_path)
         if err:
             return err
@@ -208,7 +210,7 @@ class ToolExecutor:
 
     def edit_file(self, file_path: str, diff: str):
         """
-        Mengedit file menggunakan format SEARCH/REPLACE.
+        Edit a file using the SEARCH/REPLACE format.
         """
         abs_path, err = self._resolve_safe_path(file_path)
         if err:
@@ -223,8 +225,8 @@ class ToolExecutor:
         except Exception as e:
             return f"Error reading file: {e!s}"
 
-        # Regex untuk mengekstrak blok SEARCH dan REPLACE
-        # Format yang diharapkan:
+        # Regex to extract the SEARCH and REPLACE blocks
+        # Expected format:
         # <<<<<<< SEARCH
         # [old code]
         # =======
@@ -242,14 +244,14 @@ class ToolExecutor:
         success_count = 0
 
         for search_block, replace_block in matches:
-            # Strip trailing/leading newlines yang mungkin tidak sengaja ditambahkan LLM
+            # Strip trailing/leading newlines the LLM may have added unintentionally
             search_block = search_block.strip("\n")
             replace_block = replace_block.strip("\n")
 
             if search_block not in new_content:
                 return f"Error: SEARCH block not found in the original file. There may be differing whitespace/newlines.\n\nYour SEARCH block:\n---\n{search_block}\n---"
 
-            # Ganti hanya yang pertama kali ditemukan untuk menghindari duplikasi jika bloknya sama
+            # Replace only the first occurrence to avoid duplicates when blocks are identical
             new_content = new_content.replace(search_block, replace_block, 1)
             success_count += 1
 
@@ -264,12 +266,12 @@ class ToolExecutor:
 
     def search_code(self, query: str, file_pattern: str = "*") -> str:
         import fnmatch
-        import os  # Pastikan os di-import
+        import os  # Make sure os is imported
 
         results = []
         max_results = 50
 
-        # >>> TAMBAHKAN BARIS INI <<<
+        # >>> ADDED THIS LINE <<<
         BINARY_EXTENSIONS = {
             ".exe",
             ".dll",
@@ -292,7 +294,7 @@ class ToolExecutor:
             return "Error: Invalid regex format."
 
         for root, dirs, files in os.walk(self.project_path):
-            # Abaikan folder yang tidak perlu
+            # Ignore folders that are not needed
             dirs[:] = [
                 d
                 for d in dirs
@@ -316,10 +318,10 @@ class ToolExecutor:
                 if file_pattern != "*" and not fnmatch.fnmatch(file, file_pattern):
                     continue
 
-                # >>> TAMBAHKAN LOGIKA INI <<<
+                # >>> ADDED THIS LOGIC <<<
                 ext = os.path.splitext(file)[1].lower()
                 if ext in BINARY_EXTENSIONS:
-                    continue  # Lewati file binary, jangan dibaca!
+                    continue  # Skip binary files, do not read them!
 
                 file_path = os.path.join(root, file)
                 rel_path = os.path.relpath(file_path, self.project_path)
@@ -342,7 +344,7 @@ class ToolExecutor:
         return "\n".join(results)
 
     def web_search(self, query: str, max_results: int = 5) -> str:
-        """Mencari informasi real-time dari internet untuk mengatasi jalan buntu."""
+        """Search the internet for real-time information to get unstuck."""
         try:
             from ddgs import DDGS
 
@@ -352,7 +354,7 @@ class ToolExecutor:
             if not results:
                 return "No results found for that query."
 
-            # Format hasil agar mudah dibaca oleh LLM
+            # Format results so they are easy for the LLM to read
             formatted_results = []
             for r in results:
                 formatted_results.append(
@@ -368,14 +370,14 @@ class ToolExecutor:
             return f"Error during web search: {e!s}"
 
     def web_fetch(self, url: str, max_chars: int = 20000) -> str:
-        """Ambil isi sebuah URL dan kembalikan sebagai teks bersih.
+        """Fetch the contents of a URL and return it as clean text.
 
-        Melengkapi web_search: pencarian hanya memberi CUPLIKAN, sedangkan
-        tool ini membiarkan Orion membaca dokumentasi/halaman error secara utuh.
+        Complements web_search: searching only yields SNIPPETS, while this
+        tool lets Orion read documentation/error pages in full.
 
-        Hanya pakai pustaka standar (urllib) -- tidak menambah dependensi.
-        Ada proteksi SSRF: URL yang mengarah ke localhost/jaringan privat
-        DITOLAK, karena alamat tujuan dipilih oleh model.
+        Uses only the standard library (urllib) -- no added dependencies.
+        Has SSRF protection: URLs pointing at localhost/private networks are
+        REJECTED, because the destination address is chosen by the model.
         """
         import ipaddress
         import socket
@@ -397,7 +399,7 @@ class ToolExecutor:
         if parsed.hostname is None:
             return "Error: URL has no hostname."
 
-        # ---- proteksi SSRF ----
+        # ---- SSRF protection ----
         try:
             host = parsed.hostname.lower()
             if host in ("localhost", "metadata.google.internal"):
@@ -415,10 +417,10 @@ class ToolExecutor:
                 "User-Agent": "Mozilla/5.0 (compatible; OrionBot/1.0; code-assistant)",
                 "Accept": "text/html,application/xhtml+xml,text/plain,application/json,*/*;q=0.8",
             })
-            with urllib.request.urlopen(req, timeout=20) as resp:  # nosec - URL sudah divalidasi
+            with urllib.request.urlopen(req, timeout=20) as resp:  # nosec - URL already validated
                 status = resp.status
                 ctype = resp.headers.get("Content-Type", "")
-                mentah = resp.read(3_000_000)   # batas 3 MB
+                mentah = resp.read(3_000_000)   # 3 MB cap
         except urllib.error.HTTPError as e:
             return f"HTTP error {e.code} while fetching {url}: {e.reason}"
         except urllib.error.URLError as e:
@@ -431,12 +433,13 @@ class ToolExecutor:
         except Exception:  # noqa: BLE001
             return f"Error: failed to decode response from {url} (Content-Type: {ctype})."
 
-        # ---- bersihkan HTML jadi teks ----
+        # ---- clean HTML into text ----
         if "html" in ctype.lower() or teks.lstrip()[:1].startswith("<"):
             import re as _re
-            # >>> PATCH ORION-35c: halaman dokumentasi modern menaruh MENU navigasi
-            # di awal dokumen, sehingga ekstrak polos mengembalikan daftar menu
-            # bukan isi. Buang boilerplate dulu, lalu prioritaskan <main>/<article>.
+            # >>> PATCH ORION-35c: modern documentation pages put the navigation
+            # MENU at the start of the document, so a naive extraction returns the
+            # menu list instead of the content. Strip boilerplate first, then
+            # prioritize <main>/<article>.
             teks = _re.sub(r"(?is)<(nav|header|footer|aside|menu)[^>]*>.*?</\1>", " ", teks)
             _inti = _re.search(r"(?is)<(main|article)[^>]*>(.*?)</\1>", teks)
             if _inti and len(_inti.group(2)) > 800:
@@ -471,11 +474,10 @@ class ToolExecutor:
 
     # >>> PATCH ORION-23a ================================================
     def _cek_sintaks_js(self, kode: str):
-        """Return (nomor_baris, pesan) kalau ada error sintaks, selain itu None.
+        """Return (line_number, message) when there is a syntax error, otherwise None.
 
-        Memakai `node --check` -- pemeriksa sintaks JavaScript yang SESUNGGUHNYA.
-        Membaca kode dengan mata model TIDAK bisa mendeteksi kurung yang hilang;
-        parser bisa.
+        Uses `node --check` -- the REAL JavaScript syntax checker. Reading code
+        with the model's eyes CANNOT detect a missing bracket; a parser can.
         """
         import shutil
         import subprocess
@@ -510,24 +512,24 @@ class ToolExecutor:
                     pass
 
     def verify_html(self, file_path: str) -> str:
-        """Pemeriksa HTML. Sejak ORION-25 ini hanyalah alias dari verify_code;
-        logika pemeriksaan hidup di app/services/code_verifier.py + html_checker.py
-        supaya satu sumber kebenaran untuk semua bahasa."""
+        """HTML checker. Since ORION-25 this is merely an alias of verify_code;
+        the checking logic lives in app/services/code_verifier.py + html_checker.py
+        so there is one source of truth for all languages."""
         return self.verify_code(file_path)
 
     def verify_code(self, file_path: str) -> str:
-        """Periksa file APA PUN yang didukung dengan parser/compiler sungguhan.
+        """Check ANY supported file with real parsers/compilers.
 
-        Mendukung: .py .js .mjs .cjs .jsx .ts .tsx .html .htm .json .xml .svg
-        .yaml .yml .css .scss -- dan juga FOLDER (memeriksa sampai 40 file).
+        Supports: .py .js .mjs .cjs .jsx .ts .tsx .html .htm .json .xml .svg
+        .yaml .yml .css .scss -- and also FOLDERS (checks up to 40 files).
 
-        Untuk .py: sintaks (compile), impor yang tidak terpasang (akan jadi
-        ModuleNotFoundError saat dijalankan), plus ruff/pyflakes bila tersedia.
-        Untuk .js: node --check. Untuk .ts: tsc --noEmit bila tersedia.
-        Untuk .html: sintaks <script> inline + id duplikat + referensi DOM +
-        keseimbangan tag struktural.
+        For .py: syntax (compile), uninstalled imports (which would become
+        ModuleNotFoundError at runtime), plus ruff/pyflakes when available.
+        For .js: node --check. For .ts: tsc --noEmit when available.
+        For .html: inline <script> syntax + duplicate ids + DOM references +
+        structural tag balance.
 
-        WAJIB dipakai sebelum menyatakan kode "berfungsi" atau "selesai".
+        MUST be used before declaring code "working" or "finished".
         """
         from app.services import code_verifier
 
@@ -536,16 +538,16 @@ class ToolExecutor:
             return err
         return code_verifier.verify_path(full, self._pilih_interpreter_python())
 
-    # >>> AKHIR PATCH ORION-23a ==========================================
+    # >>> END OF PATCH ORION-23a =======================================
 
     # >>> PATCH ORION-26a ================================================
     def _path_backup(self, file_path: str) -> str:
-        """Lokasi backup untuk sebuah file, sesuai pola yang sudah dipakai
+        """Backup location for a file, following the pattern already used by
         _backup_before_overwrite: .orion/backups/<path>.bak"""
         return os.path.join(self.project_path, ".orion", "backups", file_path + ".bak")
 
     def list_backups(self, file_path: str = "") -> str:
-        """Daftar backup yang tersedia untuk dipulihkan."""
+        """List the backups available for restoration."""
         root = os.path.join(self.project_path, ".orion", "backups")
         if not os.path.isdir(root):
             return "No backups exist yet in .orion/backups/."
@@ -555,7 +557,7 @@ class ToolExecutor:
                 if not nama.endswith(".bak"):
                     continue
                 full = os.path.join(akar, nama)
-                rel = os.path.relpath(full, root)[:-4]   # buang .bak
+                rel = os.path.relpath(full, root)[:-4]   # strip .bak
                 if file_path and not rel.replace("\\", "/").endswith(file_path.replace("\\", "/")):
                     continue
                 try:
@@ -570,11 +572,11 @@ class ToolExecutor:
         return f"Available backups ({len(entri)}):\n" + "\n".join(entri[:40])
 
     def restore_backup(self, file_path: str) -> str:
-        """Pulihkan file dari backup terakhirnya.
+        """Restore a file from its latest backup.
 
-        AMAN dan REVERSIBEL: versi sekarang (yang mungkin rusak) di-backup dulu
-        ke .orion/backups/<path>.pre-restore.bak sebelum ditimpa, jadi memulihkan
-        tidak pernah menghilangkan apa pun secara permanen.
+        SAFE and REVERSIBLE: the current version (possibly broken) is backed
+        up first to .orion/backups/<path>.pre-restore.bak before being
+        overwritten, so restoring never loses anything permanently.
         """
         full, err = self._resolve_safe_path(file_path)
         if err:
@@ -596,10 +598,10 @@ class ToolExecutor:
             return f"Error: failed to restore '{file_path}': {e}"
 
     def delete_file(self, file_path: str) -> str:
-        """Hapus file, TAPI backup dulu sehingga bisa dipulihkan.
+        """Delete a file, BUT back it up first so it can be restored.
 
-        Orion sebelumnya hanya bisa menghapus lewat run_terminal (memicu modal
-        konfirmasi dan tidak meninggalkan jalan pulang). Ini jalur yang aman.
+        Orion previously could only delete via run_terminal (triggering the
+        confirmation modal and leaving no way back). This is the safe path.
         """
         full, err = self._resolve_safe_path(file_path)
         if err:
@@ -616,7 +618,7 @@ class ToolExecutor:
             return f"Error: failed to delete '{file_path}': {e}"
 
     def move_file(self, from_path: str, to_path: str) -> str:
-        """Pindah/ganti nama file di dalam project, dengan backup sumber dulu."""
+        """Move/rename a file inside the project, backing up the source first."""
         src, err = self._resolve_safe_path(from_path)
         if err:
             return err
@@ -639,12 +641,13 @@ class ToolExecutor:
             return f"Error: failed to move: {e}"
 
     def git_commit(self, message: str) -> str:
-        """Buat titik aman (checkpoint) dengan git commit.
+        """Create a safe point (checkpoint) with git commit.
 
-        Orion dulu mencoba `git commit` lewat run_terminal -- menakutkan bagi user
-        karena memicu modal konfirmasi perintah shell. Ini jalur khusus yang
-        terkendali: hanya `git add -A` + `git commit`, tanpa shell, dan menolak
-        dengan pesan jelas kalau folder bukan repo git.
+        Orion used to attempt `git commit` through run_terminal -- scary for
+        the user because it triggered the shell-command confirmation modal.
+        This is a controlled dedicated path: only `git add -A` + `git commit`,
+        no shell, and it rejects with a clear message when the folder is not
+        a git repo.
         """
         pesan = (message or "").strip() or "Orion checkpoint"
         if not os.path.isdir(os.path.join(self.project_path, ".git")):
@@ -668,16 +671,17 @@ class ToolExecutor:
             return f"Success: git checkpoint created. {keluar.splitlines()[0] if keluar else ''}"
         except (OSError, subprocess.SubprocessError) as e:
             return f"Error running git: {e}"
-    # >>> AKHIR PATCH ORION-26a ==========================================
+    # >>> END OF PATCH ORION-26a ========================================
 
     # >>> PATCH ORION-30a ================================================
     def _pilih_interpreter_python(self) -> str:
-        """Pakai venv MILIK PROJECT yang diperiksa, bukan venv backend Orion.
+        """Use the CHECKED PROJECT'S OWN venv, not the Orion backend's venv.
 
-        Tanpa ini, `run_tests` pada project lain dijalankan dengan interpreter
-        backend: dependensi project itu tidak terlihat, dan laporannya bisa
-        menyebut "ModuleNotFoundError" yang sebenarnya tidak ada di lingkungan
-        project -- atau sebaliknya, lulus karena kebetulan backend punya paketnya.
+        Without this, `run_tests` on another project ran with the backend's
+        interpreter: that project's dependencies were invisible, and the
+        report could claim "ModuleNotFoundError" that does not actually exist
+        in the project environment -- or conversely, pass only because the
+        backend happened to have the package.
         """
         for kandidat in (
             os.path.join(self.project_path, ".venv", "Scripts", "python.exe"),
@@ -699,7 +703,7 @@ class ToolExecutor:
             return False
 
     def _deteksi_runner_test(self):
-        """Tentukan cara menjalankan test berdasarkan isi project. Return (nama, argv) atau None."""
+        """Decide how to run tests based on the project contents. Return (name, argv) or None."""
         root = self.project_path
 
         # Python: pytest
@@ -710,10 +714,10 @@ class ToolExecutor:
         if punya_pytest_cfg or self._ada_file_test_python(root):
             interp = self._pilih_interpreter_python()
             if not self._pytest_terpasang(interp):
-                return ("pytest-hilang", [interp])   # ditandai; ditangani run_tests
+                return ("pytest-hilang", [interp])   # flagged; handled by run_tests
             return ("pytest", [interp, "-m", "pytest", "-q", "--tb=line", "-p", "no:cacheprovider"])
 
-        # Node: package.json dengan script test yang bukan placeholder
+        # Node: package.json with a test script that is not a placeholder
         pkg = os.path.join(root, "package.json")
         if os.path.isfile(pkg):
             try:
@@ -742,17 +746,17 @@ class ToolExecutor:
         return False
 
     def run_tests(self, command: str = "", timeout: int = 180) -> str:
-        """Jalankan test suite project dan LAPORKAN HASILNYA SECARA TERURAI.
+        """Run the project's test suite and REPORT THE RESULTS IN DETAIL.
 
-        Kenapa tool ini ada: tanpa dia, satu-satunya cara Orion mengetahui
-        perilakuan kode adalah menjalankannya lewat run_terminal lalu membaca
-        output mentah ratusan baris -- mahal token dan mudah salah baca.
-        Di sini output dipadatkan jadi: jumlah lulus/gagal + daftar test yang
-        gagal + satu baris penyebab per kegagalan.
+        Why this tool exists: without it, the only way for Orion to learn the
+        code's behaviour was running it via run_terminal and reading hundreds
+        of lines of raw output -- token-expensive and easy to misread.
+        Here the output is condensed to: pass/fail counts + the list of
+        failed tests + one cause line per failure.
 
-        Runner dideteksi otomatis (pytest / npm test / go test) kecuali
-        `command` diisi manual. Menjalankan test berarti menjalankan kode
-        project -- sama tingkat kepercayaannya dengan menjalankan aplikasinya.
+        The runner is detected automatically (pytest / npm test / go test)
+        unless `command` is filled in manually. Running tests means running
+        project code -- the same trust level as running the application.
         """
         if command and command.strip():
             nama, argv = "manual", command.strip().split()
@@ -797,7 +801,7 @@ class ToolExecutor:
         return self._urai_hasil_test(nama, r.returncode, keluar)
 
     def _urai_hasil_test(self, nama: str, kode_keluar: int, keluar: str) -> str:
-        """Padatkan output test jadi laporan yang murah token dan mudah ditindaklanjuti."""
+        """Condense test output into a report that is token-cheap and easy to act on."""
         baris = keluar.splitlines()
 
         if nama == "pytest":
@@ -819,7 +823,7 @@ class ToolExecutor:
                           "while tests are still red.")
             return "\n".join(bagian)
 
-        # runner lain (npm/go/manual): padatkan secara umum
+        # other runners (npm/go/manual): condense generically
         pola_gagal = re.search(r"(\d+)\s+(?:failed|failing)", keluar, re.I)
         pola_lulus = re.search(r"(\d+)\s+(?:passed|ok\b)", keluar, re.I)
         if kode_keluar == 0:
@@ -831,12 +835,12 @@ class ToolExecutor:
                 f"failed={pola_gagal.group(1) if pola_gagal else '?'}.\n"
                 "  last 25 lines of output:\n" + "\n".join(f"    {b[:160]}" for b in penting)
                 + "\nFix these before claiming completion.")
-    # >>> AKHIR PATCH ORION-30a ==========================================
+    # >>> END OF PATCH ORION-30a ========================================
 
     def git_status(self) -> str:
-        """Melihat daftar file yang berubah (sangat hemat token)."""
+        """View the list of changed files (very token-efficient)."""
         try:
-            # Hanya ambil nama file yang dimodifikasi, ditambah, atau dihapus
+            # Only take the names of modified, added, or deleted files
             cmd = ["git", "status", "--porcelain"]
             result = subprocess.run(
                 cmd, cwd=self.project_path, capture_output=True, text=True, timeout=10
@@ -845,7 +849,7 @@ class ToolExecutor:
                 if not result.stdout.strip():
                     return "Working tree clean. No files changed."
 
-                # Format output agar mudah dibaca dan sangat singkat
+                # Format the output to be readable and very terse
                 lines = result.stdout.strip().split("\n")
                 return f"Changed files ({len(lines)} files):\n" + "\n".join(
                     [f"- {line[3:]}" for line in lines if line]
@@ -855,10 +859,10 @@ class ToolExecutor:
             return f"Failed to run git status: {e!s}"
 
     def git_diff(self, file_path: str = "") -> str:
-        """Melihat perubahan kode. AMAN: Jika file_path kosong, hanya merangkum file yang berubah, bukan menampilkan seluruh diff."""
+        """View code changes. SAFE: when file_path is empty it only summarizes the changed files instead of showing the whole diff."""
         try:
             if file_path:
-                # Jika file spesifik diminta, tampilkan diff-nya (TAPI DIBATASI)
+                # If a specific file is requested, show its diff (BUT CAPPED)
                 cmd = ["git", "diff", file_path]
                 result = subprocess.run(
                     cmd,
@@ -871,7 +875,7 @@ class ToolExecutor:
                     diff_text = result.stdout
                     if not diff_text.strip():
                         return f"No changes in {file_path}."
-                    # 🛡️ PENGAMAN: Batasi output diff maksimal 1500 karakter (~300 token)
+                    # 🛡️ SAFEGUARD: cap diff output at 1500 characters (~300 tokens)
                     if len(diff_text) > 1500:
                         return (
                             diff_text[:1500]
@@ -880,8 +884,8 @@ class ToolExecutor:
                     return diff_text
                 return f"Error git diff: {result.stderr}"
             else:
-                # 🛡️ PENGAMAN UTAMA: Jika tidak ada file_path, JANGAN tampilkan seluruh diff project!
-                # Cukup panggil git_status agar model tahu file mana yang berubah.
+                # 🛡️ MAIN SAFEGUARD: when there is no file_path, do NOT show the whole project diff!
+                # Just call git_status so the model knows which files changed.
                 return (
                     self.git_status()
                     + "\n\n[INFO: To see the actual changes, call git_diff with a specific file_path argument, or use read_file_range.]"
@@ -891,15 +895,16 @@ class ToolExecutor:
 
     def run_terminal(self, command: str, timeout: int = 120) -> str:
         """
-        Menjalankan perintah terminal dengan timeout dan kill tree yang agresif.
-        Mencegah zombie process (seperti rustc.exe) yang memblokir sistem.
+        Run a terminal command with a timeout and aggressive process-tree kill.
+        Prevents zombie processes (like rustc.exe) from blocking the system.
         """
         # >>> PATCH ORION-27 ==============================================
-        # Blokir operasi git yang merusak / jaringan / bisa hang lewat run_terminal.
-        # Kasus nyata: Orion menjalankan `git init` lewat sini dan hang, lalu
-        # backend mati dan user melihat "koneksi terputus". Operasi git yang aman
-        # sudah punya tool sendiri (git_status, git_diff, git_commit); sisanya
-        # adalah hak user untuk menjalankan secara sadar, bukan hak agent.
+        # Block destructive / networked / hang-prone git operations through
+        # run_terminal. Real case: Orion ran `git init` through here and hung,
+        # then the backend died and the user saw "connection lost". The safe
+        # git operations already have their own tools (git_status, git_diff,
+        # git_commit); the rest is the user's right to run consciously, not
+        # the agent's.
         # ==================================================================
         for pola, alasan, saran in self.GIT_DIBLOKIR:
             if re.search(pola, command.strip().lower()):
@@ -909,13 +914,13 @@ class ToolExecutor:
                     "Do NOT try to work around this rejection with other command variants; "
                     "report to the user that the operation requires manual action."
                 )
-        # >>> FIX (crash fatal di non-Windows): subprocess.CREATE_NEW_PROCESS_GROUP
-        # cuma ADA sebagai atribut modul di Windows. Di Linux/Mac,
-        # `subprocess.CREATE_NEW_PROCESS_GROUP` melempar AttributeError sebelum
-        # command apa pun sempat jalan — seluruh fitur run_terminal mati total.
-        # Solusinya beda per-platform: Windows pakai creationflags itu (lalu
-        # taskkill /T untuk kill tree), POSIX pakai preexec_fn=os.setsid untuk
-        # membuat process group baru (lalu os.killpg untuk kill tree).
+        # >>> FIX (fatal crash on non-Windows): subprocess.CREATE_NEW_PROCESS_GROUP
+        # only EXISTS as a module attribute on Windows. On Linux/Mac,
+        # `subprocess.CREATE_NEW_PROCESS_GROUP` raised AttributeError before any
+        # command could run — the entire run_terminal feature was dead.
+        # The solution differs per platform: Windows uses that creationflag (then
+        # taskkill /T for the kill tree), POSIX uses preexec_fn=os.setsid to
+        # create a new process group (then os.killpg for the kill tree).
         is_windows = sys.platform == "win32"
         popen_kwargs = {}
         if is_windows:
@@ -930,7 +935,7 @@ class ToolExecutor:
                 shell=True,
                 cwd=self.project_path,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # Gabungkan stderr ke stdout untuk mencegah deadlock
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout to prevent deadlock
                 stdin=subprocess.DEVNULL,
                 text=True,
                 bufsize=1,
@@ -939,12 +944,12 @@ class ToolExecutor:
                 **popen_kwargs,
             )
 
-            # Gunakan communicate dengan timeout untuk menangani blocking secara aman
+            # Use communicate with a timeout to handle blocking safely
             output = ""
             try:
                 output, _ = process.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
-                # AGRESIF KILL PROCESS TREE (cross-platform)
+                # AGGRESSIVELY KILL THE PROCESS TREE (cross-platform)
                 if process and process.pid:
                     if is_windows:
                         subprocess.run(
@@ -965,7 +970,7 @@ class ToolExecutor:
                     f"If this is a heavy build (such as a Tauri Release), run it manually in your own terminal."
                 )
 
-            # >>> PERBAIKAN KRITIS: Berikan pesan error yang jelas <<<
+            # >>> CRITICAL FIX: provide a clear error message <<<
             if process.returncode != 0:
                 error_msg = (
                     output.strip()
@@ -983,7 +988,7 @@ class ToolExecutor:
             return output.strip() if output.strip() else "Success, no output."
 
         except Exception as e:
-            # Fallback kill jika ada error lain (cross-platform)
+            # Fallback kill for any other error (cross-platform)
             if process and process.pid:
                 try:
                     if is_windows:

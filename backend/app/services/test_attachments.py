@@ -1,16 +1,15 @@
 """
-test_attachments.py — 8 test untuk attachments.py
+test_attachments.py — 8 tests for attachments.py
 =================================================
-Sekaligus menjadi test PERTAMA di proyek ORION (rasio test Anda sekarang 0%).
+These were also the FIRST tests in the ORION project (your test ratio was 0%).
 
-Cara menjalankan:
-    cd "<folder-project-anda>"
-    .venv\\Scripts\\Activate.ps1
+How to run:
+    cd "<your-project-folder>"
     pip install pytest
-    pytest backend\\app\\services\\test_attachments.py -v
+    python -m pytest backend/app/services/test_attachments.py -v
 
-Tidak butuh API key, tidak butuh internet, tidak menyentuh file proyek.
-Selesai dalam < 1 detik.
+No API key needed, no internet needed, does not touch project files.
+Finishes in < 1 second.
 """
 
 from __future__ import annotations
@@ -33,11 +32,11 @@ def _gambar(nama="a.png", mime="image/png", data=None):
     return {"name": nama, "mime": mime, "data": data if data is not None else PNG_PALSU}
 
 
-# ---------------------------------------------------------------- dasar
+# ---------------------------------------------------------------- basics
 
 
 def test_tanpa_lampiran_mengembalikan_string_bukan_list():
-    """Perilaku lama HARUS tidak berubah: tanpa lampiran -> content berupa str."""
+    """The old behaviour MUST NOT change: no attachments -> content is a str."""
     content, ringkasan = build_user_content("halo", None)
     assert isinstance(content, str)
     assert content == "halo"
@@ -45,7 +44,7 @@ def test_tanpa_lampiran_mengembalikan_string_bukan_list():
 
 
 def test_gambar_menghasilkan_dua_part_dengan_text_di_depan():
-    """Gemini butuh part teks lebih dulu, lalu gambar."""
+    """Gemini needs the text part first, then the image."""
     hasil = proses("perbaiki error ini", [_gambar()])
     assert len(hasil.parts) == 2
     assert hasil.parts[0]["type"] == "text"
@@ -54,27 +53,28 @@ def test_gambar_menghasilkan_dua_part_dengan_text_di_depan():
     assert hasil.parts[1]["image_url"]["url"].startswith("data:image/png;base64,")
 
 
-# ---------------------------------------------------------------- riwayat
+# ---------------------------------------------------------------- history
 
 
 def test_base64_tidak_bocor_ke_riwayat():
-    """Paling penting: riwayat harus tetap kecil.
+    """Most important: the history must stay small.
 
-    Kalau base64 masuk .orion/session_history.json, setiap iterasi agent
-    mengirim ulang gambar itu dan kuota free tier habis dalam beberapa pesan.
+    If base64 entered .orion/session_history.json, every agent iteration
+    would resend that image and the free-tier quota would be gone within a
+    few messages.
     """
     hasil = proses("cek", [_gambar()])
-    assert "iVBOR" not in hasil.ringkasan          # bukan potongan base64 PNG
+    assert "iVBOR" not in hasil.ringkasan          # not a PNG base64 fragment
     assert PNG_PALSU not in hasil.ringkasan
     assert len(hasil.ringkasan) < 500              # placeholder pendek
     assert "LAMPIRAN GAMBAR" in hasil.ringkasan
 
 
 def test_file_teks_ditempel_sebagai_teks_bukan_part_gambar():
-    """File kode harus jadi teks biasa supaya tetap berguna di iterasi berikutnya."""
+    """Code files must become plain text so they stay useful in the next iterations."""
     kode = base64.b64encode(b"def hitung(a, b):\n    return a + b\n").decode()
     hasil = proses("review fungsi ini", [{"name": "util.py", "mime": "text/x-python", "data": kode}])
-    assert hasil.parts == []                        # tidak ada part gambar
+    assert hasil.parts == []                        # no image parts
     assert "def hitung(a, b):" in hasil.ringkasan   # isinya ikut
 
 
@@ -82,7 +82,7 @@ def test_file_teks_ditempel_sebagai_teks_bukan_part_gambar():
 
 
 def test_data_uri_penuh_diterima_dan_mime_dibaca_dari_kepala():
-    """Extension bisa mengirim data URI penuh; mime tidak perlu diisi terpisah."""
+    """The extension can send a full data URI; mime need not be provided separately."""
     hasil = proses("cek", [{"name": "foto", "data": f"data:image/jpeg;base64,{PNG_PALSU}"}])
     assert len(hasil.parts) == 2
     assert "data:image/jpeg;base64," in hasil.parts[1]["image_url"]["url"]
@@ -125,9 +125,10 @@ def test_tipe_tidak_didukung_ditolak_dengan_pesan_jelas():
 
 
 def test_model_diberitahu_kalau_lampiran_gagal():
-    """PENTING: kalau lampiran gagal, model harus tahu ia TIDAK bisa melihatnya.
+    """IMPORTANT: when an attachment fails, the model must know it CANNOT see it.
 
-    Tanpa ini, model akan mengarang isi gambar yang tidak pernah ia terima.
+    Without this, the model would invent the contents of an image it never
+    received.
     """
     hasil = proses("x", [_gambar(nama="rusak.png", data="!!!")])
     assert "GAGAL diproses" in hasil.ringkasan
@@ -152,7 +153,7 @@ def test_describe_attachments_untuk_log():
 
 
 def test_payload_kosong_tidak_membuat_crash():
-    """Extension bisa mengirim objek rusak; backend tidak boleh mati."""
+    """The extension can send broken objects; the backend must not die."""
     for buruk in [None, {}, [], {"name": None}, "bukan-objek", 42]:
         hasil = proses("pesan", [buruk] if not isinstance(buruk, list) else buruk)
         assert isinstance(hasil.ringkasan, str)

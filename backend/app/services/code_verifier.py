@@ -1,23 +1,21 @@
 """
-code_verifier.py — pemeriksa NYATA multi-bahasa untuk ORION  (PATCH ORION-25)
-=============================================================================
-FILE BARU. Letakkan di: backend/app/services/code_verifier.py
+code_verifier.py — the REAL multi-language checker for ORION  (PATCH ORION-25)
+==============================================================================
+Gives Orion the same "eyes" for EVERY language it works on, not just HTML.
+All checks use real parsers/compilers, not the model's reading:
 
-Memberi Orion "mata" yang sama untuk SEMUA bahasa yang ia kerjakan, bukan hanya
-HTML. Semua pemeriksaan memakai parser/compiler sungguhan, bukan pembacaan model:
-
-    .py            compile()  +  impor yang tidak terpasang  +  ruff/pyflakes bila ada
+    .py            compile()  +  uninstalled imports  +  ruff/pyflakes when present
     .js/.mjs/.cjs  node --check
-    .jsx/.ts/.tsx  tsc --noEmit bila tersedia (esbuild sebagai cadangan)
-    .html/.htm     node --check pada <script> inline + id duplikat + referensi DOM
+    .jsx/.ts/.tsx  tsc --noEmit when available (esbuild as fallback)
+    .html/.htm     node --check on inline <script> + duplicate ids + DOM references
     .json          json.loads
-    .xml/.svg      parser ElementTree
-    .yaml/.yml     parser yaml bila terpasang, jika tidak keseimbangan struktur
-    .css/.scss     keseimbangan kurung kurawal
-    folder         memeriksa semua file didukung di dalamnya (maks 40 file)
+    .xml/.svg      ElementTree parser
+    .yaml/.yml     yaml parser when installed, otherwise structural balance
+    .css/.scss     curly-brace balance
+    folder         checks every supported file inside (max 40 files)
 
-Prinsip: SATU karakter yang salah (kurung kurang, koma lebih) dilaporkan dengan
-nomor baris. Model tidak bisa melihat itu; parser bisa.
+Principle: a SINGLE wrong character (missing bracket, extra comma) is reported
+with its line number. The model cannot see that; a parser can.
 """
 
 from __future__ import annotations
@@ -76,23 +74,23 @@ def _file_sementara(kode: str, suffix: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# pemeriksa per bahasa
+# per-language checkers
 # ---------------------------------------------------------------------------
 
 def cek_python(path: str, teks: str, interpreter: str | None = None) -> list[str]:
-    """Sintaks + impor yang tidak terpasang + linter bila tersedia."""
+    """Syntax + uninstalled imports + linter when available."""
     temuan: list[str] = []
 
-    # 1. sintaks
+    # 1. syntax
     try:
         pohon = ast.parse(teks, filename=path)
     except SyntaxError as e:
         temuan.append(f"PYTHON SYNTAX line {e.lineno}: {e.msg}")
         if e.lineno:
             temuan.append(f"     -> {_kutipan(teks, e.lineno)}")
-        return temuan   # tidak ada gunanya melanjutkan kalau sintaks rusak
+        return temuan   # no point continuing when the syntax is broken
 
-    # 2. impor yang tidak terpasang (menangkap ModuleNotFoundError SEBELUM dijalankan)
+    # 2. uninstalled imports (catches ModuleNotFoundError BEFORE running)
     stdlib = set(sys.stdlib_module_names) | set(sysconfig.get_path_names())
     lokal = set()
     direktori = os.path.dirname(os.path.abspath(path))
@@ -121,7 +119,7 @@ def cek_python(path: str, teks: str, interpreter: str | None = None) -> list[str
                       if all(_paket_pip(m) == m for m in hilang[:6]) else
                       "     -> check this project's requirements.txt / environment")
 
-    # 3. linter opsional (ruff atau pyflakes), memberi temuan nama-tak-terdefinisi dll.
+    # 3. optional linter (ruff or pyflakes), reports undefined-name findings etc.
     for alat, arg in (("ruff", ["check", "--select", "F,E9", "--no-cache", path]),
                       ("pyflakes", [path])):
         exe = shutil.which(alat)
@@ -141,18 +139,18 @@ def cek_python(path: str, teks: str, interpreter: str | None = None) -> list[str
             baris = keluaran.splitlines()
             temuan.append(f"{alat.upper()} FINDINGS ({len(baris)} lines):")
             temuan.extend(f"     {b[:150]}" for b in baris[:12])
-        break   # cukup satu linter yang pertama tersedia
+        break   # one linter is enough: the first one available
 
     return temuan
 
 
 def _modul_hilang_via_interpreter(kandidat: list[str], path: str,
                                   interpreter: str | None) -> list[str]:
-    """Tanya kepada INTERPRETER MILIK PROJECT, bukan proses backend.
+    """Ask the PROJECT'S OWN INTERPRETER, not the backend process.
 
-    Bug nyata yang diperbaiki: verify_code dulu memakai importlib di proses
-    backend, sehingga project dengan venv sendiri selalu dilaporkan
-    "IMPOR TIDAK TERPASANG" padahal paketnya ada di venv project itu.
+    Real bug fixed here: verify_code used to run importlib inside the backend
+    process, so a project with its own venv was always reported as having
+    "MISSING IMPORTS" even though the packages were installed in that venv.
     """
     if not kandidat:
         return []
@@ -169,7 +167,7 @@ def _modul_hilang_via_interpreter(kandidat: list[str], path: str,
             return [m for m in (keluar[-1].split(",") if keluar else []) if m]
     except (OSError, subprocess.SubprocessError):
         pass
-    # fallback lama kalau interpreter project tidak bisa dijalankan
+    # old fallback for when the project interpreter cannot run
     hilang = []
     for mod in kandidat:
         try:
@@ -220,7 +218,7 @@ def cek_js(path: str, teks: str) -> list[str]:
 
 
 def cek_ts(path: str) -> list[str]:
-    """Type-check TypeScript bila tsc tersedia di proyek atau global."""
+    """Type-check TypeScript when tsc is available in the project or globally."""
     kandidat = [
         os.path.join(os.getcwd(), "node_modules", ".bin", "tsc"),
         os.path.join(os.getcwd(), "node_modules", ".bin", "tsc.cmd"),
@@ -241,7 +239,7 @@ def cek_ts(path: str) -> list[str]:
 
 
 def cek_html(path: str, teks: str) -> list[str]:
-    """Delegasi ke pemeriksa HTML lengkap (script inline + id + referensi DOM)."""
+    """Delegate to the full HTML checker (inline scripts + ids + DOM references)."""
     from app.services.html_checker import cek_html as _cek
     return _cek(teks)
 
@@ -288,11 +286,11 @@ def cek_css(teks: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# entri utama
+# main entry
 # ---------------------------------------------------------------------------
 
 def verify_path(abs_path: str, interpreter: str | None = None) -> str:
-    """Periksa satu file atau satu folder. Mengembalikan laporan teks."""
+    """Check a single file or a whole folder. Returns a text report."""
     if os.path.isdir(abs_path):
         return _verify_folder(abs_path, interpreter)
 

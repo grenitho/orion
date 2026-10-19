@@ -1,14 +1,14 @@
 """
 todo_manager.py
 
-Modul independen untuk melacak daftar tugas (todo list) eksplisit per project,
-supaya progres task besar (multi-langkah) terlihat jelas oleh user -- mirip
-pendekatan "todo tracking" pada agentic coding assistant modern.
+An independent module tracking an explicit per-project todo list, so the
+progress of large (multi-step) tasks is clearly visible to the user --
+similar to the "todo tracking" approach of modern agentic coding assistants.
 
-Didesain 100% ADDITIVE: tidak menyentuh context_manager, tool_executor, atau
-alur loop utama di main.py. Model BOLEH memanggil tool `update_todos` kapan
-saja untuk task multi-langkah, atau TIDAK memanggilnya sama sekali untuk task
-sederhana -- keduanya valid, tidak ada perilaku lama yang berubah.
+Designed to be 100% ADDITIVE: it does not touch context_manager,
+tool_executor, or the main loop flow in main.py. The model MAY call the
+`update_todos` tool at any time for multi-step tasks, or NOT call it at all
+for simple tasks -- both are valid; no old behaviour changed.
 """
 
 import json
@@ -26,8 +26,8 @@ class TodoManager:
             self.set_project_path(project_path)
 
     def set_project_path(self, project_path: str):
-        """Dipanggil dari titik yang sama dengan context_manager.set_project_path
-        (lihat integrasi di main.py: /set-project dan auto_restore_project)."""
+        """Called from the same places as context_manager.set_project_path
+        (see the integration in main.py: /set-project and auto_restore_project)."""
         self.project_path = project_path
         orion_dir = os.path.join(project_path, ".orion")
         os.makedirs(orion_dir, exist_ok=True)
@@ -59,13 +59,13 @@ class TodoManager:
 
     def set_todos(self, todos: list) -> str:
         """
-        Timpa seluruh todo list dengan list baru dari model.
-        Format tiap item yang diharapkan dari argumen tool call:
-            {"id": "1", "text": "Tambahkan slider brightness", "status": "pending"}
-        Field "id" opsional (auto-generate dari index kalau kosong).
-        Field "status" opsional, default "pending".
-        Item yang tidak valid (bukan dict / text kosong) dilewati diam-diam,
-        supaya satu item rusak tidak menggagalkan seluruh list.
+        Overwrite the entire todo list with a new list from the model.
+        Expected format of each item in the tool-call arguments:
+            {"id": "1", "text": "Add a brightness slider", "status": "pending"}
+        The "id" field is optional (auto-generated from the index when empty).
+        The "status" field is optional, defaulting to "pending".
+        Invalid items (not a dict / empty text) are skipped silently, so one
+        broken item cannot fail the whole list.
         """
         cleaned = []
         for i, item in enumerate(todos or []):
@@ -89,7 +89,7 @@ class TodoManager:
         return self.render_markdown()
 
     def update_status(self, todo_id: str, status: str) -> str:
-        """Update status 1 item tanpa perlu kirim ulang seluruh list."""
+        """Update the status of 1 item without resending the whole list."""
         if status not in VALID_STATUSES:
             return (
                 f"[TODO_MANAGER ERROR] Invalid status '{status}'. "
@@ -110,7 +110,7 @@ class TodoManager:
         return self.todos
 
     def render_markdown(self) -> str:
-        """Representasi ringkas untuk ditampilkan ke user di chat."""
+        """Compact representation shown to the user in chat."""
         if not self.todos:
             return "_(Todo list is empty)_"
         icon_map = {"pending": "⬜", "in_progress": "🔄", "completed": "✅"}

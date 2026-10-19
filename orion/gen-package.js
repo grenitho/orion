@@ -1,6 +1,6 @@
 const fs = require('fs');
 
-// 1. Buat Ikon Sederhana (SVG)
+// 1. Create a simple icon (SVG)
 fs.mkdirSync('resources', { recursive: true });
 fs.writeFileSync('resources/orion-icon.svg', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 2L2 22h20L12 2zm0 3.5L18.5 20H5.5L12 5.5z"/></svg>');
 

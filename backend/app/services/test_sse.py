@@ -1,20 +1,20 @@
 """
-test_sse.py — penjaga bentuk frame SSE (Fase C langkah 1)
-==========================================================
-sse.py menggantikan 47 titik perakitan frame inline di main.py. Tiga hal
-dijaga di sini:
+test_sse.py — guardian of the SSE frame shape (Phase C step 1)
+===============================================================
+sse.py replaced 47 inline frame-assembly sites in main.py. Three things are
+guarded here:
 
-  1. ev() menghasilkan byte yang IDENTIK dengan bentuk inline lama
-     (f"data: {json.dumps({'type': ...})}\\n\\n") untuk ketujuh event;
-  2. ev('done') tetap kompatibel dengan stream_utils: jaminan "tepat satu
-     done" dideteksi lewat substring PENANDA_DONE, jadi keduanya tidak
-     boleh menyimpang;
-  3. guard AST atas main.py: tidak boleh ada frame SSE rakitan manual yang
-     kembali muncul, dan setiap panggilan sse.ev(...) hanya boleh memakai
-     tujuh nama event beku (FASE_C_PLAN.md bagian 1).
+  1. ev() produces bytes IDENTICAL to the old inline shape
+     (f"data: {json.dumps({'type': ...})}\\n\\n") for all seven events;
+  2. ev('done') stays compatible with stream_utils: the "exactly one done"
+     guarantee is detected via the PENANDA_DONE substring, so the two must
+     never diverge;
+  3. an AST guard over main.py: manually assembled SSE frames must never
+     reappear, and every sse.ev(...) call may only use the seven frozen
+     event names (FASE_C_PLAN.md section 1).
 
-Gaya mengikuti test_loop_counter_guard.py: baca sumber dengan ast, tanpa
-meng-import main.
+Style follows test_loop_counter_guard.py: read the source with ast, without
+importing main.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ MAIN = Path(__file__).resolve().parents[1] / "main.py"
 
 
 def _bentuk_lama(event_type: str, **payload) -> str:
-    """Bentuk inline persis seperti sebelum Fase C langkah 1."""
+    """The exact inline shape from before Phase C step 1."""
     return f"data: {json.dumps({'type': event_type, **payload})}\n\n"
 
 
@@ -49,9 +49,9 @@ def test_ev_identik_byte_dengan_bentuk_inline_lama():
 
 
 def test_type_selalu_kunci_pertama():
-    """Urutan kunci memengaruhi byte; extension parse JSON jadi urutan tidak
-    fungsional, tetapi kesetaraan byte dengan transkrip baseline mensyaratkan
-    'type' tetap pertama."""
+    """Key order affects the bytes; the extension parses JSON so the order is
+    not functional, but byte-equality with the baseline transcripts requires
+    'type' to stay first."""
     frame = sse.ev("todo_update", markdown="m", todos=[])
     payload = json.loads(frame[len("data: "): -2])
     assert next(iter(payload)) == "type"
@@ -59,9 +59,9 @@ def test_type_selalu_kunci_pertama():
 
 
 def test_done_cocok_dengan_stream_utils():
-    """jamin_done mendeteksi done lewat substring PENANDA_DONE; kalau bentuk
-    ev('done') menyimpang, wrapper bisa mengirim done kedua (atau tidak sama
-    sekali) — pelanggaran jaminan 'tepat satu done per run'."""
+    """jamin_done detects done via the PENANDA_DONE substring; if the shape of
+    ev('done') diverges, the wrapper could send a second done (or none at
+    all) — violating the 'exactly one done per run' guarantee."""
     assert sse.ev("done") == buat_event_done()
     assert PENANDA_DONE in sse.ev("done")
 
@@ -74,8 +74,8 @@ def test_nama_event_beku():
 
 
 def _frame_manual_di_main() -> list[int]:
-    """Baris-baris di main.py yang masih merakit frame SSE via f-string
-    json.dumps (pola yang digantikan sse.ev pada Fase C langkah 1)."""
+    """Lines in main.py that still assemble SSE frames via f-string
+    json.dumps (the pattern replaced by sse.ev in Phase C step 1)."""
     pohon = ast.parse(MAIN.read_text(encoding="utf-8"))
     pelanggaran = []
     for node in ast.walk(pohon):

@@ -1,14 +1,15 @@
 """
-test_git_guard.py — test pemblokiran git berbahaya di run_terminal (ORION-27)
-==============================================================================
-Latar belakang bug NYATA: Orion pernah menjalankan `git init` lewat run_terminal,
-hang, lalu backend mati dan user melihat "koneksi terputus". Guard ini menolak
-operasi git yang merusak/jaringan/hang DI LEVEL KODE, sebelum proses dilahirkan.
+test_git_guard.py — tests for blocking dangerous git in run_terminal (ORION-27)
+===============================================================================
+REAL bug background: Orion once ran `git init` through run_terminal, hung,
+then the backend died and the user saw "connection lost". This guard rejects
+destructive/network/hanging git operations AT CODE LEVEL, before any process
+is spawned.
 
-Test ini memastikan:
-  - setiap keluarga perintah terlarang benar-benar ditolak
-  - penolakan terjadi TANPA efek samping (tidak ada .git yang tercipta)
-  - perintah aman tetap jalan (tidak over-blocking)
+These tests ensure:
+  - every family of forbidden commands is really rejected
+  - rejection happens WITHOUT side effects (no .git is created)
+  - safe commands still run (no over-blocking)
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from app.services.tool_executor import ToolExecutor
 DIBLOKIR = [
     "git init",
     "git init .",
-    "GIT INIT",                      # uji case-insensitivity
+    "GIT INIT",                      # test case-insensitivity
     "git push origin main",
     "git pull",
     "git fetch --all",
@@ -59,7 +60,7 @@ def test_perintah_berbahaya_ditolak(eksekutor, perintah):
 
 
 def test_penolakan_tanpa_efek_samping(eksekutor):
-    """git init yang ditolak tidak boleh meninggalkan folder .git."""
+    """A rejected git init must not leave a .git folder behind."""
     t, d = eksekutor
     t.run_terminal("git init", timeout=5)
     assert not os.path.isdir(os.path.join(d, ".git"))
@@ -73,7 +74,7 @@ def test_perintah_aman_tidak_overblocking(eksekutor, perintah):
 
 
 def test_pesan_penolakan_memberi_jalan_keluar(eksekutor):
-    """Penolakan yang baik memberi tahu apa yang harus dilakukan, bukan hanya 'tidak'."""
+    """A good rejection tells you what to do, not just 'no'."""
     t, _ = eksekutor
     hasil = t.run_terminal("git push origin main", timeout=5)
     assert "Ask the user" in hasil or "manual" in hasil

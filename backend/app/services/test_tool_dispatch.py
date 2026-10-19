@@ -1,12 +1,12 @@
 """
-test_tool_dispatch.py — penjaga tabel dispatch (Fase B, ORION-38)
-=================================================================
-Memastikan pemecahan main.py tidak menggeser tanggung jawab secara diam-diam:
+test_tool_dispatch.py — guardian of the dispatch table (Phase B, ORION-38)
+==========================================================================
+Ensures the main.py split did not silently shift responsibilities:
 
-  * setiap tool di tabel benar-benar terdeklarasi di skema TOOLS
-  * tool yang punya guard/interaksi TIDAK bocor ke tabel sederhana
-  * setiap entri tabel menunjuk method yang benar-benar ada di ToolExecutor
-  * cabang individual tool sederhana sudah tidak tersisa di main.py
+  * every tool in the table is really declared in the TOOLS schema
+  * tools with guards/interaction do NOT leak into the simple table
+  * every table entry points at a method that really exists on ToolExecutor
+  * no individual branches for simple tools remain in main.py
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def test_label_tidak_kosong_dan_tahan_args_kosong():
 
 
 def test_jalankan_memanggil_method_yang_benar():
-    """Panggil satu tool read-only sungguhan lewat tabel, tanpa efek samping."""
+    """Call one real read-only tool through the table, without side effects."""
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:

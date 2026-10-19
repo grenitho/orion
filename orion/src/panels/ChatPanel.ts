@@ -7,7 +7,7 @@ export class ChatPanel {
     public static currentPanel: ChatPanel | undefined;
     private readonly _panel: vscode.WebviewPanel;
     private readonly _activity: ActivityProvider;
-    // >>> BARU: menyimpan controller request yang sedang berjalan, supaya bisa di-abort
+    // >>> NEW: keeps the currently running request controller, so it can be aborted
     private _currentAbortController: AbortController | undefined;
 
     private constructor(panel: vscode.WebviewPanel, activity: ActivityProvider) {
@@ -295,16 +295,16 @@ export class ChatPanel {
 
 
     // >>> PATCH ORION-20a ================================================
-    // MENGUMPULKAN "MATA" ORION dari VS Code:
-    //   1. File yang sedang dibuka user  -> Orion tahu fokus user di mana
-    //   2. Teks yang sedang disorot       -> konteks paling relevan, gratis
-    //   3. Diagnostics panel Problems     -> KEBENARAN tentang error kode saat ini
+    // COLLECTING ORION'S "EYES" from VS Code:
+    //   1. The file the user has open    -> Orion knows where the user's focus is
+    //   2. The selected text             -> the most relevant context, for free
+    //   3. Problems-panel diagnostics    -> the TRUTH about current code errors
     //
-    // Kenapa diagnostics penting: selama ini Orion menilai editannya berhasil
-    // hanya dari output tool-nya sendiri. Padahal VS Code sudah tahu persis
-    // apakah file itu compiles atau tidak (merah di panel Problems). Dengan
-    // mengirimkannya ke backend, Orion bisa menyadari sendiri bahwa editannya
-    // merusak sesuatu, lalu memperbaikinya -- tanpa disuruh user.
+    // Why diagnostics matter: until now Orion judged its edits successful
+    // solely from its own tool output. But VS Code already knows exactly
+    // whether that file compiles or not (red in the Problems panel). By
+    // sending this to the backend, Orion can realize on its own that its edit
+    // broke something, then fix it -- without being told by the user.
     // ====================================================================
     private _collectEditorContext() {
         let activeFile = '';
@@ -320,7 +320,7 @@ export class ChatPanel {
                     }
                 }
             } catch (e) {
-                // jangan biarkan kegagalan konteks menggagalkan pengiriman pesan
+                // do not let a context failure break sending the message
             }
         }
 
@@ -342,7 +342,7 @@ export class ChatPanel {
                 if (baris.length >= 30) { break; }
             }
         } catch (e) {
-            // sama: kegagalan diagnostics tidak boleh menggagalkan chat
+            // same: a diagnostics failure must not break the chat
         }
 
         return { activeFile: activeFile, selection: selection, diagnostics: baris };
@@ -350,7 +350,7 @@ export class ChatPanel {
     // >>> AKHIR PATCH ORION-20a ==========================================
 
     private async _handleMessage(message: any) {
-        // >>> BARU: handler untuk tombol Cancel
+        // >>> NEW: handler for the Cancel button
         if (message.command === 'cancel') {
             if (this._currentAbortController) {
                 this._activity.addActivity('Cancelling process...', '');
@@ -362,7 +362,7 @@ export class ChatPanel {
 
         if (message.command === 'chat') {
             this._activity.addActivity('Sending message...', message.text);
-            // >>> BARU: buat controller baru untuk request ini, simpan supaya bisa di-abort
+            // >>> NEW: create a new controller for this request, keep it so it can be aborted
             const controller = new AbortController();
             this._currentAbortController = controller;
             try {
@@ -378,13 +378,13 @@ export class ChatPanel {
                 const response = await fetch('http://127.0.0.1:8000/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    // >>> FITUR LAMPIRAN: teruskan attachments dari webview ke backend
+                    // >>> ATTACHMENT FEATURE: forward attachments from the webview to the backend
                     body: JSON.stringify({
                         message: message.text,
-                        // >>> PATCH ORION-20b: ikutkan "mata" Orion tiap request
+                        // >>> PATCH ORION-20b: include Orion's "eyes" with every request
                         editor: this._collectEditorContext()
                     }),
-                    signal: controller.signal // >>> BARU: hubungkan ke AbortController
+                    signal: controller.signal // >>> NEW: connect to the AbortController
                 });
 
                 if (!response.ok) {
@@ -422,11 +422,11 @@ export class ChatPanel {
                     }
                 }
 
-                // >>> PATCH ORION-12 (KRITIS): sebelumnya, SETIAP kali reader menutup
-                // UI langsung melapor 'Selesai'/'Sukses' -- termasuk kalau backend
-                // mati di tengah jalan (kill, crash, backpressure stdout). User melihat
-                // "Sukses" padahal pekerjaan berhenti separuh. Sekarang dibedakan:
-                // hanya dianggap sukses kalau backend benar-benar mengirim sinyal selesai.
+                // >>> PATCH ORION-12 (CRITICAL): previously, EVERY time the reader closed
+                // the UI immediately reported 'Finished'/'Success' -- including when the
+                // backend died halfway (kill, crash, stdout backpressure). The user saw
+                // "Success" while the work had stopped halfway. Now it is distinguished:
+                // it only counts as success when the backend really sent a completion signal.
                 if (this._sawTerminalEvent) {
                     this._activity.addActivity('Finished', 'Success');
                     this._panel.webview.postMessage({ command: 'stream_done' });
@@ -438,7 +438,7 @@ export class ChatPanel {
                 }
 
             } catch (e: any) {
-                // >>> BARU: bedakan pembatalan manual (AbortError) dari error sungguhan
+                // >>> NEW: distinguish a manual cancellation (AbortError) from a real error
                 if (e.name === 'AbortError') {
                     this._activity.addActivity('Cancelled', 'User cancelled the process');
                     this._panel.webview.postMessage({ command: 'stream_cancelled' });
@@ -447,15 +447,15 @@ export class ChatPanel {
                     this._panel.webview.postMessage({ command: 'stream_error', text: e.message });
                 }
             } finally {
-                // >>> BARU: bersihkan referensi controller setelah request selesai/dibatalkan/error
+                // >>> NEW: clear the controller reference after the request finishes/is cancelled/errors
                 this._currentAbortController = undefined;
-                this._sawTerminalEvent = false;   // >>> PATCH ORION-12c: reset untuk run berikutnya
+                this._sawTerminalEvent = false;   // >>> PATCH ORION-12c: reset for the next run
             }
         }
     }
 
-    // >>> GANTI METHOD INI <<<
-    // >>> PATCH ORION-12b: penanda apakah backend mengirim sinyal selesai yang sah
+    // >>> REPLACE THIS METHOD <<<
+    // >>> PATCH ORION-12b: flag for whether the backend sent a legitimate completion signal
     private _sawTerminalEvent: boolean = false;
 
     private async _processStreamData(data: any) {
@@ -466,25 +466,25 @@ export class ChatPanel {
         } else if (data.type === 'ask_user') {
             this._panel.webview.postMessage({ command: 'ask_user', question: data.question });
         }
-        // >>> TAMBAHKAN BLOK INI <<<
+        // >>> ADDED THIS BLOCK <<<
         else if (data.type === 'confirm_terminal') {
             await this._handleTerminalConfirmation(data.command);
         }
-        // >>> AKHIR TAMBAHAN <<<
+        // >>> END OF ADDITION <<<
         else if (data.type === 'error') {
             this._panel.webview.postMessage({ command: 'stream_error', text: data.text });
         }
-        // >>> PATCH ORION-10 (KRITIS): backend mengirim {'type':'done'} sebagai sinyal
-        // selesai yang sah, tapi sebelumnya TIDAK ditangani sama sekali. Extension hanya
-        // mengandalkan reader menutup. Akibatnya kalau backend mengirim 'error' lalu
-        // menutup stream, UI bisa menampilkan "Selesai/Sukses" untuk run yang gagal.
+        // >>> PATCH ORION-10 (CRITICAL): the backend sends {'type':'done'} as the
+        // legitimate completion signal, but it was NOT handled at all before. The extension
+        // only relied on the reader closing. As a result, when the backend sent 'error'
+        // and then closed the stream, the UI could show "Finished/Success" for a failed run.
         else if (data.type === 'done') {
             this._sawTerminalEvent = true;
             this._panel.webview.postMessage({ command: 'stream_done' });
         }
-        // >>> PATCH ORION-11: backend sudah mengirim 'todo_update' (main.py:1531) sejak
-        // lama, tapi UI tidak pernah menanganinya -> daftar todo tidak pernah tampil.
-        // Ini sebabnya fitur todo tracking terlihat "tidak bekerja" padahal backend jalan.
+        // >>> PATCH ORION-11: the backend has been sending 'todo_update' (main.py:1531)
+        // for a long time, but the UI never handled it -> the todo list never appeared.
+        // This is why todo tracking looked "broken" even though the backend was running.
         else if (data.type === 'todo_update') {
             this._panel.webview.postMessage({
                 command: 'todo_update',
@@ -494,10 +494,10 @@ export class ChatPanel {
         }
     }
 
-    // >>> TAMBAHKAN 2 METHOD INI SEBELUM dispose() <<<
+    // >>> ADDED THESE 2 METHODS BEFORE dispose() <<<
 
     private async _handleTerminalConfirmation(command: string) {
-        // 1. Munculkan Pop-up Modal di VS Code
+        // 1. Show the modal pop-up in VS Code
         const choice = await vscode.window.showWarningMessage(
             `Orion wants to run a risky command:\n\n${command}\n\nDo you allow it?`,
             { modal: true },
@@ -506,10 +506,10 @@ export class ChatPanel {
 
         let feedbackMessage = "";
 
-        // 2. Proses pilihan user
+        // 2. Process the user's choice
         if (choice === 'Approve') {
             try {
-                // Panggil endpoint baru di backend untuk eksekusi
+                // Call the new backend endpoint for execution
                 const res = await fetch('http://127.0.0.1:8000/execute-terminal', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -526,28 +526,28 @@ export class ChatPanel {
                 feedbackMessage = `[SYSTEM: User approved, but backend execution failed: ${err.message}]`;
             }
         } else {
-            // Jika user klik Reject (atau menutup pop-up)
+            // If the user clicks Reject (or closes the pop-up)
             feedbackMessage = `[SYSTEM: User REJECTED the dangerous command. Do not run it. Please adjust your plan or ask for an alternative.]`;
         }
 
-        // 3. Tampilkan status di Chat Panel agar user tahu apa yang terjadi
+        // 3. Show the status in the Chat Panel so the user knows what happened
         const statusText = choice === 'Approve' ? 'Command approved and executed.' : 'Command rejected by the user.';
         this._panel.webview.postMessage({ command: 'append_token', text: `\n\n**[System: ${statusText}]**\n\n` });
 
-        // 4. Kirim feedback kembali ke backend agar Orion bisa melanjutkan agentic loop
+        // 4. Send the feedback back to the backend so Orion can continue the agentic loop
         await this._sendFeedbackToOrion(feedbackMessage);
     }
 
     private async _sendFeedbackToOrion(message: string) {
         this._activity.addActivity('Resuming after terminal confirmation...', message);
 
-        // >>> BARU: pasang AbortController juga di jalur ini, supaya tombol Cancel
-        // tetap berfungsi walau sedang di tengah proses lanjutan pasca-konfirmasi terminal.
+        // >>> NEW: attach an AbortController on this path too, so the Cancel button
+        // keeps working even mid-continuation after the terminal confirmation.
         const controller = new AbortController();
         this._currentAbortController = controller;
 
         try {
-            // Kirim pesan feedback ke endpoint /chat
+            // Send the feedback message to the /chat endpoint
             const response = await fetch('http://127.0.0.1:8000/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -559,7 +559,7 @@ export class ChatPanel {
                 throw new Error("Failed to send feedback to the backend");
             }
 
-            // Baca stream response dari backend (sama persis seperti di _handleMessage)
+            // Read the response stream from the backend (exactly like in _handleMessage)
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
@@ -579,7 +579,7 @@ export class ChatPanel {
                         if (jsonStr === '[DONE]' || jsonStr === '') { continue; }
                         try {
                             const data = JSON.parse(jsonStr);
-                            await this._processStreamData(data); // Proses stream selanjutnya
+                            await this._processStreamData(data); // Process the next stream chunk
                         } catch (e) {
                             console.error('Parse error:', e);
                         }

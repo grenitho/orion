@@ -1,16 +1,17 @@
 """
-stream_utils.py — penjaga akhir aliran SSE (ORION-28, dibuat ter-test di ORION-36)
-==================================================================================
-Sebelum modul ini ada, wrapper "jamin ada done" tertulis inline di dalam
-endpoint /chat, sehingga tidak bisa di-unit-test tanpa menjalankan FastAPI.
-Sekarang ia fungsi generator mandiri: diberi aliran potongan SSE, ia
-meneruskannya apa adanya dan MENJAMIN tepat satu event 'done' di akhir.
+stream_utils.py — the SSE stream end-guard (ORION-28, made testable in ORION-36)
+=================================================================================
+Before this module existed, the "make sure there is a done" wrapper was
+written inline inside the /chat endpoint, so it could not be unit-tested
+without running FastAPI. It is now a standalone generator function: given a
+stream of SSE chunks, it forwards them as-is and GUARANTEES exactly one
+'done' event at the end.
 
-Perilaku yang dijaga:
-  - aliran yang sudah mengirim done  -> tidak menambah done kedua
-  - aliran yang berakhir tanpa done  -> menambahkan tepat satu done
-  - aliran yang mati di tengah (exception) -> TIDAK menambah done,
-    supaya extension tetap bisa membedakan "berakhir normal" dari "crash"
+Guarded behaviour:
+  - a stream that already sent done  -> no second done is added
+  - a stream that ends without done  -> exactly one done is added
+  - a stream that dies mid-way (exception) -> NO done is added, so the
+    extension can still tell "ended normally" apart from "crashed"
 """
 
 from __future__ import annotations
@@ -22,12 +23,12 @@ PENANDA_DONE = '{"type": "done"}'
 
 
 def buat_event_done() -> str:
-    """Bentuk persis event done yang dikenali extension."""
+    """The exact shape of the done event recognized by the extension."""
     return f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
 async def jamin_done(aliran: AsyncIterator[str], logger=None) -> AsyncIterator[str]:
-    """Teruskan semua potongan; jamin tepat satu 'done' bila aliran berakhir normal."""
+    """Forward every chunk; guarantee exactly one 'done' when the stream ends normally."""
     sudah_done = False
     async for potongan in aliran:
         if PENANDA_DONE in potongan:
@@ -37,6 +38,6 @@ async def jamin_done(aliran: AsyncIterator[str], logger=None) -> AsyncIterator[s
         if logger is not None:
             try:
                 logger.info("[STREAM] Stream ended without done; the wrapper is sending it.")
-            except Exception:  # noqa: BLE001 - logging tidak boleh menggagalkan stream
+            except Exception:  # noqa: BLE001 - logging must never break the stream
                 pass
         yield buat_event_done()

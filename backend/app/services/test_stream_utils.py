@@ -1,11 +1,11 @@
 """
-test_stream_utils.py — test wrapper 'done' (ORION-28, dibuat ter-test di ORION-36)
-==================================================================================
-Menjaga tiga perilaku yang membedakan "berakhir normal" dari "crash":
-  1. aliran tanpa done  -> tepat satu done ditambahkan di akhir
-  2. aliran dengan done -> tidak ada done kedua
-  3. aliran yang melempar exception -> TIDAK menambahkan done, sehingga
-     extension tetap bisa melaporkan crash sebagai crash (ORION-12)
+test_stream_utils.py — tests for the 'done' wrapper (ORION-28, made testable in ORION-36)
+==========================================================================================
+Guards the three behaviours that separate "ended normally" from "crashed":
+  1. a stream without done -> exactly one done is appended at the end
+  2. a stream with done    -> no second done
+  3. a stream that throws  -> NO done is added, so the extension can still
+     report a crash as a crash (ORION-12)
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ async def _kumpul(aliran):
 
 
 def _jalan(korotin):
-    """Jalankan korotin tanpa dependensi pytest-asyncio."""
+    """Run a coroutine without a pytest-asyncio dependency."""
     return asyncio.run(korotin)
 
 
@@ -46,8 +46,8 @@ def test_done_tidak_dobel():
 
 
 def test_crash_tidak_disamarkan_sebagai_selesai():
-    """Paling penting: stream yang mati karena exception TIDAK boleh terlihat
-    seperti berakhir normal; kalau tidak, extension tidak bisa melaporkan crash."""
+    """Most important: a stream that dies from an exception MUST NOT look like
+    it ended normally; otherwise the extension cannot report the crash."""
     async def aliran_mati():
         yield "data: setengah jalan\n\n"
         raise RuntimeError("backend meledak")

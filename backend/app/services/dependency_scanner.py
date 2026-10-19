@@ -9,7 +9,7 @@ class DependencyScanner:
     def __init__(self, project_path: str):
         self.project_path = project_path
 
-        # 1. DAFTAR HITAM FOLDER (Akan dilewati seluruh isinya)
+        # 1. FOLDER BLACKLIST (their entire contents are skipped)
         self.ignored_dirs = {
             ".git",
             "node_modules",
@@ -34,7 +34,7 @@ class DependencyScanner:
             "target",
         }
 
-        # 2. DAFTAR HITAM FILE SPESIFIK (File yang sering sangat besar tapi tidak perlu dibaca AI)
+        # 2. SPECIFIC FILE BLACKLIST (files that are often huge but need not be read by the AI)
         self.ignored_files = {
             "package-lock.json",
             "yarn.lock",
@@ -49,10 +49,10 @@ class DependencyScanner:
             ".env.example",
             "tsconfig.json",
             "pyproject.toml",
-            "setup.py",  # Opsional: hapus jika ingin AI baca config
+            "setup.py",  # Optional: remove if you want the AI to read the config
         }
 
-        # 3. WHITELIST EKSTENSI (Hanya file dengan ekstensi ini yang akan dipindai)
+        # 3. EXTENSION WHITELIST (only files with these extensions are scanned)
         self.supported_extensions = {
             ".py",
             ".ts",
@@ -70,26 +70,26 @@ class DependencyScanner:
         }
 
     def scan(self) -> dict:
-        """Memindai seluruh project dan menghasilkan dependency map."""
+        """Scan the whole project and produce the dependency map."""
         files_data = {}
 
         for root, dirs, files in os.walk(self.project_path):
-            # Filter folder yang diabaikan (Mencegah os.walk masuk ke venv/node_modules)
+            # Filter ignored folders (prevents os.walk from entering venv/node_modules)
             dirs[:] = [d for d in dirs if d not in self.ignored_dirs]
 
             for file in files:
-                # Filter file spesifik yang diblacklist
+                # Filter specifically blacklisted files
                 if file in self.ignored_files:
                     continue
 
                 ext = os.path.splitext(file)[1].lower()
 
-                # Hanya proses file dengan ekstensi yang didukung
+                # Only process files with supported extensions
                 if ext not in self.supported_extensions:
                     continue
 
                 file_path = os.path.join(root, file)
-                # Gunakan forward slash agar konsisten di Windows & Linux
+                # Use forward slashes for consistency on Windows & Linux
                 rel_path = os.path.relpath(file_path, self.project_path).replace(
                     "\\", "/"
                 )
@@ -100,8 +100,8 @@ class DependencyScanner:
                     elif ext in {".ts", ".js", ".tsx", ".jsx"}:
                         file_info = self._parse_typescript(file_path)
                     else:
-                        # Untuk file config/md/json, kita hanya simpan metadata (nama & ukuran)
-                        # agar AI tahu file itu ada, tanpa membaca isinya (hemat token)
+                        # For config/md/json files we only store metadata (name & size)
+                        # so the AI knows the file exists without reading its contents (saves tokens)
                         file_size = os.path.getsize(file_path)
                         file_info = {
                             "language": "config/doc",
@@ -116,11 +116,11 @@ class DependencyScanner:
 
                     files_data[rel_path] = file_info
                 except Exception as e:
-                    # Skip file yang error (misal syntax error) agar tidak crash
+                    # Skip files that error (e.g. syntax errors) so scanning never crashes
                     print(f"[SCANNER WARNING] Failed to parse {rel_path}: {e}")
                     continue
 
-        # Build reverse map (Peta terbalik: Class/Fungsi X ada di file mana saja?)
+        # Build reverse map (Reverse map: which files contain Class/Function X?)
         reverse_map = self._build_reverse_map(files_data)
 
         result = {
@@ -130,13 +130,13 @@ class DependencyScanner:
             "reverse_map": reverse_map,
         }
 
-        # Simpan ke .orion/dependency_map.json
+        # Save to .orion/dependency_map.json
         self._save_map(result)
 
         return result
 
     def _parse_python(self, file_path: str) -> dict:
-        """Parser khusus Python menggunakan library 'ast' bawaan."""
+        """Python-specific parser using the built-in 'ast' library."""
         with open(file_path, "r", encoding="utf-8") as f:
             source = f.read()
 
@@ -168,7 +168,7 @@ class DependencyScanner:
         }
 
     def _parse_typescript(self, file_path: str) -> dict:
-        """Parser khusus TypeScript/JavaScript menggunakan Regex."""
+        """TypeScript/JavaScript-specific parser using Regex."""
         with open(file_path, "r", encoding="utf-8") as f:
             source = f.read()
 
@@ -176,7 +176,7 @@ class DependencyScanner:
         classes = []
         functions = []
 
-        # Match: import { X, Y } from "module" atau import X from "module"
+        # Match: import { X, Y } from "module" or import X from "module"
         import_pattern = re.compile(
             r'import\s+(?:(?:\{([^}]+)\})|(\w+))\s+from\s+["\']([^"\']+)["\']'
         )
@@ -207,7 +207,7 @@ class DependencyScanner:
         }
 
     def _build_reverse_map(self, files_data: dict) -> dict:
-        """Membuat peta terbalik untuk melacak di mana sebuah Class/Fungsi didefinisikan."""
+        """Build the reverse map tracking where a Class/Function is defined."""
         reverse_map = {}
 
         for file_path, info in files_data.items():
@@ -221,7 +221,7 @@ class DependencyScanner:
         return reverse_map
 
     def _save_map(self, data: dict):
-        """Menyimpan hasil scan ke file JSON di folder .orion/"""
+        """Save the scan result to a JSON file in the .orion/ folder"""
         orion_dir = os.path.join(self.project_path, ".orion")
         if not os.path.exists(orion_dir):
             os.makedirs(orion_dir)

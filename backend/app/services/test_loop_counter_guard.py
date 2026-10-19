@@ -1,20 +1,20 @@
 """
-test_loop_counter_guard.py — penjaga konvensi `_` di loop agent  (ORION-33)
-===========================================================================
-Latar belakang bug NYATA (ORION-29 v1): loop agent memakai `_` sebagai
-penghitung (`for _ in range(max_iter)`). Sebuah patch menambahkan
-`_selesai, _ = await asyncio.wait(...)` -- memakai `_` sebagai variabel buang.
-`asyncio.wait` mengembalikan dua SET, sehingga `_` berubah menjadi set dan
-baris `if is_task_complete and _ > 0` melempar
+test_loop_counter_guard.py — guardian of the `_` convention in the agent loop (ORION-33)
+========================================================================================
+REAL bug background (ORION-29 v1): the agent loop uses `_` as its counter
+(`for _ in range(max_iter)`). A patch added
+`_selesai, _ = await asyncio.wait(...)` -- using `_` as a throwaway variable.
+`asyncio.wait` returns two SETs, so `_` became a set and the line
+`if is_task_complete and _ > 0` raised
 `TypeError: '>' not supported between instances of 'set' and 'int'`
-di produksi, pada percakapan sungguhan.
+in production, during a real conversation.
 
-Test ini murah (hanya membaca sumber dengan ast, tanpa import main) dan
-menjamin: di dalam `_aliran_inti`, nama `_` TIDAK boleh di-assign kecuali
-sebagai target for-loop penghitung itu sendiri.
+This test is cheap (it only reads the source with ast, no main import) and
+guarantees: inside `_aliran_inti`, the name `_` MUST NOT be assigned except
+as the target of the counter for-loop itself.
 
-Jalankan:
-    python -m pytest backend\\app\\services\\test_loop_counter_guard.py -v
+Run:
+    python -m pytest backend/app/services/test_loop_counter_guard.py -v
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _fungsi_aliran() -> ast.AsyncFunctionDef:
 def test_penghitung_loop_tidak_ditimpa():
     fungsi = _fungsi_aliran()
 
-    # semua node Name yang menjadi target for-loop
+    # all Name nodes that are for-loop targets
     target_for = set()
     for simpul in ast.walk(fungsi):
         if isinstance(simpul, (ast.For, ast.AsyncFor)):
@@ -44,7 +44,7 @@ def test_penghitung_loop_tidak_ditimpa():
                 if isinstance(n, ast.Name):
                     target_for.add(id(n))
 
-    # semua assign ke nama `_` di luar target for-loop
+    # all assignments to the name `_` outside for-loop targets
     pelanggaran = []
     for simpul in ast.walk(fungsi):
         if isinstance(simpul, ast.Name) and simpul.id == "_" and isinstance(simpul.ctx, ast.Store):
@@ -62,6 +62,6 @@ def test_penghitung_loop_tidak_ditimpa():
 
 
 def test_fungsi_aliran_masih_ada():
-    """Penjaga sederhana: kalau nama fungsinya diganti, test di atas harus gagal keras,
-    bukan lolos diam-diam."""
+    """Simple sentinel: if the function is ever renamed, the test above must fail
+    loudly instead of passing silently."""
     assert _fungsi_aliran() is not None

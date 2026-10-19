@@ -1,39 +1,39 @@
 """
-attachments.py — dukungan lampiran gambar & file untuk ORION
+attachments.py — image & file attachment support for ORION
 ============================================================
-FILE BARU. Letakkan di: backend/app/services/attachments.py
 
-KENAPA FITUR INI COCOK UNTUK STACK ANDA
----------------------------------------
-`gemini-3.5-flash-lite` mendukung INPUT GAMBAR (dokumentasi Google:
+WHY THIS FEATURE FITS THE STACK
+--------------------------------
+`gemini-3.5-flash-lite` supports IMAGE INPUT (Google documentation:
 "Modalities: Text — input and output; Image — input only").
-Batasnya:
-  - maksimum 3.000 gambar per prompt
-  - maksimum 7 MB per file (inline)
-  - format: image/png, image/jpeg, image/webp, image/heic, image/heif
+The limits:
+  - maximum 3,000 images per prompt
+  - maximum 7 MB per file (inline)
+  - formats: image/png, image/jpeg, image/webp, image/heic, image/heif
 
-litellm menerima format OpenAI (`image_url` berisi data URI base64) dan
-menerjemahkannya ke `inline_data` Gemini. Jadi tidak perlu SDK tambahan.
+litellm accepts the OpenAI format (`image_url` containing a base64 data URI)
+and translates it to Gemini's `inline_data`. No extra SDK needed.
 
-KEPUTUSAN DESAIN PENTING
-------------------------
-Gambar TIDAK disimpan ke riwayat (`.orion/session_history.json`). Alasannya:
-base64 satu screenshot 1 MB menjadi ±1,4 juta karakter. Kalau masuk riwayat,
-setiap iterasi agent akan mengirim ulang gambar itu — kuota free tier Anda
-habis dalam beberapa pesan, dan file riwayat membengkak permanen.
+IMPORTANT DESIGN DECISION
+--------------------------
+Images are NOT stored in the history (`.orion/session_history.json`). Reason:
+the base64 of a single 1 MB screenshot becomes ±1.4 million characters. If it
+entered the history, every agent iteration would resend that image — your free
+tier quota would be gone within a few messages, and the history file would
+stay bloated permanently.
 
-Yang dilakukan modul ini:
-  - riwayat hanya menyimpan PLACEHOLDER teks: "[LAMPIRAN: error.png (image/png)]"
-  - gambar asli disuntikkan HANYA ke permintaan pertama pada giliran itu
-  - file teks (bukan gambar) dibaca isinya dan ditempel sebagai teks biasa,
-    karena itu murah dan tetap berguna di iterasi berikutnya
+What this module does:
+  - the history only stores a text PLACEHOLDER: "[LAMPIRAN: error.png (image/png)]"
+  - the actual image is injected ONLY into the first request of that turn
+  - text files (not images) have their contents read and pasted as plain text,
+    because that is cheap and stays useful in the following iterations
 
-CARA PAKAI (di main.py) — lihat PANDUAN_FITUR_ATTACHMENT.md
+USAGE (in main.py)
     from app.services.attachments import build_user_content, describe_attachments
 
     parts, ringkasan = build_user_content(request.message, request.attachments)
-    context_manager.add_message("user", ringkasan)   # placeholder ke riwayat
-    # `parts` dipakai untuk api_messages giliran pertama
+    context_manager.add_message("user", ringkasan)   # placeholder into history
+    # `parts` is used for the first turn's api_messages
 """
 
 from __future__ import annotations
@@ -42,11 +42,11 @@ import base64
 import binascii
 from dataclasses import dataclass, field
 
-# Batas dari dokumentasi Gemini + margin aman
-MAX_GAMBAR = 4                    # per pesan (3.000 itu batas API, tapi boros kuota)
-MAX_BYTE_GAMBAR = 7 * 1024 * 1024  # 7 MB — batas inline Gemini
-MAX_BYTE_TEKS = 512 * 1024         # 512 KB untuk file teks
-MAX_CHAR_TEKS = 60_000             # potong isi teks supaya tidak meledakkan konteks
+# Limits from the Gemini documentation + a safe margin
+MAX_GAMBAR = 4                    # per message (3,000 is the API limit, but wasteful of quota)
+MAX_BYTE_GAMBAR = 7 * 1024 * 1024  # 7 MB — Gemini inline limit
+MAX_BYTE_TEKS = 512 * 1024         # 512 KB for text files
+MAX_CHAR_TEKS = 60_000             # cap text content so it cannot blow up the context
 
 MIME_GAMBAR = {
     "image/png", "image/jpeg", "image/jpg", "image/webp",
@@ -66,22 +66,22 @@ PESAN_GAGAL = (
 
 @dataclass
 class HasilLampiran:
-    """Hasil pemrosesan lampiran untuk satu pesan user."""
+    """Processing result of the attachments for one user message."""
 
-    parts: list = field(default_factory=list)   # content parts untuk litellm
-    ringkasan: str = ""                          # placeholder teks untuk riwayat
+    parts: list = field(default_factory=list)   # content parts for litellm
+    ringkasan: str = ""                          # text placeholder for the history
     catatan_gagal: list = field(default_factory=list)
 
 
 def _normalkan(lamp: dict) -> dict:
-    """Terima berbagai bentuk payload dari extension."""
+    """Accept the various payload shapes sent by the extension."""
     if not isinstance(lamp, dict):
         return {}
     nama = str(lamp.get("name") or lamp.get("filename") or "lampiran")
     mime = str(lamp.get("mime") or lamp.get("mimeType") or lamp.get("type") or "").lower()
     data = lamp.get("data") or lamp.get("base64") or lamp.get("content") or ""
 
-    # terima data URI penuh ("data:image/png;base64,....") maupun base64 polos
+    # accept a full data URI ("data:image/png;base64,....") as well as plain base64
     if isinstance(data, str) and data.startswith("data:"):
         kepala, _, sisa = data.partition(",")
         if not mime and ";" in kepala:
@@ -92,12 +92,13 @@ def _normalkan(lamp: dict) -> dict:
 
 
 def _decode(data) -> bytes | None:
-    """Decode base64. Return None kalau tidak valid.
+    """Decode base64. Return None when invalid.
 
-    PENTING: `base64.b64decode(..., validate=False)` TIDAK melempar error untuk
-    input seperti "!!!" -- ia membuang karakter tak valid lalu mengembalikan
-    byte KOSONG. Tanpa pemeriksaan di bawah, lampiran rusak akan lolos sebagai
-    "gambar 0 KB" dan dikirim ke model, yang lalu mengarang isinya.
+    IMPORTANT: `base64.b64decode(..., validate=False)` does NOT raise for
+    input like "!!!" -- it discards invalid characters and returns EMPTY
+    bytes. Without the check below, a broken attachment would slip through
+    as a "0 KB image" and be sent to the model, which would then invent its
+    contents.
     """
     if isinstance(data, bytes):
         return data if data else None
@@ -107,7 +108,7 @@ def _decode(data) -> bytes | None:
         hasil = base64.b64decode(data, validate=False)
     except (binascii.Error, ValueError):
         return None
-    return hasil or None      # byte kosong = base64 rusak, bukan file kosong
+    return hasil or None      # empty bytes = broken base64, not an empty file
 
 
 def _tebak_mime(nama: str) -> str:
@@ -127,24 +128,25 @@ def _tebak_mime(nama: str) -> str:
 
 def build_user_content(message: str, attachments: list | None = None) -> tuple[list, str]:
     """
-    Ubah pesan user + lampiran jadi (content_parts, ringkasan_untuk_riwayat).
+    Turn the user message + attachments into (content_parts, history_summary).
 
     Return:
-      parts     -> list content part untuk litellm. Kalau tidak ada lampiran,
-                   isinya tetap list 1 elemen (aman untuk semua provider).
-      ringkasan -> string untuk context_manager.add_message(). Berisi pesan user
-                   + placeholder lampiran, TANPA base64.
+      parts     -> list of content parts for litellm. When there are no
+                   attachments it still returns the plain string (safe for
+                   all providers).
+      ringkasan -> string for context_manager.add_message(). Contains the
+                   user message + attachment placeholders, WITHOUT base64.
     """
     hasil = proses(message, attachments)
     if not hasil.parts:
-        # tidak ada lampiran: kembalikan teks polos (bukan list) supaya
-        # perilaku lama 100% tidak berubah
+        # no attachments: return plain text (not a list) so the old
+        # behaviour stays 100% unchanged
         return hasil.ringkasan, hasil.ringkasan
     return hasil.parts, hasil.ringkasan
 
 
 def proses(message: str, attachments: list | None = None) -> HasilLampiran:
-    """Inti pemrosesan. Dipisah supaya mudah di-unit-test."""
+    """The processing core. Split out so it is easy to unit-test."""
     out = HasilLampiran()
     pesan = (message or "").strip()
     lampiran = attachments or []
@@ -169,7 +171,7 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
             baris_ringkasan.append(f"[LAMPIRAN GAGAL: {nama} — data rusak]")
             continue
 
-        # ---------------- GAMBAR ----------------
+        # ---------------- IMAGE ----------------
         if mime in MIME_GAMBAR:
             if jumlah_gambar >= MAX_GAMBAR:
                 out.catatan_gagal.append(f"{nama}: melebihi batas {MAX_GAMBAR} gambar/pesan")
@@ -193,7 +195,7 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
             )
             continue
 
-        # ---------------- FILE TEKS ----------------
+        # ---------------- TEXT FILE ----------------
         ekstensi = ("." + nama.rsplit(".", 1)[-1].lower()) if "." in nama else ""
         if ekstensi in EKSTENSI_TEKS or mime.startswith("text/"):
             if len(mentah) > MAX_BYTE_TEKS:
@@ -220,7 +222,7 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
             )
             continue
 
-        # ---------------- TIDAK DIDUKUNG ----------------
+        # ---------------- UNSUPPORTED ----------------
         out.catatan_gagal.append(f"{nama}: tipe '{mime or ekstensi or 'tidak dikenal'}' tidak didukung")
         baris_ringkasan.append(
             f"[LAMPIRAN DITOLAK: {nama} — tipe tidak didukung. "
@@ -233,7 +235,7 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
     teks_gabung = "".join(bagian_teks).strip()
     out.ringkasan = "\n".join([teks_gabung] + baris_ringkasan).strip() if baris_ringkasan else teks_gabung
 
-    # Kalau ada gambar, teks harus jadi part pertama dalam list content
+    # When there are images, the text must be the first part in the content list
     if jumlah_gambar:
         out.parts.insert(0, {"type": "text", "text": teks_gabung or "(lihat gambar terlampir)"})
 
@@ -241,7 +243,7 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
 
 
 def describe_attachments(attachments: list | None) -> str:
-    """Ringkasan satu baris untuk log / event status ke UI."""
+    """One-line summary for the log / UI status event."""
     if not attachments:
         return ""
     nama = []

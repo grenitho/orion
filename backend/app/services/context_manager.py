@@ -43,15 +43,15 @@ class ContextManager:
         return self.history
 
     def clear_history(self, persist: bool = False):
-        """Hapus history di RAM.
-        Jika persist=True, simpan perubahan ke disk (untuk /clear-chat).
-        Jika persist=False, biarkan file disk utuh (untuk keamanan saat summarize)."""
+        """Clear the history in RAM.
+        If persist=True, save the change to disk (for /clear-chat).
+        If persist=False, leave the file on disk intact (for safety during summarize)."""
         self.history = []
         if persist:
             self.save_history()
 
     def save_history(self):
-        """Atomic write untuk mencegah korupsi file saat proses mati mendadak."""
+        """Atomic write to prevent file corruption when the process dies suddenly."""
         if not self.history_file:
             return
 
@@ -62,13 +62,13 @@ class ContextManager:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(self.history, f, indent=2, ensure_ascii=False)
 
-            # Atomic replace di level filesystem
+            # Atomic replace at the filesystem level
             os.replace(tmp_path, self.history_file)
         except Exception as e:
             print(f"[CONTEXT_MANAGER WARNING] Failed to save history: {e}")
 
     def load_history(self):
-        """Load history dengan validasi orphaned tool_calls (2 arah)."""
+        """Load history with orphaned tool_calls validation (both directions)."""
         if not self.history_file or not os.path.exists(self.history_file):
             self.history = []
             return
@@ -77,8 +77,8 @@ class ContextManager:
             with open(self.history_file, "r", encoding="utf-8") as f:
                 loaded_history = json.load(f)
 
-            # VALIDASI ARAH 1: Buang assistant message dengan tool_calls yatim piatu
-            # (assistant punya tool_calls, tapi tool response-nya tidak ada)
+            # VALIDATION DIRECTION 1: Discard assistant messages with orphaned tool_calls
+            # (the assistant has tool_calls, but their tool responses are missing)
             clean_history = []
             i = 0
             while i < len(loaded_history):
@@ -89,7 +89,7 @@ class ContextManager:
                     found_ids = set()
                     j = i + 1
 
-                    # Kumpulkan tool_call_id dari tool messages setelahnya
+                    # Collect the tool_call_ids from the tool messages that follow
                     while (
                         j < len(loaded_history)
                         and loaded_history[j].get("role") == "tool"
@@ -97,15 +97,15 @@ class ContextManager:
                         found_ids.add(loaded_history[j].get("tool_call_id"))
                         j += 1
 
-                    # Jika ada tool_call_id yang tidak punya pasangan, buang seluruh blok
+                    # If any tool_call_id has no partner, discard the whole block
                     if expected_ids - found_ids:
                         print(
                             f"[CONTEXT_MANAGER] ⚠️ Discarding assistant message with {len(expected_ids - found_ids)} orphaned tool_calls."
                         )
-                        i = j  # Skip assistant ini + tool messages yang ada
+                        i = j  # Skip this assistant + its tool messages
                         continue
 
-                # Buang tool message tanpa tool_call_id (sanitasi lama)
+                # Discard tool messages without tool_call_id (legacy sanitization)
                 if msg.get("role") == "tool" and not msg.get("tool_call_id"):
                     i += 1
                     continue
@@ -113,10 +113,10 @@ class ContextManager:
                 clean_history.append(msg)
                 i += 1
 
-            # VALIDASI ARAH 2: Buang tool response yatim piatu
-            # (tool response ada, tapi assistant tool_calls pasangannya sudah tidak ada —
-            # ini bisa terjadi kalau history pernah dipotong berdasarkan index/jumlah
-            # tanpa memperhatikan batas blok assistant+tool, mis. saat summarize/pruning)
+            # VALIDATION DIRECTION 2: Discard orphaned tool responses
+            # (a tool response exists, but its assistant tool_calls partner is gone —
+            # this can happen when history was once cut by index/count without
+            # respecting assistant+tool block boundaries, e.g. during summarize/pruning)
             all_valid_call_ids = set()
             for m in clean_history:
                 if m.get("role") == "assistant" and m.get("tool_calls"):
@@ -148,7 +148,7 @@ class ContextManager:
             self.history = []
 
     def _try_load_backup(self):
-        """Coba load dari backup jika file utama korup."""
+        """Try loading from backup when the main file is corrupted."""
         backup_file = self.history_file + ".backup"
         if os.path.exists(backup_file):
             try:
@@ -165,7 +165,7 @@ class ContextManager:
             self.history = []
 
     def create_backup(self):
-        """Buat backup sebelum operasi berisiko (seperti summarize)."""
+        """Create a backup before risky operations (such as summarize)."""
         if not self.history_file or not os.path.exists(self.history_file):
             return
 
@@ -181,19 +181,19 @@ class ContextManager:
     @staticmethod
     def safe_split_index(history: list, target_index: int) -> int:
         """
-        Cari titik potong yang aman di dekat target_index, supaya tidak memutus
-        pasangan 'assistant(tool_calls)' + 'tool(response)' jadi dua bagian.
-        Dipakai sebelum slicing history untuk summarize/pruning (mis. history[:N]
-        atau history[-N:]), supaya bagian 'tool' yang tersisa selalu punya
-        assistant tool_calls pasangannya di sisi yang sama.
+        Find a safe cut point near target_index so the pair
+        'assistant(tool_calls)' + 'tool(response)' is never split in two.
+        Used before slicing history for summarize/pruning (e.g. history[:N]
+        or history[-N:]), so every remaining 'tool' part always has its
+        assistant tool_calls partner on the same side.
 
-        Return: index yang aman untuk dipakai sebagai batas potong (history[:idx]).
+        Return: an index safe to use as the cut boundary (history[:idx]).
         """
         if target_index <= 0 or target_index >= len(history):
             return target_index
 
-        # Kalau pesan tepat di target_index adalah 'tool' response,
-        # mundurkan batas sampai sebelum blok assistant+tool_calls yang jadi induknya.
+        # If the message right at target_index is a 'tool' response,
+        # back the boundary up to just before the assistant+tool_calls block that owns it.
         idx = target_index
         while idx > 0 and history[idx].get("role") == "tool":
             idx -= 1

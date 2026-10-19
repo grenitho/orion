@@ -1,20 +1,21 @@
 """
-tool_dispatch.py — tabel dispatch untuk tool "sederhana" (Fase B pemecahan main.py)
-====================================================================================
-Sebelum modul ini ada, 22 tool ditangani oleh rantai `elif func_name == ...`
-sepanjang ratusan baris di dalam generator stream. Sebagian besar cabang hanya
-berbentuk: kirim status -> panggil method executor -> kirim status selesai.
-Modul ini memindahkan 14 cabang murni itu ke sebuah TABEL, sehingga:
+tool_dispatch.py — dispatch table for the "simple" tools (Phase B of the main.py split)
+========================================================================================
+Before this module existed, 22 tools were handled by an `elif func_name == ...`
+chain hundreds of lines long inside the stream generator. Most branches had
+only the shape: send status -> call executor method -> send completion status.
+This module moves those 14 pure branches into a TABLE, so that:
 
-  * main.py tinggal memuat cabang yang benar-benar rumit dan interaktif
+  * main.py only keeps the genuinely complex and interactive branches
     (ask_user, update_todos, write_file, edit_file, run_terminal,
-    read_file/read_file_range dengan guard redundansinya, git_diff);
-  * menambah tool sederhana kelak berarti menambah satu baris tabel,
-    bukan menyentuh generator stream;
-  * label status UI hidup di satu tempat yang bisa dibaca dan diuji.
+    read_file/read_file_range with their redundancy guards, git_diff);
+  * adding a simple tool later means adding one table row, not touching the
+    stream generator;
+  * the UI status labels live in one readable, testable place.
 
-Tool yang TIDAK boleh masuk tabel ini: yang punya guard, konfirmasi, heartbeat,
-atau efek alur kontrol. Penjaga itu ada di test_tool_dispatch.py.
+Tools that must NOT enter this table: ones with guards, confirmation flows,
+heartbeats, or control-flow effects. Those rules are enforced in
+test_tool_dispatch.py.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import Callable, Optional
 
 Label = Callable[[dict], str]
 
-# nama tool -> (label_mulai(args), label_selesai(args) | None)
+# tool name -> (label_start(args), label_finish(args) | None)
 TABLE: dict[str, tuple[Label, Optional[Label]]] = {
     "list_files": (
         lambda a: f"📂 Reading folder structure: {a.get('path', '.')}",
@@ -58,21 +59,21 @@ TABLE: dict[str, tuple[Label, Optional[Label]]] = {
         lambda a: f"📦 Moving: {a.get('from_path', '')} -> {a.get('to_path', '')}", None),
 }
 
-# nama tool == nama method di ToolExecutor untuk ke-14 entri ini.
-# Kalau suatu hari berbeda, cukup ubah kamus ini.
+# For these 14 entries, tool name == method name on ToolExecutor.
+# If that ever diverges, just change this dict.
 METHOD: dict[str, str] = {nama: nama for nama in TABLE}
 
-# Tool yang HARUS tetap ditangani main.py karena punya guard/interaksi.
-# Dicantumkan eksplisit supaya keputusan ini terbaca, bukan tersirat.
+# Tools that MUST stay handled by main.py because they have guards/interaction.
+# Listed explicitly so this decision is readable, not implicit.
 WAJIB_DI_MAIN = {
-    "ask_user",        # menghentikan stream, menunggu jawaban user
-    "update_todos",    # menyentuh todo_manager + event todo_update
-    "read_file",       # guard redundansi analyzed_files
-    "read_file_range", # guard redundansi analyzed_files
+    "ask_user",        # stops the stream, waits for the user's answer
+    "update_todos",    # touches todo_manager + the todo_update event
+    "read_file",       # analyzed_files redundancy guard
+    "read_file_range", # analyzed_files redundancy guard
     "write_file",      # permission_manager + post_edit_verifier
     "edit_file",       # permission_manager + post_edit_verifier
-    "run_terminal",    # konfirmasi modal + heartbeat + kill tree
-    "git_diff",        # perlakuan khusus output besar
+    "run_terminal",    # confirmation modal + heartbeat + kill tree
+    "git_diff",        # special handling of large output
 }
 
 

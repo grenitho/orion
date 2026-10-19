@@ -1,22 +1,28 @@
 """
-guard_rules.py — aturan penjaga klaim & stream, dipisah agar BISA DI-TEST (ORION-34)
-====================================================================================
-Sebelum modul ini ada, dua mekanisme terpenting Orion tersembunyi di dalam
-fungsi stream sepanjang 1.200 baris, sehingga tidak mungkin di-unit-test:
+guard_rules.py — claim & stream guard rules, split out so they CAN BE TESTED (ORION-34)
+=======================================================================================
+Before this module existed, two of Orion's most important mechanisms were
+hidden inside a 1,200-line stream function, making them impossible to
+unit-test:
 
-  1. pendeteksian "klaim selesai" dari teks jawaban model, dan
-  2. keputusan apakah klaim itu harus DITANTANG karena tidak ada file berubah.
+  1. detecting a "work is complete" claim in the model's reply text, and
+  2. deciding whether that claim must be CHALLENGED because no file changed.
 
-Keduanya sekarang fungsi murni: input teks/angka, output boolean. Tidak ada
-import FastAPI, tidak ada state. Test-nya ada di test_guard_rules.py dan
-memakai kalimat halusinasi SUNGGUHAN yang pernah dihasilkan Orion.
+Both are now pure functions: text/numbers in, boolean out. No FastAPI
+imports, no state. The tests live in test_guard_rules.py and use REAL
+hallucinated sentences that Orion once produced.
 """
 
 from __future__ import annotations
 
-# Kata/frasa yang menandai model MENGKLAIM pekerjaan selesai.
-# Diperluas pada ORION-24 setelah terbukti daftar 8 kata melewatkan klaim
-# berbahasa Indonesia seperti "sudah tervalidasi" dan "terimplementasi dengan baik".
+# Words/phrases that mark the model CLAIMING the work is complete.
+# Expanded in ORION-24 after the original 8-word list proved to miss
+# Indonesian claims such as "sudah tervalidasi" and "terimplementasi dengan baik".
+#
+# DELIBERATELY BILINGUAL (Phase D): chat replies follow the user's language by
+# design, so claim detection must keep matching Indonesian keywords even
+# though this codebase is now English. Do not "clean up" the Indonesian
+# entries — test_guard_rules.py asserts on real production transcripts.
 KATA_KLAIM = (
     "selesai",
     "done",
@@ -45,7 +51,7 @@ KATA_KLAIM = (
 
 
 def kata_klaim(teks: str) -> bool:
-    """True bila teks jawaban mengandung klaim bahwa pekerjaan selesai."""
+    """True when the reply text contains a claim that the work is complete."""
     if not teks:
         return False
     rendah = teks.lower()
@@ -58,11 +64,11 @@ def klaim_perlu_ditantang(
     sudah_ditantang: int,
     maks_tantangan: int,
 ) -> bool:
-    """Keputusan gerbang verifikasi (ORION-17/24).
+    """Verification-gate decision (ORION-17/24).
 
-    Klaim ditantang HANYA kalau: model mengklaim selesai, TIDAK ada file yang
-    berubah pada giliran ini, dan jatah tantangan belum habis. Batas jatah
-    ada supaya gerbang ini tidak bisa menjadi loop baru.
+    A claim is challenged ONLY if: the model claims completion, NO file
+    changed on this turn, and the challenge quota is not exhausted yet. The
+    quota exists so this gate cannot turn into a new loop.
     """
     return (
         bool(is_task_complete)
@@ -72,5 +78,5 @@ def klaim_perlu_ditantang(
 
 
 def stream_perlu_done_susulan(sudah_mengirim_done: bool) -> bool:
-    """Keputusan wrapper ORION-28: kirim 'done' hanya bila aliran berakhir tanpanya."""
+    """ORION-28 wrapper decision: send 'done' only if the stream ended without one."""
     return not sudah_mengirim_done
