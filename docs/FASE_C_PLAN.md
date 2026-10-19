@@ -1,95 +1,160 @@
-# FASE C — Plan Eksekusi: Memindahkan Loop Agent keluar dari main.py
+# FASE C — Execution Plan: extracting the agent loop out of main.py
 
-**Status:** BELUM DIKERJAKAN. Dokumen ini adalah satu-satunya sumber kebenaran
-untuk melakukannya. Jangan mulai tanpa membaca seluruh halaman ini.
+**Status:** NOT STARTED. This document is the single source of truth for doing it.
+Read all of it before touching code. Written to be executable by an agent or
+engineer with **no prior context** beyond this repository.
 
-**Prasyarat sebelum mulai (semuanya sudah terpenuhi saat dokumen ini ditulis):**
-- [x] 77 test hijau (`python -m pytest backend/app/services/ -q`)
-- [x] `tools_schema.py`, `prompts.py`, `tool_dispatch.py` sudah terpisah (Fase A/B)
-- [x] Pemeriksa konsistensi ORION-15 melaporkan KONSEN
-- [x] Repo memiliki commit bersih sebagai titik kembali
-- [ ] **Baru:** buat commit titik-kembali SESUDAH setiap langkah di bawah, bukan hanya di akhir
+Companion documents: `docs/README.md` (what is canonical), `STATUS_ORION.md`
+(agent-context, Indonesian), `DEVELOPMENT_ROADMAP.md` (what comes after).
 
 ---
 
-## Mengapa urutan ini, dan bukan "pindah sekaligus"
+## 0. Current state snapshot (verify these before starting)
 
-`_aliran_inti` adalah satu generator dengan ±20 titik `yield` dan ±15 variabel
-closure (`context_manager`, `todo_manager`, `tool_executor`, `files_changed_this_turn`,
-`analyzed_files`, `pending_system_notices`, `_nudge_count`, `_verifikasi_count`, …).
-Memindahkannya sekaligus = memindahkan semua keterkaitan itu dalam satu lompatan.
-Rencana ini memecahnya menjadi empat langkah yang masing-masing **bisa di-verify
-dan di-revert sendiri**.
+| Fact | Value | How to check |
+|---|---|---|
+| `main.py` size | ~2,115 lines | `wc -l backend/app/main.py` (or PowerShell `(Get-Content …).Count`) |
+| Agent loop | `async def _aliran_inti()` inside `/chat` | search `_aliran_inti` |
+| Tools | 22 declared & dispatched | startup log line `[TOOLS] Konsisten: 22 tool` |
+| Tests | 77 passing | `python -m pytest backend/app/services/ -q` |
+| Already extracted | `tools_schema.py`, `prompts.py`, `tool_dispatch.py`, `guard_rules.py`, `research_rules.py`, `stream_utils.py`, `code_verifier.py`, `html_checker.py` | `ls backend/app/services/` |
+| Static checks | `ruff --select=F,E9,B` clean | run it |
+| Extension type-check | `tsc --noEmit` clean | `cd orion && npx tsc --noEmit -p tsconfig.json` |
 
----
+If any row disagrees, stop and reconcile first — this plan assumes exactly this state.
 
-## Langkah 1 — Pindahkan PEMBUAT EVENT ke `sse.py` (risiko: rendah)
+## 1. The SSE contract (DO NOT CHANGE THESE NAMES)
 
-Semua baris berbentuk `yield f"data: {json.dumps({...})}\n\n"` memakai pola yang sama.
-Buat `app/services/sse.py`:
+The backend emits exactly seven event types; the extension handles exactly these
+seven (verified with the integration-contract checker). Phase C moves code around
+but **must not rename, add or remove any of these** without a matching change in
+`orion/src/panels/ChatPanel.ts` (`_processStreamData`) — and such a change is a
+separate, deliberate commit, never a side effect of refactoring.
 
-```python
-def ev(jenis: str, **data) -> str:
-    return f"data: {json.dumps({'type': jenis, **data}, ensure_ascii=False)}\n\n"
-```
+| Event | Payload | Extension behaviour |
+|---|---|---|
+| `status` | `text` | activity log line / progress |
+| `token` | `text` | append to assistant bubble (markdown rendered) |
+| `ask_user` | `question` | stop spinner, render question, re-enable input |
+| `confirm_terminal` | `command` | show approval modal, call `/execute-terminal`, feed result back |
+| `todo_update` | `markdown`, `todos` | render the todo checklist box |
+| `error` | `text` | show error bubble |
+| `done` | — | stop spinner, re-enable input |
 
-Lalu ganti seluruh pembuatan event di main.py dengan `yield sse.ev("status", text=...)` dst.
-**Tidak ada perubahan perilaku**; hanya bentuk pemanggilan.
+Guarantee to preserve: **every run ends with exactly one `done`** (wrapper
+`stream_utils.jamin_done`), and a genuine crash must NOT produce `done`
+(test `test_stream_utils.py::test_crash_tidak_disamarkan_sebagai_selesai`).
 
-*Kriteria penerimaan:* 77 test hijau + `git diff` hanya menyentuh baris `yield` +
-output SSE identik (bandingkan dengan merekam satu percakapan sebelum/sesudah
-bila perlu).
+## 2. Closure inventory of `_aliran_inti`
 
-## Langkah 2 — Pindahkan KONTEKS PERCAKAPAN ke `session_state.py` (risiko: sedang)
+Names the generator closes over or mutates. When extracting, every one of these
+must become either a field of `SessionState` (step 2) or an explicit dependency
+(step 4). Search by name; do not trust line numbers.
 
-Kumpulan variabel closure di atas menjadi satu dataclass `SessionState` dengan
-method: `catat_file_berubah()`, `tambah_notice()`, `reset_per_turn()`, dsb.
-Loop tetap di main.py, tapi tidak lagi membawa 15 variabel lepas.
+Closed over (read): `context_manager`, `todo_manager`, `tool_executor`,
+`orion_config`, `static_system_prompt` (now `SYSTEM_PROMPT`), `TOOLS`.
 
-*Kriteria penerimaan:* 77 test hijau + tambah `test_session_state.py` untuk
-perilaku `reset_per_turn` dan pencatatan file.
+Mutated per turn: `files_changed_this_turn`, `analyzed_files`,
+`pending_system_notices`, `_nudge_count`, `_verifikasi_count`,
+`_pending_image_parts` (dormant attachment support), `current_iter`,
+`total_input_tokens` / `total_output_tokens` (performance logging).
 
-## Langkah 3 — Pindahkan GERBANG-GERBANG ke `loop_guards.py` (risiko: sedang)
+Loop counter: **`_`** — guarded by `test_loop_counter_guard.py`; never reuse `_`
+as a throwaway inside the loop.
 
-Empat gerbang yang sudah punya fungsi murni di `guard_rules.py` dipanggil dari
-empat tempat berbeda di loop. Kumpulkan pemanggilannya jadi satu fungsi
-`evaluasi_akhir_iterasi(state, konten, ...) -> Keputusan` dengan enum keputusan:
+## 3. The four steps (one commit each)
+
+### Step 1 — `sse.py`: event builders (risk: low)
+Replace every `yield f"data: {json.dumps({...})}\n\n"` with `yield sse.ev(...)`.
+Pure call-shape change; no behaviour change.
+*Accept:* 77 tests green; `git diff` touches only `yield` lines; the seven event
+names above unchanged; a recorded baseline transcript (section 5) is byte-identical
+in event sequence.
+
+### Step 2 — `session_state.py`: the per-turn state (risk: medium)
+Move the mutated names above into a `SessionState` dataclass with methods
+(`catat_file_berubah`, `tambah_notice`, `reset_per_turn`, `sisa_todo`, …).
+The loop stays in `main.py` for now, but stops carrying 10 loose variables.
+*Accept:* 77 tests green; new `test_session_state.py` covering `reset_per_turn`
+and file-change accounting; no behaviour change observable in baseline transcript.
+
+### Step 3 — `loop_guards.py`: the four gates as one decision (risk: medium)
+Collapse the four decision points (todo-continuation nudge, claim-challenge gate,
+checkpoint/pause, normal answer) into
+`evaluasi_akhir_iterasi(state, konten, ...) -> Keputusan` with enum
 `LANJUT_TODO | TANTANG_KLAIM | CHECKPOINT | JAWAB_NORMAL | PAUSE_ITERASI`.
-Loop tinggal `match keputusan:`.
+The loop becomes a `match` on that decision. Pure logic moves to functions that
+can be unit-tested with synthetic inputs.
+*Accept:* previous tests green; new tests feed five synthetic situations and assert
+five distinct decisions, including "claim with zero changed files" and
+"todos still pending".
 
-*Kriteria penerimaan:* test baru yang memberi lima masukan dan memastikan lima
-keputusan berbeda — termasuk kasus "klaim tanpa file berubah" dan "todo masih ada".
+### Step 4 — `agent_loop.py`: the generator itself (risk: high, last)
+Move `_aliran_inti` to `app/services/agent_loop.py` as
+`async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]`
+where `Deps` holds: `context_manager`, `todo_manager`, `tool_executor`,
+`llm_call` (the heartbeat-wrapped `get_ai_response`), `kirim_status` (sse),
+`config`, `logger`. `main.py` keeps HTTP routing, builds `SessionState`/`Deps`,
+and wraps with `stream_utils.jamin_done`.
+*Accept:* all tests green; consistency check KONSEN; and the four manual scenarios
+in section 6 pass in VS Code.
 
-## Langkah 4 — Pindahkan generator ke `agent_loop.py` (risiko: tinggi, terakhir)
+## 4. Hard rules
 
-Setelah Langkah 1–3, generator tinggal ±300 baris yang benar-benar alur.
-Pindahkan ke `app/services/agent_loop.py` dengan signature:
+1. One step = one commit. If a step fails verification, `git checkout -- <files>`
+   and redo that step; never stack fixes across steps.
+2. **No behaviour changes while moving.** Behaviour fixes are separate commits
+   after Phase C completes. Record temptations in the Backlog section below.
+3. Run `python -m pytest backend/app/services/ -q` after every pattern
+   replacement, not only at step end.
+4. Never reuse `_` inside the loop (see guard test).
+5. The seven SSE event names are frozen (section 1).
 
-```python
-async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]
+## 5. Baseline transcript procedure (do this BEFORE step 1)
+
+Record one real conversation's event stream so steps can be compared against it:
+
+```powershell
+$body = @{ message = "list the files in this project and summarize them" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/set-project" -ContentType "application/json" -Body (@{ path = "D:\APP Grenitho\orion-project" } | ConvertTo-Json)
+Invoke-WebRequest -Method Post -Uri "http://127.0.0.1:8000/chat" -ContentType "application/json" -Body $body -OutFile baseline_sse.txt
 ```
 
-`main.py` menjadi: routing HTTP + membangun `SessionState`/`Deps` +
-`StreamingResponse(sse.bungkus_done(aliran_agent(...)))`.
+Keep `baseline_sse.txt` outside the repo. After each step, re-record and diff the
+**event-type sequence** (ignore timings and token text): it must be identical.
 
-*Kriteria penerimaan:* 77+ test hijau, konsistensi KONSEN, DAN uji manual empat
-skenario di VS Code: (a) tugas multi-item, (b) tugas yang memaksa konfirmasi
-terminal, (c) tugas dengan file rusak untuk memancing verify_code, (d) pembatalan
-tombol Cancel di tengah generasi.
+## 6. Manual acceptance scenarios (after step 4)
+
+a) multi-item task ("add X, test X, update README") → todo list appears, all items done
+b) a task that triggers a dangerous command → approval modal, then continuation
+c) a deliberately broken file + "fix it" → `verify_code` cited with line number
+d) press Cancel mid-generation → clean cancel, input re-enabled, no phantom error
+
+## 7. Rollback
+
+Every step is one commit: `git revert <sha>` restores the previous state without
+touching later work. The pre-Phase-C tag is recommended before step 1:
+`git tag pre-fase-c && git push --tags`.
+
+## 8. Definition of done
+
+- `main.py` under ~700 lines, containing only HTTP routing + composition
+- 77+ tests green, including new `session_state` / `loop_guards` tests
+- baseline event sequence unchanged
+- four manual scenarios pass
+- `STATUS_ORION.md` updated with new module map
+
+## Backlog (temptations deferred during Phase C)
+
+- (empty — add here anything you notice but must not fix while moving code)
 
 ---
 
-## Aturan keras selama Fase C
+## After Phase C: Phase D — internationalization (portfolio polish)
 
-1. **Satu langkah = satu commit.** Kalau sebuah langkah gagal verify, `git checkout`
-   file terkait dan mulai langkah itu ulang; jangan menumpuk perbaikan.
-2. Jangan mengubah PERILAKU saat memindah. Perbaikan perilaku adalah pekerjaan
-   terpisah yang datang SESUDAH pemindahan selesai.
-3. Setiap kali tergoda "sekalian saja diperbaiki", berhenti dan catat di
-   `docs/FASE_C_PLAN.md` bagian Backlog di bawah.
-4. Jalankan `python -m pytest backend/app/services/ -q` setelah SETIAP penggantian
-   pola, bukan hanya di akhir langkah.
-
-## Backlog (catatan godaan yang harus ditahan)
-
-- (kosong — isi di sini bila Anda menunda sebuah perbaikan selama Fase C)
+See `DEVELOPMENT_ROADMAP.md`. Summary: translate user-facing status strings and
+tool result messages to English (updating the tests that assert them), translate
+code comments, and translate the system prompt last, as its own commit, with a
+before/after behaviour comparison. **Never** translate chat replies — those follow
+the user's language by design. `.orion/*` and `session_history.json` are gitignored
+user data and never ship; they need no translation.

@@ -1,3 +1,7 @@
+> **INTERNAL / AGENT-CONTEXT (Indonesian).** Dokumen ini dibaca Orion sendiri dari
+> `.orion/`. Dokumentasi pengguna yang kanonik berbahasa Inggris ada di `README.md`,
+> `SECURITY.md`, dan `docs/DEVELOPMENT_ROADMAP.md` di root repo.
+
 # STATUS ORION — Fase OPERASIONAL
 
 > **Dokumen ini menggantikan `docs/21_Orion_Pending_Roadmap.md` dan
@@ -33,17 +37,22 @@ dipakai sungguhan. Artinya:
 
 ## Kemampuan yang SUDAH ada (jangan dibangun ulang)
 
-### 14 tool aktif
+### 22 tool aktif
 
 ```
 list_files   read_file   read_file_range   read_json_path   search_code
 write_file   edit_file   run_terminal      ask_user         update_todos
-web_search   web_fetch   git_status        git_diff
+web_search   web_fetch   git_status        git_diff         verify_code
+verify_html  restore_backup  list_backups  delete_file      move_file
+git_commit   run_tests
 ```
 
-Keempat belas tool ini **terverifikasi punya cabang dispatch**. Ada pemeriksa otomatis
-(`periksa_konsistensi_tools()`) yang berjalan saat startup dan mencatat ke log kalau
-suatu hari skema TOOLS dan dispatch menyimpang lagi.
+(`verify_html` adalah alias dari `verify_code`, dipertahankan supaya aturan lama tetap berlaku.)
+
+Ke-22 tool ini **terverifikasi punya cabang dispatch**. Pemeriksa otomatis
+(`periksa_konsistensi_tools()`) berjalan saat startup dan mencatat ke log kalau
+skema TOOLS dan dispatch menyimpang. Angka di log (`Konsisten: N tool`) adalah
+cara tercepat memastikan proses yang berjalan memuat kode versi mana.
 
 ### Kemampuan sistem
 
@@ -133,3 +142,49 @@ Diurutkan dari dampak ÷ usaha. **Jangan memulai ini tanpa diminta.**
   (`git add -f .orion/master_context.md`) supaya dokumen konteks ikut ter-version,
   sementara `session_history.json` tetap diabaikan.
 - Sebelum membagikan kode ke pihak mana pun, jalankan `prescan.py`.
+
+
+---
+
+## PERUBAHAN SEJAK v0.5.0 (jangan dibangun ulang, sudah terpasang)
+
+| Kode | Isi |
+|---|---|
+| ORION-18 | Perbaikan layout kotak ketik (sempat menyempit karena regresi flex) |
+| ORION-19/22 | Lampiran gambar: dicoba, lalu **dihapus dari UI** karena webview VS Code membatasi clipboard. Field backend tetap ada tapi tidak aktif |
+| ORION-20 | **Mata Orion**: diagnostics panel Problems + file aktif + sorotan dikirim tiap pesan |
+| ORION-21 | `.vscodeignore` — VSIX tidak lagi membocorkan `.orion/session_history.json` |
+| ORION-23/25 | `verify_html` lalu `verify_code`: pemeriksa NYATA 16 jenis file + mode folder |
+| ORION-24 | Gerbang verifikasi diperluas: 23 kata kunci klaim, lubang iterasi-pertama ditutup |
+| ORION-26 | Jaring pengaman: `restore_backup`, `list_backups`, `delete_file`, `move_file`, `git_commit` |
+| ORION-27 | `git init/push/pull/clone/reset/rebase` **diblokir di run_terminal** (pernah hang dan mematikan backend) |
+| ORION-28 | Wrapper `done`: 10 jalur keluar stream yang dulu mengakhiri tanpa sinyal kini ditutup benar. Menghilangkan alarm palsu "koneksi terputus" |
+| ORION-30 | `run_tests`: jalankan pytest/npm test/go test otomatis, laporan TERURAI (lulus/gagal + penyebab per kegagalan) |
+| ORION-29 | Heartbeat "🤔 Masih berpikir... N detik" tiap 15 detik selama menunggu LLM |
+| ORION-32 | `verify_code` memeriksa impor lewat interpreter MILIK project, bukan backend (menghilangkan positif palsu) |
+| ORION-33 | Test regresi `test_loop_counter_guard.py`: melarang `_` dipakai sebagai variabel buang di loop agent (bug produksi ORION-29 v1) |
+| ORION-34 | Logika klaim & gerbang verifikasi dipindah ke `guard_rules.py` (fungsi murni) + 19 test memakai kalimat halusinasi SUNGGUHAN dari transkrip produksi |
+| ORION-35 | Riset otomatis saat mentok: pada anti-loop, backend mencari web SENDIRI dan menyuntikkan temuannya; ekstrak web_fetch membuang menu navigasi |
+| ORION-36 | Wrapper `done` diangkat ke `stream_utils.jamin_done()` + test untuknya dan untuk guard git (ORION-27/28 kini tertest) |
+
+### Perilaku yang sekarang NORMAL (bukan bug)
+
+- Orion **berhenti untuk bertanya** (`ask_user`) kini berakhir bersih, tanpa pesan error.
+- Orion **menolak** menjalankan `git init/push/pull` dan menyuruh Anda melakukannya manual. Itu sengaja.
+- Orion **menantang dirinya sendiri** di log (`[KLAIM TANPA BUKTI]`) kalau mengklaim selesai tanpa mengubah file. Kalau Anda melihat baris itu di log, sistem bekerja.
+- Saat berpikir lama, panel menampilkan "🤔 Masih berpikir... 15 detik", dst.
+
+---
+
+## FASE REFAKTORING (v0.6.0)
+
+| Fase | Isi | Status |
+|---|---|---|
+| A | `tools_schema.py` (skema 22 tool) + `prompts.py` (system prompt) keluar dari main.py | ✅ selesai |
+| B | `tool_dispatch.py`: 14 tool murni jadi tabel; 8 tool berguard tetap di main.py dengan alasan tercatat | ✅ selesai |
+| C | Loop agent (`_aliran_inti`) ke `agent_loop.py` dalam 4 langkah ber-commit | ⏳ **lihat `docs/FASE_C_PLAN.md`** |
+
+Ukuran `main.py`: 2.769 → 2.115 baris. Test: 70 → **77**.
+`docs/FASE_C_PLAN.md` adalah satu-satunya sumber kebenaran untuk Fase C:
+empat langkah ber-commit terpisah, kriteria penerimaan per langkah, dan aturan
+"satu langkah = satu commit, jangan mengubah perilaku saat memindah".
