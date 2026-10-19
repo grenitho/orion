@@ -1,0 +1,34 @@
+# ============================================================================
+# .vscodeignore untuk ORION  (PATCH ORION-21)
+#
+# File ini sebelumnya KOSONG, sehingga `vsce package` mengemas SEGALANYA --
+# termasuk .orion/session_history.json (ISI PERCAKAPAN ANDA), master_context.md,
+# performance_log.jsonl, source TypeScript, dan berkas kerja lainnya -- ke dalam
+# setiap VSIX. Siapa pun yang mendapat VSIX itu bisa membaca riwayat chat Anda.
+#
+# Dengan daftar ini, VSIX hanya berisi yang benar-benar dibutuhkan runtime:
+#   package.json, readme, changelog, dist/extension.js, resources/
+# ============================================================================
+
+# ---- source & build ----
+src/**
+out/**
+node_modules/**
+tsconfig.json
+esbuild.js
+eslint.config.mjs
+.vscode-test.mjs
+**/*.map
+**/*.ts
+
+# ---- data pribadi & runtime (JANGAN PERNAH ikut VSIX) ----
+.orion/**
+status.txt
+fix.js
+gen-package.js
+*.vsix
+
+# ---- workspace & cache ----
+.vscode/**
+.gitignore
+.git/**

@@ -1,0 +1,27 @@
+# ============================================================================
+# ORION backend — dependensi
+# >>> PATCH ORION-8 (REVISI 2) ==========================================
+# Versi sebelumnya gagal di-resolve pip:
+#     ERROR: Cannot install litellm==1.105.1 and pydantic==2.6.4
+#     litellm 1.105.1 butuh pydantic>=2.11.0, tapi pydantic dipatok 2.6.4
+#     (rilis Feb 2024) dan fastapi dipatok 0.110.0 (rilis Mar 2024).
+#
+# Kombinasi di bawah ini SUDAH DIUJI: di-install bersama, lalu main.py
+# diimpor berhasil — semua route terdaftar tanpa error.
+#   fastapi 0.143.3 · starlette 1.8.0 · uvicorn 0.54.0 · pydantic 2.14.1
+#   litellm 1.105.1 · tiktoken 0.14.0 · ddgs 9.16.0 · python-dotenv 1.2.4
+#
+# Batas bawah (>=) dipakai agar pip bebas memilih versi yang saling cocok.
+# ============================================================================
+
+fastapi>=0.143.0
+uvicorn>=0.34.0
+litellm>=1.105.1
+pydantic>=2.11.0
+python-dotenv>=1.0.1
+
+# >>> Diimpor kode tapi tidak pernah dideklarasikan sebelumnya.
+# Tanpa dua baris ini, `pip install -r requirements.txt` di mesin baru
+# langsung ModuleNotFoundError saat runtime.
+tiktoken>=0.7.0
+ddgs>=9.0.0

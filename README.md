@@ -1,0 +1,214 @@
+# Orion — AI Software Engineer Assistant for VS Code
+
+**A local-first, verification-driven coding agent.** Orion reads your project, plans
+multi-step work, edits code, runs commands, and — most importantly — **checks its own
+claims with real parsers and compilers before reporting success.**
+
+Orion is composed of two parts that talk over localhost:
+
+- a **FastAPI backend** (Python) that owns the agent loop, tool execution, context
+  management and LLM routing, and
+- a **VS Code extension** (TypeScript) that provides the chat panel, approval modals,
+  activity log and editor intelligence.
+
+---
+
+## Why Orion exists
+
+Most coding assistants fail in two ways: they **stop halfway** through multi-part
+requests, and they **report success for work they never did**. Orion is built around
+closing exactly those two failure modes, with mechanisms that are enforced in code and
+covered by tests — not with prompt wording alone.
+
+- **Multi-task completion.** Requests are tracked as an explicit todo list. If the model
+  claims completion while items remain pending, the loop injects a continuation message
+  and keeps working instead of stopping.
+- **Claim verification.** A completion claim with zero files changed is rejected and
+  challenged: the model must cite file + line evidence, or admit the work is not done.
+- **Real eyes on the code.** `verify_code` runs actual parsers/compilers
+  (`node --check`, `tsc`, Python `compile`, JSON/XML/YAML/CSS parsers, HTML structural
+  checks) across 16 file types. Syntax errors are reported with line numbers, because a
+  language model cannot reliably see a missing parenthesis — a parser can.
+- **Editor awareness.** Every request carries the active file, the current selection and
+  the diagnostics from VS Code's *Problems* panel, so the agent knows when its own edit
+  broke something.
+- **Honest failure.** Every agent run ends with exactly one terminal event
+  (`completed` / `needs_confirmation` / `failed` / `rate_limited`). A stream that ends
+  without one is completed by a wrapper, and a genuine crash is still distinguishable
+  from a normal stop.
+
+---
+
+## Feature overview
+
+| Area | Capability |
+|---|---|
+| **Tools (22)** | file read/write/edit (SEARCH-REPLACE), ranged read, JSON path read, code search, terminal execution with timeout + process-tree kill, todo management, user questions, web search, web page fetch (SSRF-guarded), `verify_code`, `run_tests`, git status/diff/commit, backups list/restore, delete/move with backup |
+| **LLM routing** | primary Gemini with N-key rotation → OpenRouter fallback → Cloudflare fallback; per-tier temperature; retry with exponential backoff + jitter; `reasoning_effort` mapped to Gemini thinking levels |
+| **Context** | persistent session history with orphaned tool-call validation, atomic writes and backups; automatic summarization when approaching token budget; safe history splitting that never separates an assistant call from its tool response |
+| **Safety** | path-traversal guard on every file operation; confirmation modals for dangerous commands; destructive/remote git operations blocked at code level; automatic `.bak` before overwrite; reversible restores; SSRF protection on fetched URLs |
+| **UX** | streaming status events (including a "still thinking… Ns" heartbeat), markdown + syntax highlighting in the chat panel, activity view, performance dashboard, cancel button with real abort |
+| **Quality** | 70 automated tests, including regression guards for every safety mechanism; startup consistency check between declared tools and dispatched tools |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────── VS Code ───────────────────────────┐
+│  Chat panel (webview)  ◄──postMessage──►  Extension host (TS) │
+│        ▲                                        │              │
+│        │ status/token/ask_user/done events      │ fetch (SSE)  │
+└────────┼────────────────────────────────────────┼──────────────┘
+         │                                        ▼
+         │                         ┌──────────────────────────┐
+         │                         │  FastAPI backend (Python)│
+         │                         │  /chat  /set-project     │
+         │                         │  agent loop + 22 tools   │
+         │                         │  LLM router (3 tiers)    │
+         │                         └──────────┬───────────────┘
+         │                                    ▼
+         │                     Gemini / OpenRouter / Cloudflare
+         └── diagnostics, active file, selection (sent with every request)
+```
+
+The backend binds to `127.0.0.1` only and CORS is closed; see
+[SECURITY.md](SECURITY.md) for the full threat model, including what Orion
+deliberately does **not** protect against.
+
+---
+
+## Requirements
+
+- Python **3.11+**
+- Node.js **18+** (for the extension and for `verify_code` on JS/TS)
+- VS Code **1.125+**
+- At least one LLM provider key (Gemini recommended; OpenRouter / Cloudflare optional
+  as fallbacks)
+
+---
+
+## Quick start
+
+### 1. Backend
+
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate   |   macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env                # then fill in your keys
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+### 2. Extension
+
+```bash
+cd ../orion
+npm install
+npm run package                     # type-check + lint + production build
+npx vsce package --allow-missing-repository
+code --install-extension orion-<version>.vsix --force
+```
+
+For development, open the `orion/` folder in VS Code and press **F5** to launch an
+Extension Development Host that loads straight from source.
+
+### 3. Use
+
+Open the **Orion** activity bar icon, set your project folder, and talk to it:
+
+> "Add a dark-mode toggle, write a test for it, and update the README."
+
+Orion will create a todo list, work through it item by item, verify its edits with
+`verify_code` / `run_tests`, ask for approval before dangerous commands, and checkpoint
+with `git_commit` when the work passes.
+
+---
+
+## Configuration
+
+All secrets and knobs live in `backend/.env` (never committed). The most relevant:
+
+| Variable | Purpose |
+|---|---|
+| `GEMINI_API_KEY_1`, `_2`, … | any number of Gemini keys; rotated per request |
+| `DEFAULT_MODEL` | e.g. `gemini/gemini-3.5-flash-lite` |
+| `FALLBACK_API_KEY`, `FALLBACK_MODELS` | OpenRouter tier |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_MODELS` | Cloudflare tier |
+| `LLM_REASONING_EFFORT` | `minimal` / `low` / `medium` / `high` (default `high`) |
+| `LLM_TIMEOUT`, `LLM_MAX_RETRIES_PER_MODEL`, `LLM_BACKOFF_BASE` | resilience knobs |
+| `ORION_MAX_TODO_NUDGE`, `ORION_MAX_VERIFIKASI` | limits for the continuation and claim-challenge loops |
+
+Runtime behaviour per project lives in `.orion/orion_config.json`
+(`max_iterations`, token budget thresholds).
+
+---
+
+## Testing
+
+```bash
+cd backend
+python -m pytest app/services/ -q
+```
+
+70 tests cover the attachment pipeline, the claim-verification gate, the loop-counter
+guard, the git-operation blocklist, the stream-completion wrapper, the research-query
+builder and the security posture (CORS, loopback bind, absence of personal paths and
+private artifacts). Several of these tests exist because a real production incident
+proved the bug first; their docstrings say so.
+
+---
+
+## Project layout
+
+```
+backend/
+  app/
+    main.py              FastAPI app, agent loop, SSE contract
+    logging_setup.py     rotating file logging (stdout stays quiet on purpose)
+    services/
+      llm_router.py      3-tier provider router with backoff
+      tool_executor.py   22 tools, path guard, git guard, backups
+      code_verifier.py   multi-language static verification
+      html_checker.py    HTML structural checks
+      context_manager.py persistent, self-healing session history
+      todo_manager.py    explicit task list
+      guard_rules.py     claim detection & challenge policy (pure, tested)
+      research_rules.py  auto-research query building (pure, tested)
+      stream_utils.py    terminal-event guarantee (tested)
+      permission_manager.py, dependency_scanner.py, post_edit_verifier.py
+      test_*.py          70 tests
+orion/                   VS Code extension (TypeScript, esbuild)
+docs/                    status, roadmap and feature notes
+SECURITY.md              threat model and honest limitations
+```
+
+---
+
+## Roadmap
+
+Done and guarded by tests: multi-task continuation, claim verification, editor
+diagnostics, multi-language verification, test runner, auto-research on repeated
+failure, safe file operations with reversible restores, git checkpoints, heartbeat
+progress, closed CORS + loopback bind.
+
+Planned: split `main.py` into prompt/schema/dispatch/loop modules, semantic search for
+large codebases, MCP tool servers, parallel sub-agents, and a shared-secret token
+between extension and backend.
+
+---
+
+## Limitations (read this before trusting it)
+
+- Orion executes shell commands **with your user privileges**. There is no process
+  sandbox. Run it on machines you control, never as administrator/root, and keep the
+  approval modals enabled.
+- The model can be misled by hostile content in files or web pages (prompt injection).
+  Verification tools and approval modals are the mitigation, not a guarantee.
+- Output quality depends on the model tier you configure; lightweight models are fast
+  but need the verification scaffolding above to be trustworthy.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
