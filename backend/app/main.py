@@ -139,6 +139,7 @@ from pydantic import BaseModel
 from app.services import guard_rules, research_rules, sse, stream_utils
 from app.services import tool_dispatch
 from app.services.prompts import SYSTEM_PROMPT
+from app.services.session_state import SessionState
 from app.services.tools_schema import TOOLS
 from app.services.context_manager import ContextManager
 from app.services.dependency_scanner import DependencyScanner
@@ -686,12 +687,16 @@ async def chat_with_orion(request: ChatRequest):
 
     _lamp_desc = describe_attachments(request.attachments)
     _content_parts, _riwayat_text = build_user_content(request.message, request.attachments)
-    # A mutable holder (1-element list), NOT a plain variable. Reason: if
-    # generate_stream() did `_pending = None`, Python would treat it as a
-    # LOCAL variable of that generator (not a closure), so the first access
-    # would raise UnboundLocalError. With a list we mutate its contents instead
-    # of rebinding the name -- the closure keeps working. (Caught by ruff F823.)
-    _pending_image_parts = [_content_parts if isinstance(_content_parts, list) else None]
+    # >>> PHASE C STEP 2: per-turn mutable state now lives in one SessionState
+    # (app/services/session_state.py) instead of loose locals inside the
+    # generator. The attachment image parts are single-use: injected into
+    # api_messages on the first iteration, then state.pending_image is set
+    # back to None. The old 1-element-list holder (a workaround for ruff
+    # F823) is no longer needed — assigning through `state.` cannot create a
+    # generator-local.
+    state = SessionState(
+        pending_image=_content_parts if isinstance(_content_parts, list) else None
+    )
     if _lamp_desc:
         logger.info("[ATTACHMENT] %s", _lamp_desc)
 
@@ -780,7 +785,6 @@ async def chat_with_orion(request: ChatRequest):
         print(f"[ORION CONFIG] Token budget threshold: {token_budget_threshold}")
 
         try:
-            analyzed_files = set()
             last_tool_calls = []
 
             # >>> CRITICAL FIX: tracker of files ACTUALLY changed on THIS turn only.
@@ -789,10 +793,10 @@ async def chat_with_orion(request: ChatRequest):
             # VERY common in ordinary audit/report sentences even when NO
             # edit_file/write_file/create_file tool was actually called. As a result,
             # Orion could "claim completion" without doing any work, or repeat the
-            # same audit because it never actually executed the changes. This tracker
-            # is a MANDATORY precondition before the completion checkpoint may trigger
-            # a pause (see its usage below).
-            files_changed_this_turn = []
+            # same audit because it never actually executed the changes. The tracker
+            # (state.files_changed_this_turn, Phase C step 2) is a MANDATORY
+            # precondition before the completion checkpoint may trigger a pause
+            # (see its usage below).
 
             # >>> ANTI-INFINITE-LOOP GUARD <<<
             consecutive_400_errors = 0
@@ -801,12 +805,12 @@ async def chat_with_orion(request: ChatRequest):
             # >>> PATCH ORION-1b: cap on how many times the loop may "nudge" the model
             # to continue with the remaining todos. Prevents an endless loop when the
             # model keeps writing "done" without actually doing anything.
-            _nudge_count = 0
+            # The counter itself lives in state.nudge_count (Phase C step 2).
             MAX_TODO_NUDGE = int(os.getenv("ORION_MAX_TODO_NUDGE", "10"))
 
-            # >>> PATCH ORION-17a: the "claim verification" counter.
+            # >>> PATCH ORION-17a: the "claim verification" counter
+            # (state.verifikasi_count, Phase C step 2).
             # Used to challenge a model that claims completion without changing files.
-            _verifikasi_count = 0
             MAX_VERIFIKASI = int(os.getenv("ORION_MAX_VERIFIKASI", "2"))
 
             # >>> CONVENTION: `_` below is the agent LOOP COUNTER.
@@ -868,12 +872,12 @@ async def chat_with_orion(request: ChatRequest):
                 # >>> ATTACHMENT FEATURE (B4b): inject images only on the first iteration.
                 # After that the history contains text placeholders, so later
                 # iterations do not resend the base64 (saves free-tier quota).
-                if _ == 0 and _pending_image_parts[0]:
+                if _ == 0 and state.pending_image:
                     for _i in range(len(api_messages) - 1, -1, -1):
                         if api_messages[_i].get("role") == "user":
-                            api_messages[_i] = {**api_messages[_i], "content": _pending_image_parts[0]}
+                            api_messages[_i] = {**api_messages[_i], "content": state.pending_image}
                             break
-                    _pending_image_parts[0] = None   # single use
+                    state.pending_image = None   # single use
                     if _lamp_desc:
                         yield sse.ev('status', text=f'📎 {_lamp_desc}')
                 # >>> END OF ATTACHMENT FEATURE
@@ -1242,7 +1246,7 @@ async def chat_with_orion(request: ChatRequest):
                     # >>> NEW: system notifications that MUST be deferred until AFTER
                     # all tool_results are stored (so the message order stays valid:
                     # assistant -> tool -> tool -> ... -> user notice).
-                    pending_system_notices = []
+                    state.pending_system_notices.clear()
 
                     for tc in msg.tool_calls:
                         func_name = tc.function.name
@@ -1304,7 +1308,7 @@ async def chat_with_orion(request: ChatRequest):
                             # Flush any anti-loop notices that may have terkumpul
                             # accumulated BEFORE ask_user was called in the same tool_calls batch,
                             # so they are not lost due to the 'return' below.
-                            for notice in pending_system_notices:
+                            for notice in state.pending_system_notices:
                                 context_manager.add_message("user", notice)
 
                             return  # STOP THE STREAM RIGHT NOW. DO NOT CONTINUE THE LOOP!
@@ -1338,12 +1342,12 @@ async def chat_with_orion(request: ChatRequest):
 
                             elif func_name == "read_file":
                                 file_path = func_args.get("file_path", "")
-                                if file_path in analyzed_files:
+                                if file_path in state.analyzed_files:
                                     result = f"[SYSTEM WARNING] REDUNDANCY DETECTED: You already read '{file_path}' in this session. The information is already in your memory. Do NOT re-read it. Continue the analysis or execution based on what you already know."
                                 else:
                                     yield sse.ev('status', text=f' Reading file: {file_path}')
                                     result = tool_executor.read_file(**func_args)
-                                    analyzed_files.add(file_path)
+                                    state.analyzed_files.add(file_path)
                                     yield sse.ev('status', text=f'✅ File {file_path} read')
 
                             elif func_name == "read_file_range":
@@ -1354,14 +1358,14 @@ async def chat_with_orion(request: ChatRequest):
                                 # Build a unique key based on the file AND its line range
                                 range_key = f"{file_path}:{start}-{end}"
 
-                                if range_key in analyzed_files:
+                                if range_key in state.analyzed_files:
                                     result = f"[SYSTEM WARNING] REDUNDANCY DETECTED: You already read lines {start}-{end} of '{file_path}' in this session. Use the information you already have."
                                 else:
                                     yield sse.ev('status', text=f'📖 Reading {file_path} (lines {start}-{end})')
                                     result = tool_executor.read_file_range(**func_args)
 
                                     # Store this unique key, not just the file name
-                                    analyzed_files.add(range_key)
+                                    state.analyzed_files.add(range_key)
 
                                     yield sse.ev('status', text=f'✅ File {file_path} read')
 
@@ -1394,7 +1398,7 @@ async def chat_with_orion(request: ChatRequest):
                                     if isinstance(
                                         result, str
                                     ) and result.lower().startswith("success"):
-                                        files_changed_this_turn.append(
+                                        state.catat_file_berubah(
                                             f"- `{file_path}` (write_file)"
                                         )
                                         # >>> NEW: AUTOMATIC POST-WRITE VERIFICATION <<<
@@ -1415,7 +1419,7 @@ async def chat_with_orion(request: ChatRequest):
                                             print(
                                                 f"[POST_EDIT_VERIFIER WARNING] {verify_err}"
                                             )
-                                    analyzed_files.discard(
+                                    state.analyzed_files.discard(
                                         file_path
                                     )  # FIX: invalidate the cache so it can be re-read if needed
                                     yield sse.ev('status', text=f'✅ File {file_path} created')
@@ -1448,7 +1452,7 @@ async def chat_with_orion(request: ChatRequest):
                                     if isinstance(
                                         result, str
                                     ) and result.lower().startswith("success"):
-                                        files_changed_this_turn.append(
+                                        state.catat_file_berubah(
                                             f"- `{file_path}` (edit_file)"
                                         )
                                         # >>> NEW: AUTOMATIC POST-EDIT VERIFICATION <<<
@@ -1467,7 +1471,7 @@ async def chat_with_orion(request: ChatRequest):
                                             print(
                                                 f"[POST_EDIT_VERIFIER WARNING] {verify_err}"
                                             )
-                                    analyzed_files.discard(
+                                    state.analyzed_files.discard(
                                         file_path
                                     )  # FIX: invalidate the cache so it can be re-read if needed
                                     yield sse.ev('status', text=f'✅ File {file_path} edited')
@@ -1502,7 +1506,7 @@ async def chat_with_orion(request: ChatRequest):
                                         )
                                         # Flush any anti-loop notices that may have
                                         # accumulated before this confirmation was triggered.
-                                        for notice in pending_system_notices:
+                                        for notice in state.pending_system_notices:
                                             context_manager.add_message("user", notice)
                                         yield sse.ev('confirm_terminal', command=cmd_to_run)
                                         result = "[AWAITING USER CONFIRMATION]"
@@ -1669,7 +1673,7 @@ async def chat_with_orion(request: ChatRequest):
                                 # every iteration). Defer this notice until assistant_msg +
                                 # tool_results are stored, so the message order stays
                                 # valid. <<<
-                                pending_system_notices.append(
+                                state.tambah_notice(
                                     f"[SYSTEM EMERGENCY STOP]: The command '{func_name}' has failed 3 times in a row. STOP trying variations of the same thing. Read the error message in the previous output carefully, report the core problem to the user, and ask for new instructions. Do NOT try running this command again."
                                 )
                                 # >>> PATCH ORION-35: AUTOMATIC RESEARCH WHEN STUCK ====
@@ -1691,7 +1695,7 @@ async def chat_with_orion(request: ChatRequest):
                                     logger.info("[AUTO RESEARCH] query=%s", _kueri_riset)
                                 except Exception as _err_riset:  # noqa: BLE001
                                     _temuan_riset = f"(automatic research failed: {_err_riset})"
-                                pending_system_notices.append(
+                                state.tambah_notice(
                                     "[SYSTEM - AUTOMATIC RESEARCH]: Before giving up and reporting to the "
                                     "user, read the following web findings, then try ONE approach "
                                     "that is DIFFERENT from what already failed, based on these findings:\n"
@@ -1719,7 +1723,7 @@ async def chat_with_orion(request: ChatRequest):
 
                     # >>> Emergency (anti-loop) notices are only added NOW,
                     # after assistant+tool are stored in the correct order. <<<
-                    for notice in pending_system_notices:
+                    for notice in state.pending_system_notices:
                         context_manager.add_message("user", notice)
 
                     # Self-Correction Injection (aggressive but controlled)
@@ -1766,8 +1770,8 @@ async def chat_with_orion(request: ChatRequest):
                             "assistant", content, reasoning_content=reasoning_content
                         )
 
-                        current_iter = _ + 1
-                        if current_iter >= max_iter:
+                        state.current_iter = _ + 1
+                        if state.current_iter >= max_iter:
                             pause_msg = f"\n\n[SYSTEM PAUSE]: I have reached the iteration limit ({max_iter}) for this session for token safety. However, I still remember every step I have taken. Please type **'lanjutkan'** or **'continue'** so I can finish this task."
                             yield sse.ev('token', text=pause_msg)
                             yield sse.ev('done')
@@ -1788,7 +1792,7 @@ async def chat_with_orion(request: ChatRequest):
                         # without real progress). Now the checkpoint may ONLY close the task
                         # with hard evidence: at least 1 file truly written/edited on
                         # THIS turn (files_changed_this_turn).
-                        if is_task_complete and _ > 0 and files_changed_this_turn:
+                        if is_task_complete and _ > 0 and state.files_changed_this_turn:
                             # >>> PATCH ORION-1 (CRITICAL) ============================
                             # BEFORE: as soon as the model wrote the word "done"/"succeeded"
                             # AND a file had changed, the loop immediately `break`ed. If the
@@ -1803,16 +1807,11 @@ async def chat_with_orion(request: ChatRequest):
                             # complete OR the nudge cap is reached (graceful degradation to
                             # the old behaviour: checkpoint + warning).
                             # ==========================================================
-                            _pending_items = []
-                            if todo_manager and todo_manager.has_pending_or_in_progress():
-                                _pending_items = [
-                                    t for t in todo_manager.get_todos()
-                                    if t.get("status") in ("pending", "in_progress")
-                                ]
+                            _pending_items = state.sisa_todo(todo_manager)
 
-                            if _pending_items and _nudge_count < MAX_TODO_NUDGE:
+                            if _pending_items and state.nudge_count < MAX_TODO_NUDGE:
                                 _next_todo = _pending_items[0]
-                                _nudge_count += 1
+                                state.nudge_count += 1
                                 _next_id = str(_next_todo.get("id", "?"))
                                 _next_text = str(_next_todo.get("text", ""))[:300]
                                 _sisa = len(_pending_items)
@@ -1835,7 +1834,7 @@ async def chat_with_orion(request: ChatRequest):
                                 yield sse.ev('status', text=f'Continuing with todo [{_next_id}]...')
                                 yield sse.ev('todo_update', markdown=todo_manager.render_markdown(), todos=todo_manager.get_todos())
                                 logger.info("[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
-                                            _nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
+                                            state.nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
                                 continue
                             # >>> END OF PATCH ORION-1 ================================
 
@@ -1849,9 +1848,9 @@ async def chat_with_orion(request: ChatRequest):
                             # Use the list of files ACTUALLY changed ON THIS TURN ONLY,
                             # not a scan of the whole session history (which could show
                             # old changes from a previous task as if they just happened).
-                            if files_changed_this_turn:
+                            if state.files_changed_this_turn:
                                 checkpoint_report += "\n".join(
-                                    files_changed_this_turn[-10:]
+                                    state.files_changed_this_turn[-10:]
                                 )  # At most the last 10 files
                             else:
                                 checkpoint_report += "- No files changed"
@@ -1865,15 +1864,8 @@ async def chat_with_orion(request: ChatRequest):
                             # that really is enough or whether the work must
                             # continue.
                             pending_warning = ""
-                            if (
-                                todo_manager
-                                and todo_manager.has_pending_or_in_progress()
-                            ):
-                                pending_items = [
-                                    t
-                                    for t in todo_manager.get_todos()
-                                    if t["status"] in ("pending", "in_progress")
-                                ]
+                            pending_items = state.sisa_todo(todo_manager)
+                            if pending_items:
                                 pending_list = "\n".join(
                                     f"- ⚠️ `[{t['id']}]` {t['text']} (status: {t['status']})"
                                     for t in pending_items
@@ -1931,16 +1923,16 @@ async def chat_with_orion(request: ChatRequest):
                         elif (
                             guard_rules.klaim_perlu_ditantang(
                                 is_task_complete,
-                                bool(files_changed_this_turn),
-                                _verifikasi_count,
+                                bool(state.files_changed_this_turn),
+                                    state.verifikasi_count,
                                 MAX_VERIFIKASI,
                             )
                         ):
-                            _verifikasi_count += 1
+                            state.verifikasi_count += 1
                             logger.warning(
                                 "[CLAIM WITHOUT EVIDENCE] Orion claims completion but 0 files changed "
                                 "(verification %d/%d). Challenging the claim.",
-                                _verifikasi_count, MAX_VERIFIKASI,
+                                state.verifikasi_count, MAX_VERIFIKASI,
                             )
                             context_manager.add_message(
                                 "assistant", content, reasoning_content=reasoning_content
