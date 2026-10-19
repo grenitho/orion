@@ -53,7 +53,7 @@ def validate_project_structure(project_path: str) -> list:
             # Jika ada folder assets di dalam folder lain (bukan root project), warning
             expected_assets = os.path.join(project_path, "assets")
             if os.path.normpath(assets_path) != os.path.normpath(expected_assets):
-                warnings.append(f"⚠️ Folder duplikat terdeteksi: {assets_path}")
+                warnings.append(f"⚠️ Duplicate folder detected: {assets_path}")
 
     return warnings
 
@@ -187,7 +187,7 @@ except Exception as e:
     )
 
     def is_path_safe(project_path, file_path):
-        return True, "OK (permission_manager tidak tersedia, guard dilewati)"
+        return True, "OK (permission_manager unavailable, guard skipped)"
 
     def is_sensitive_file(file_path):
         return False
@@ -1351,7 +1351,7 @@ async def chat_with_orion(request: ChatRequest):
                                 range_key = f"{file_path}:{start}-{end}"
 
                                 if range_key in analyzed_files:
-                                    result = f"[SYSTEM WARNING] REDUNDANSI TERDETEKSI: Anda sudah membaca rentang baris {start}-{end} dari '{file_path}' di sesi ini. Gunakan informasi yang sudah ada."
+                                    result = f"[SYSTEM WARNING] REDUNDANCY DETECTED: You already read lines {start}-{end} of '{file_path}' in this session. Use the information you already have."
                                 else:
                                     yield sse.ev('status', text=f'📖 Reading {file_path} (lines {start}-{end})')
                                     result = tool_executor.read_file_range(**func_args)
@@ -1558,7 +1558,7 @@ async def chat_with_orion(request: ChatRequest):
 
                                 except Exception as e:
                                     # Menangkap error lain agar result tetap terisi dan bisa dilaporkan ke LLM
-                                    result = f"Error eksekusi terminal: {e!s}"
+                                    result = f"Terminal execution error: {e!s}"
                                     print(f"[ORION TOOL ERROR] {e}")
                                     import traceback
 
