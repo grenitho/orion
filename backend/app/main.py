@@ -135,6 +135,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.services import guard_rules, research_rules, stream_utils
+from app.services import tool_dispatch
 from app.services.prompts import SYSTEM_PROMPT
 from app.services.tools_schema import TOOLS
 from app.services.context_manager import ContextManager
@@ -1321,11 +1322,15 @@ async def chat_with_orion(request: ChatRequest):
                             elif tool_executor is None:
                                 result = "Error: Tool executor belum diinisialisasi."
 
-                            elif func_name == "list_files":
-                                path = func_args.get("path", ".")
-                                yield f"data: {json.dumps({'type': 'status', 'text': f'📂 Sedang membaca struktur folder: {path}'})}\n\n"
-                                result = tool_executor.list_files(**func_args)
-                                yield f"data: {json.dumps({'type': 'status', 'text': '✅ Struktur folder berhasil dibaca'})}\n\n"
+                            # >>> PATCH ORION-38 (Fase B): 14 tool murni ditangani
+                            # tabel dispatch di app/services/tool_dispatch.py.
+                            # Cabang yang rumit/interaktif tetap di bawah ini.
+                            elif tool_dispatch.tool_sederhana(func_name):
+                                _lm, _ls = tool_dispatch.label(func_name, func_args)
+                                yield f"data: {json.dumps({'type': 'status', 'text': _lm})}\n\n"
+                                result = tool_dispatch.jalankan(func_name, tool_executor, func_args)
+                                if _ls:
+                                    yield f"data: {json.dumps({'type': 'status', 'text': _ls})}\n\n"
 
                             elif func_name == "read_file":
                                 file_path = func_args.get("file_path", "")
@@ -1463,19 +1468,6 @@ async def chat_with_orion(request: ChatRequest):
                                     )  # FIX: Invalidate cache agar bisa dibaca ulang jika perlu
                                     yield f"data: {json.dumps({'type': 'status', 'text': f'✅ File {file_path} berhasil diedit'})}\n\n"
 
-                            elif func_name == "search_code":
-                                query = func_args.get("query", "unknown")
-                                yield f"data: {json.dumps({'type': 'status', 'text': f'🔍 Sedang mencari: {query}'})}\n\n"
-                                result = tool_executor.search_code(**func_args)
-                                yield f"data: {json.dumps({'type': 'status', 'text': '✅ Pencarian selesai'})}\n\n"
-
-                            elif func_name == "read_json_path":
-                                file_path = func_args.get("file_path", "unknown")
-                                json_path = func_args.get("json_path", "unknown")
-                                yield f"data: {json.dumps({'type': 'status', 'text': f'📋 Sedang membaca JSON path: {json_path} dari {file_path}'})}\n\n"
-                                result = tool_executor.read_json_path(**func_args)
-                                yield f"data: {json.dumps({'type': 'status', 'text': '✅ JSON path berhasil dibaca'})}\n\n"
-
                             elif func_name == "run_terminal":
                                 cmd_to_run = func_args.get("command", "")
 
@@ -1584,56 +1576,6 @@ async def chat_with_orion(request: ChatRequest):
                             # menyerah tanpa laporan. Ini salah satu penyebab
                             # "berhenti diam-diam" yang belum terdeteksi sebelumnya.
                             # ==========================================================
-                            elif func_name == "web_search":
-                                query = func_args.get("query", "")
-                                yield f"data: {json.dumps({'type': 'status', 'text': f'🌐 Mencari di web: {query[:60]}'})}\n\n"
-                                result = tool_executor.web_search(**func_args)
-                                yield f"data: {json.dumps({'type': 'status', 'text': '✅ Pencarian web selesai'})}\n\n"
-
-                            elif func_name == "list_backups":
-                                yield f"data: {json.dumps({'type': 'status', 'text': 'Daftar backup: ' + str(func_args)})}\n\n"
-                                result = tool_executor.list_backups(**func_args)
-
-                            elif func_name == "restore_backup":
-                                yield f"data: {json.dumps({'type': 'status', 'text': 'Memulihkan: ' + str(func_args)})}\n\n"
-                                result = tool_executor.restore_backup(**func_args)
-
-                            elif func_name == "delete_file":
-                                yield f"data: {json.dumps({'type': 'status', 'text': 'Menghapus: ' + str(func_args)})}\n\n"
-                                result = tool_executor.delete_file(**func_args)
-
-                            elif func_name == "move_file":
-                                yield f"data: {json.dumps({'type': 'status', 'text': 'Memindah: ' + str(func_args)})}\n\n"
-                                result = tool_executor.move_file(**func_args)
-
-                            elif func_name == "git_commit":
-                                yield f"data: {json.dumps({'type': 'status', 'text': 'Commit checkpoint: ' + str(func_args)})}\n\n"
-                                result = tool_executor.git_commit(**func_args)
-
-                            elif func_name == "run_tests":
-                                yield f"data: {json.dumps({'type': 'status', 'text': 'Menjalankan test suite...'})}\n\n"
-                                result = tool_executor.run_tests(**func_args)
-
-                            elif func_name == "verify_code":
-                                _vc = str(func_args.get("file_path", ""))
-                                yield f"data: {json.dumps({'type': 'status', 'text': 'Memeriksa: ' + _vc})}\n\n"
-                                result = tool_executor.verify_code(**func_args)
-
-                            elif func_name == "verify_html":
-                                _vf = str(func_args.get("file_path", ""))
-                                yield f"data: {json.dumps({'type': 'status', 'text': 'Memeriksa: ' + _vf})}\n\n"
-                                result = tool_executor.verify_html(**func_args)
-
-                            elif func_name == "web_fetch":
-                                url = func_args.get("url", "")
-                                yield f"data: {json.dumps({'type': 'status', 'text': f'📄 Membaca halaman: {str(url)[:70]}'})}\n\n"
-                                result = tool_executor.web_fetch(**func_args)
-                                yield f"data: {json.dumps({'type': 'status', 'text': '✅ Halaman selesai dibaca'})}\n\n"
-
-                            elif func_name == "git_status":
-                                yield f"data: {json.dumps({'type': 'status', 'text': '🔀 Memeriksa git status...'})}\n\n"
-                                result = tool_executor.git_status()
-
                             elif func_name == "git_diff":
                                 yield f"data: {json.dumps({'type': 'status', 'text': '🔀 Memeriksa git diff...'})}\n\n"
                                 result = tool_executor.git_diff(**func_args)
