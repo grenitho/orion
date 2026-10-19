@@ -154,7 +154,7 @@ try:
     from app.services.todo_manager import TodoManager
 except Exception as e:
     print(
-        f"[ORION STARTUP WARNING] todo_manager.py gagal diimpor ({e}). Fitur todo-list dinonaktifkan."
+        f"[ORION STARTUP WARNING] todo_manager.py failed to import ({e}). Todo-list feature disabled."
     )
     TodoManager = None
 
@@ -166,7 +166,7 @@ try:
     )
 except Exception as e:
     print(
-        f"[ORION STARTUP WARNING] post_edit_verifier.py gagal diimpor ({e}). Verifikasi pasca-edit dinonaktifkan."
+        f"[ORION STARTUP WARNING] post_edit_verifier.py failed to import ({e}). Post-edit verification disabled."
     )
 
     def verify_file_write(*args, **kwargs):
@@ -183,7 +183,7 @@ try:
     from app.services.permission_manager import is_path_safe, is_sensitive_file
 except Exception as e:
     print(
-        f"[ORION STARTUP WARNING] permission_manager.py gagal diimpor ({e}). Path-safety guard DINONAKTIFKAN (fallback: semua path dianggap aman -- SEGERA pasang file ini kembali)."
+        f"[ORION STARTUP WARNING] permission_manager.py failed to import ({e}). Path-safety guard DISABLED (fallback: all paths are considered safe -- restore this file IMMEDIATELY)."
     )
 
     def is_path_safe(project_path, file_path):
@@ -331,7 +331,7 @@ def log_performance(
             f.write(json.dumps(log_entry) + "\n")
 
     except Exception as e:
-        print(f"[ORION PERF LOG WARNING] Gagal mencatat log: {e}")
+        print(f"[ORION PERF LOG WARNING] Failed to record log: {e}")
 
 
 # >>> PATCH ORION-5: logging terstruktur ke FILE.
@@ -386,9 +386,9 @@ def save_last_project(path: str):
     try:
         with open(LAST_PROJECT_FILE, "w", encoding="utf-8") as f:
             json.dump({"path": path}, f)
-        print(f"[ORION PERSIST] Project path disimpan ke {LAST_PROJECT_FILE}")
+        print(f"[ORION PERSIST] Project path saved to {LAST_PROJECT_FILE}")
     except Exception as e:
-        print(f"[ORION PERSIST WARNING] Gagal menyimpan last project: {e}")
+        print(f"[ORION PERSIST WARNING] Failed to save last project: {e}")
 
 
 def load_last_project():
@@ -398,7 +398,7 @@ def load_last_project():
             with open(LAST_PROJECT_FILE, "r", encoding="utf-8") as f:
                 return json.load(f).get("path")
     except Exception as e:
-        print(f"[ORION PERSIST WARNING] Gagal memuat last project: {e}")
+        print(f"[ORION PERSIST WARNING] Failed to load last project: {e}")
     return None
 
 
@@ -407,20 +407,20 @@ def load_orion_config(project_path: str):
     global orion_config
     config_path = os.path.join(project_path, ".orion", "orion_config.json")
 
-    print(f"[ORION CONFIG DEBUG] Mencoba membaca config dari: {config_path}")
+    print(f"[ORION CONFIG DEBUG] Attempting to read config from: {config_path}")
 
     if os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 loaded_config = json.load(f)
                 orion_config = {**orion_config, **loaded_config}
-                print(f"[ORION CONFIG] ✅ Berhasil dimuat: {orion_config}")
+                print(f"[ORION CONFIG] ✅ Loaded successfully: {orion_config}")
                 print(
-                    f"[ORION CONFIG] Nilai max_iterations: {orion_config.get('max_iterations')}"
+                    f"[ORION CONFIG] max_iterations value: {orion_config.get('max_iterations')}"
                 )
         except Exception as e:
             print(
-                f"[ORION CONFIG WARNING] Gagal membaca config, pakai default. Error: {e}"
+                f"[ORION CONFIG WARNING] Failed to read config, using defaults. Error: {e}"
             )
     else:
         default_config = {
@@ -436,9 +436,9 @@ def load_orion_config(project_path: str):
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(default_config, f, indent=2)
             orion_config = default_config
-            print(f"[ORION CONFIG] File config default dibuat di {config_path}")
+            print(f"[ORION CONFIG] Default config file created at {config_path}")
         except Exception as e:
-            print(f"[ORION CONFIG WARNING] Gagal membuat file config: {e}")
+            print(f"[ORION CONFIG WARNING] Failed to create config file: {e}")
 
 
 
@@ -476,19 +476,19 @@ def periksa_konsistensi_tools() -> None:
 
     if mati:
         logger.error(
-            "[TOOLS] %d tool DIDEKLARASIKAN tapi TIDAK punya cabang dispatch di /chat: %s. "
-            "Model akan selalu menerima 'Tool tidak tersedia'. "
-            "Tambahkan cabang `elif func_name == ...` di generate_stream().",
+            "[TOOLS] %d tools DECLARED but have NO dispatch branch in /chat: %s. "
+            "The model will always receive 'tool is NOT AVAILABLE'. "
+            "Add an `elif func_name == ...` branch in generate_stream().",
             len(mati), sorted(mati),
         )
     if berlebih:
         logger.warning(
-            "[TOOLS] %d tool punya dispatch tapi TIDAK dideklarasikan di skema TOOLS: %s. "
-            "Model tidak akan pernah memanggilnya.",
+            "[TOOLS] %d tools have dispatch but are NOT declared in the TOOLS schema: %s. "
+            "The model will never call them.",
             len(berlebih), sorted(berlebih),
         )
     if not mati and not berlebih:
-        logger.info("[TOOLS] Konsisten: %d tool terdeklarasi & terdispatch.", len(dideklarasikan))
+        logger.info("[TOOLS] Consistent: %d tools declared & dispatched.", len(dideklarasikan))
 
 
 periksa_konsistensi_tools()
@@ -537,7 +537,7 @@ async def set_project(request: ProjectPathRequest):
     orion_dir = os.path.join(request.path, ".orion")
     if not os.path.exists(orion_dir):
         os.makedirs(orion_dir)
-        print(f"[ORION INIT] Membuat folder .orion/ di {orion_dir}")
+        print(f"[ORION INIT] Creating .orion/ folder at {orion_dir}")
 
         default_files = {
             "master_context.md": "# Master Context\n\nProject: [Nama Project]\nVersi: 0.1\nTeknologi: \n",
@@ -555,7 +555,7 @@ async def set_project(request: ProjectPathRequest):
         scanner = DependencyScanner(request.path)
         scan_result = scanner.scan()
         print(
-            f"[ORION INIT] Dependency Map di-generate. Total {scan_result['total_files']} file terpindai."
+            f"[ORION INIT] Dependency Map generated. Total {scan_result['total_files']} files scanned."
         )
 
         # Buat string struktur project dan simpan ke context_manager
@@ -564,7 +564,7 @@ async def set_project(request: ProjectPathRequest):
         context_manager.set_project_map(project_map_str)
 
     except Exception as e:
-        print(f"[ORION INIT WARNING] Gagal generate Dependency Map: {e}")
+        print(f"[ORION INIT WARNING] Failed to generate Dependency Map: {e}")
         context_manager.set_project_map("Struktur Project: Gagal memindai.")
 
     # 6. Load config
@@ -649,16 +649,16 @@ async def auto_restore_project():
     global tool_executor
     last_path = load_last_project()
     if last_path and os.path.isdir(last_path):
-        print(f"[ORION STARTUP] 🔄 Auto-restore project sebelumnya: {last_path}")
+        print(f"[ORION STARTUP] 🔄 Auto-restoring previous project: {last_path}")
         context_manager.set_project_path(last_path)
         tool_executor = ToolExecutor(last_path)
         if todo_manager:
             todo_manager.set_project_path(last_path)  # >>> FIX: guard None-safe
         load_orion_config(last_path)
-        print("[ORION STARTUP] ✅ Project berhasil dipulihkan. Tool executor siap.")
+        print("[ORION STARTUP] ✅ Project restored successfully. Tool executor ready.")
     else:
         print(
-            "[ORION STARTUP] Tidak ada project terakhir yang ditemukan. Menunggu /set-project..."
+            "[ORION STARTUP] No previous project found. Waiting for /set-project..."
         )
 
 
@@ -748,10 +748,10 @@ async def chat_with_orion(request: ChatRequest):
             yield sse.ev('status', text='🧠 Memory full, compressing context...')
             try:
                 await execute_summarize(context_manager, history, threshold=15)
-                print("[ORION SUMMARIZE] Konteks awal berhasil diringkas.")
+                print("[ORION SUMMARIZE] Initial context summarized successfully.")
             except Exception as e:
                 print(
-                    f"[ORION SUMMARIZE WARNING] Gagal merangkum awal: {e}. History dipertahankan."
+                    f"[ORION SUMMARIZE WARNING] Initial summarization failed: {e}. History preserved."
                 )
         # >>> AKHIR AUTO-SUMMARIZE <<<
 
@@ -770,9 +770,9 @@ async def chat_with_orion(request: ChatRequest):
             token_budget_threshold = 12000
 
         print(
-            f"[ORION CONFIG] File config yang dibaca: {os.path.join(tool_executor.project_path, '.orion', 'orion_config.json')}"
+            f"[ORION CONFIG] Config file read: {os.path.join(tool_executor.project_path, '.orion', 'orion_config.json')}"
         )
-        print(f"[ORION CONFIG] Nilai max_iterations yang digunakan: {max_iter}")
+        print(f"[ORION CONFIG] max_iterations value in use: {max_iter}")
         print(f"[ORION CONFIG] Token budget threshold: {token_budget_threshold}")
 
         try:
@@ -816,11 +816,11 @@ async def chat_with_orion(request: ChatRequest):
                     try:
                         await execute_summarize(context_manager, history, threshold=20)
                         print(
-                            "[ORION SUMMARIZE] Konteks di dalam loop berhasil diringkas."
+                            "[ORION SUMMARIZE] In-loop context summarized successfully."
                         )
                     except Exception as e:
                         print(
-                            f"[ORION SUMMARIZE WARNING] Gagal merangkum di loop: {e}. History dipertahankan."
+                            f"[ORION SUMMARIZE WARNING] In-loop summarization failed: {e}. History preserved."
                         )
                 # >>> AKHIR DYNAMIC SLIDING WINDOW SUMMARIZE <<<
 
@@ -848,7 +848,7 @@ async def chat_with_orion(request: ChatRequest):
                     yield sse.ev('ask_user', question='Soft limit reached. Continue, or give new instructions?')
                     yield sse.ev('done')
                     print(
-                        "[ORION SOFT LIMIT] Mencapai 80% iterasi. Menunggu instruksi user."
+                        "[ORION SOFT LIMIT] Reached 80% of iterations. Waiting for user instructions."
                     )
                     return  # Hentikan stream, tunggu user mengetik 'lanjut'
                 # >>> AKHIR SOFT LIMIT CHECKPOINT <<<
@@ -997,7 +997,7 @@ async def chat_with_orion(request: ChatRequest):
 
                 if estimated_tokens > token_budget_threshold:
                     print(
-                        f"[TOKEN GUARD] Estimasi token tinggi ({estimated_tokens} > {token_budget_threshold}). Melakukan emergency pruning PERMANEN..."
+                        f"[TOKEN GUARD] High token estimate ({estimated_tokens} > {token_budget_threshold}). Performing PERMANENT emergency pruning..."
                     )
 
                     # PERBAIKAN KRITIS: pruning sekarang dilakukan LANGSUNG ke
@@ -1019,11 +1019,11 @@ async def chat_with_orion(request: ChatRequest):
                         )
                         if pruned:
                             print(
-                                "[TOKEN GUARD] History context_manager dipangkas permanen."
+                                "[TOKEN GUARD] context_manager history permanently pruned."
                             )
                     except Exception as e:
                         print(
-                            f"[TOKEN GUARD WARNING] Gagal memangkas history permanen: {e}"
+                            f"[TOKEN GUARD WARNING] Failed to prune history permanently: {e}"
                         )
 
                     # Rebuild api_messages dari history yang sudah dipangkas
@@ -1034,7 +1034,7 @@ async def chat_with_orion(request: ChatRequest):
                     ] + current_history
 
                     new_est = sum(estimate_message_tokens(m) for m in api_messages)
-                    print(f"[TOKEN GUARD] Berhasil ditekan menjadi: {new_est} tokens")
+                    print(f"[TOKEN GUARD] Successfully reduced to: {new_est} tokens")
                 # >>> AKHIR TOKEN BUDGET GUARD <<<
 
                 # >>> LANGKAH 5: PANGGILAN BERSIH KE LLM_ROUTER (RESILIENT) <<<
@@ -1091,9 +1091,9 @@ async def chat_with_orion(request: ChatRequest):
 
                 # --- 2. DEBUG: CEK UKURAN PAYLOAD (Sekarang aman karena variabel sudah ada) ---
                 print(
-                    f"[DEBUG] Jumlah pesan yang akan dikirim: {len(clean_api_messages)}"
+                    f"[DEBUG] Number of messages to send: {len(clean_api_messages)}"
                 )
-                print(f"[DEBUG] Jumlah tools yang akan dikirim: {len(TOOLS)}")
+                print(f"[DEBUG] Number of tools to send: {len(TOOLS)}")
                 # --- AKHIR DEBUG ---
 
                 # --- 3. PANGGIL LLM ---
@@ -1128,7 +1128,7 @@ async def chat_with_orion(request: ChatRequest):
 
                 except Exception as api_err:
                     err_str = str(api_err)
-                    print(f"[ORION RECOVERY] Error terdeteksi: {err_str[:150]}")
+                    print(f"[ORION RECOVERY] Error detected: {err_str[:150]}")
 
                     # 1. Cek apakah ini Error 400 (Context Length / Bad Request)
                     is_400_error = (
@@ -1149,20 +1149,20 @@ async def chat_with_orion(request: ChatRequest):
                             # ERROR YANG SAMA BERULANG - BERHENTI SEKARANG
                             yield sse.ev('error', text=f'⚠️ The current model is probably INCOMPATIBLE with the request format. The same error occurred twice: {err_str[:250]}. Change DEFAULT_MODEL in your .env file or check the provider documentation.')
                             print(
-                                "[ORION RECOVERY] ❌ Error 400 berulang dengan pesan yang sama. Berhenti untuk mencegah infinite loop."
+                                "[ORION RECOVERY] ❌ Same 400 error repeated. Stopping to prevent an infinite loop."
                             )
                             break
 
                         last_400_error_msg = current_error_msg
 
                         print(
-                            "[ORION RECOVERY] ⚠️ Terdeteksi Error 400. Memaksa ringkas konteks darurat..."
+                            "[ORION RECOVERY] ⚠️ 400 error detected. Forcing emergency context pruning..."
                         )
                         try:
                             prune_history_safely(context_manager, keep_last_n=8)
-                            print("[ORION RECOVERY] ✅ History dipangkas darurat.")
+                            print("[ORION RECOVERY] ✅ History emergency-pruned.")
                         except Exception as e:
-                            print(f"[ORION RECOVERY] Gagal memangkas history: {e}")
+                            print(f"[ORION RECOVERY] Failed to prune history: {e}")
                     else:
                         consecutive_400_errors = 0  # Reset jika sukses
                         last_400_error_msg = ""
@@ -1177,7 +1177,7 @@ async def chat_with_orion(request: ChatRequest):
                         yield sse.ev('status', text=status_text)
                     except (RuntimeError, asyncio.CancelledError):
                         print(
-                            "[ORION RECOVERY] Frontend disconnected. Menghentikan stream dengan aman."
+                            "[ORION RECOVERY] Frontend disconnected. Stopping stream safely."
                         )
                         break
 
@@ -1384,7 +1384,7 @@ async def chat_with_orion(request: ChatRequest):
                                     yield sse.ev('status', text=f'📝 Creating/overwriting file: {file_path}')
                                     result = tool_executor.write_file(**func_args)
                                     print(
-                                        f"[ORION WRITE_FILE] Berhasil menulis: {file_path}"
+                                        f"[ORION WRITE_FILE] Wrote successfully: {file_path}"
                                     )
                                     # Hanya catat sebagai bukti kerja nyata jika benar2 sukses
                                     if isinstance(
@@ -1438,7 +1438,7 @@ async def chat_with_orion(request: ChatRequest):
                                     yield sse.ev('status', text=f'🔧 Editing file: {file_path}')
                                     result = tool_executor.edit_file(**func_args)
                                     print(
-                                        f"[ORION EDIT_FILE] Berhasil mengedit: {file_path}"
+                                        f"[ORION EDIT_FILE] Edited successfully: {file_path}"
                                     )
                                     # Hanya catat sebagai bukti kerja nyata jika benar2 sukses
                                     if isinstance(
@@ -1552,7 +1552,7 @@ async def chat_with_orion(request: ChatRequest):
                                 except (RuntimeError, asyncio.CancelledError):
                                     # Ini tertangkap jika VS Code menutup chat/refresh di tengah proses
                                     print(
-                                        "[ORION] Koneksi frontend terputus saat eksekusi tool. Menghentikan proses dengan aman."
+                                        "[ORION] Frontend connection lost during tool execution. Stopping process safely."
                                     )
                                     return  # Hentikan generator sepenuhnya, jangan lanjut ke tool_results
 
@@ -1590,12 +1590,12 @@ async def chat_with_orion(request: ChatRequest):
                                     "Use one of those, or accomplish the goal another way. "
                                     "Do NOT call the same tool again."
                                 )
-                                logger.error("[TOOL MATI] Model memanggil %r yang tidak punya dispatch.", func_name)
+                                logger.error("[DEAD TOOL] Model called %r which has no dispatch branch.", func_name)
 
                         except (RuntimeError, asyncio.CancelledError):
                             # CRITICAL FIX: Mencegah crash/terminate jika VS Code (frontend) memutus koneksi
                             print(
-                                "[ORION] Koneksi frontend terputus saat eksekusi tool. Menghentikan proses dengan aman (Graceful Shutdown)."
+                                "[ORION] Frontend connection lost during tool execution. Stopping process safely (Graceful Shutdown)."
                             )
                             return
 
@@ -1657,7 +1657,7 @@ async def chat_with_orion(request: ChatRequest):
 
                             if all_failed and all_same_action:
                                 print(
-                                    f"[ORION ANTI-LOOP] Terdeteksi {func_name} gagal 3x berturut-turut. Memaksa berhenti."
+                                    f"[ORION ANTI-LOOP] Detected {func_name} failed 3x in a row. Forcing stop."
                                 )
                                 # >>> PERBAIKAN KRITIS #3: JANGAN append ke variabel
                                 # 'messages' lokal (dead code - tidak pernah dikirim
@@ -1684,7 +1684,7 @@ async def chat_with_orion(request: ChatRequest):
                                         func_name, res_str)
                                     _temuan_riset = tool_executor.web_search(
                                         _kueri_riset, max_results=3)
-                                    logger.info("[RISET OTOMATIS] kueri=%s", _kueri_riset)
+                                    logger.info("[AUTO RESEARCH] query=%s", _kueri_riset)
                                 except Exception as _err_riset:  # noqa: BLE001
                                     _temuan_riset = f"(riset otomatis gagal: {_err_riset})"
                                 pending_system_notices.append(
@@ -1738,7 +1738,7 @@ async def chat_with_orion(request: ChatRequest):
                             f"[SYSTEM AUTO-CORRECTION MODE]: Perintah terminal gagal.\nError Snippet: {error_snippet}\n\nTUGAS: JANGAN bertanya ke user. Analisis error ini. JANGAN gunakan read_file penuh. Gunakan read_file_range jika perlu melihat konteks, lalu gunakan edit_file untuk memperbaikinya SEKARANG JUGA. Lakukan maksimal 2 iterasi perbaikan otomatis.",
                         )
                         print(
-                            "[ORION SELF-CORRECT] Error terdeteksi. Memaksa mode perbaikan otomatis (hemat token)."
+                            "[ORION SELF-CORRECT] Error detected. Forcing auto-fix mode (token-efficient)."
                         )
 
                 else:
@@ -1756,7 +1756,7 @@ async def chat_with_orion(request: ChatRequest):
 
                     if len(content.strip()) < 50 and not is_task_complete:
                         print(
-                            "[ORION] Orion mengeluarkan teks pendek tanpa tool. Melanjutkan iterasi..."
+                            "[ORION] Orion produced short text without a tool. Continuing iteration..."
                         )
                         context_manager.add_message(
                             "assistant", content, reasoning_content=reasoning_content
@@ -1768,7 +1768,7 @@ async def chat_with_orion(request: ChatRequest):
                             yield sse.ev('token', text=pause_msg)
                             yield sse.ev('done')
                             print(
-                                f"[ORION PAUSE] Mencapai batas iterasi {max_iter}. Menunggu instruksi user untuk lanjut."
+                                f"[ORION PAUSE] Reached iteration limit {max_iter}. Waiting for user instructions to continue."
                             )
                             break
 
@@ -1830,7 +1830,7 @@ async def chat_with_orion(request: ChatRequest):
                                 )
                                 yield sse.ev('status', text=f'Continuing with todo [{_next_id}]...')
                                 yield sse.ev('todo_update', markdown=todo_manager.render_markdown(), todos=todo_manager.get_todos())
-                                logger.info("[ORION NUDGE %d/%d] Masih ada %d todo. Lanjut ke [%s].",
+                                logger.info("[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
                                             _nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
                                 continue
                             # >>> AKHIR PATCH ORION-1 ================================
@@ -1902,7 +1902,7 @@ async def chat_with_orion(request: ChatRequest):
                             yield sse.ev('ask_user', question='Task complete. Is there anything to adjust, or shall I continue to the next task?')
                             yield sse.ev('done')
                             print(
-                                "[ORION TASK COMPLETE] Task selesai. Menunggu respons user untuk lanjut."
+                                "[ORION TASK COMPLETE] Task finished. Waiting for user response to continue."
                             )
                             break
                         # >>> PATCH ORION-17b (GERBANG VERIFIKASI KLAIM) ==========
@@ -1934,8 +1934,8 @@ async def chat_with_orion(request: ChatRequest):
                         ):
                             _verifikasi_count += 1
                             logger.warning(
-                                "[KLAIM TANPA BUKTI] Orion mengaku selesai tapi 0 file berubah "
-                                "(verifikasi %d/%d). Menantang klaimnya.",
+                                "[CLAIM WITHOUT EVIDENCE] Orion claims completion but 0 files changed "
+                                "(verification %d/%d). Challenging the claim.",
                                 _verifikasi_count, MAX_VERIFIKASI,
                             )
                             context_manager.add_message(
@@ -1978,7 +1978,7 @@ async def chat_with_orion(request: ChatRequest):
         except Exception as e:
             error_msg = str(e)
             # >>> PATCH ORION-2: pakai logger, bukan print (stdout = pipe ke extension)
-            logger.exception("[ORION EXCEPTION] agent loop gagal")
+            logger.exception("[ORION EXCEPTION] agent loop failed")
             yield sse.ev('error', text=error_msg)
             # >>> PATCH ORION-2 (KRITIS): WAJIB kirim 'done' setelah 'error'.
             # Sebelumnya hanya 'error' yang dikirim, sehingga webview tidak pernah
@@ -2035,7 +2035,7 @@ async def execute_approved_terminal(request: TerminalRequest):
         ):
             history[i]["content"] = output
             print(
-                f"[ORION] Perintah berbahaya dieksekusi. Tool call ID {msg.get('tool_call_id')} di-update."
+                f"[ORION] Dangerous command executed. Tool call ID {msg.get('tool_call_id')} updated."
             )
             if hasattr(context_manager, "save_history"):
                 context_manager.save_history()

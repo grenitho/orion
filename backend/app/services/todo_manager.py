@@ -42,7 +42,7 @@ class TodoManager:
             with open(self.todo_file, "r", encoding="utf-8") as f:
                 self.todos = json.load(f)
         except Exception as e:
-            print(f"[TODO_MANAGER WARNING] Gagal load todo list: {e}")
+            print(f"[TODO_MANAGER WARNING] Failed to load todo list: {e}")
             self.todos = []
 
     def save(self):
@@ -55,7 +55,7 @@ class TodoManager:
                 json.dump(self.todos, f, indent=2, ensure_ascii=False)
             os.replace(tmp, self.todo_file)
         except Exception as e:
-            print(f"[TODO_MANAGER WARNING] Gagal simpan todo list: {e}")
+            print(f"[TODO_MANAGER WARNING] Failed to save todo list: {e}")
 
     def set_todos(self, todos: list) -> str:
         """

@@ -36,7 +36,7 @@ async def jamin_done(aliran: AsyncIterator[str], logger=None) -> AsyncIterator[s
     if not sudah_done:
         if logger is not None:
             try:
-                logger.info("[STREAM] Aliran berakhir tanpa done; wrapper mengirimkannya.")
+                logger.info("[STREAM] Stream ended without done; the wrapper is sending it.")
             except Exception:  # noqa: BLE001 - logging tidak boleh menggagalkan stream
                 pass
         yield buat_event_done()

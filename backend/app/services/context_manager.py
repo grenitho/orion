@@ -65,7 +65,7 @@ class ContextManager:
             # Atomic replace di level filesystem
             os.replace(tmp_path, self.history_file)
         except Exception as e:
-            print(f"[CONTEXT_MANAGER WARNING] Gagal menyimpan history: {e}")
+            print(f"[CONTEXT_MANAGER WARNING] Failed to save history: {e}")
 
     def load_history(self):
         """Load history dengan validasi orphaned tool_calls (2 arah)."""
@@ -100,7 +100,7 @@ class ContextManager:
                     # Jika ada tool_call_id yang tidak punya pasangan, buang seluruh blok
                     if expected_ids - found_ids:
                         print(
-                            f"[CONTEXT_MANAGER] ⚠️ Membuang assistant message dengan {len(expected_ids - found_ids)} orphaned tool_calls."
+                            f"[CONTEXT_MANAGER] ⚠️ Discarding assistant message with {len(expected_ids - found_ids)} orphaned tool_calls."
                         )
                         i = j  # Skip assistant ini + tool messages yang ada
                         continue
@@ -133,18 +133,18 @@ class ContextManager:
 
             if dropped_orphan_tools:
                 print(
-                    f"[CONTEXT_MANAGER] ⚠️ Membuang {dropped_orphan_tools} tool response yatim piatu (tidak ada assistant tool_calls pasangannya)."
+                    f"[CONTEXT_MANAGER] ⚠️ Discarding {dropped_orphan_tools} orphaned tool responses (no matching assistant tool_calls)."
                 )
 
             self.history = final_history
-            print(f"[CONTEXT_MANAGER] Loaded {len(self.history)} messages dari disk.")
+            print(f"[CONTEXT_MANAGER] Loaded {len(self.history)} messages from disk.")
 
         except json.JSONDecodeError as e:
-            print(f"[CONTEXT_MANAGER ERROR] File history korup: {e}")
-            print("[CONTEXT_MANAGER] Mencoba backup...")
+            print(f"[CONTEXT_MANAGER ERROR] History file corrupted: {e}")
+            print("[CONTEXT_MANAGER] Trying backup...")
             self._try_load_backup()
         except Exception as e:
-            print(f"[CONTEXT_MANAGER ERROR] Gagal memuat history: {e}")
+            print(f"[CONTEXT_MANAGER ERROR] Failed to load history: {e}")
             self.history = []
 
     def _try_load_backup(self):
@@ -155,13 +155,13 @@ class ContextManager:
                 with open(backup_file, "r", encoding="utf-8") as f:
                     self.history = json.load(f)
                 print(
-                    f"[CONTEXT_MANAGER] ✅ Berhasil restore dari backup: {len(self.history)} messages."
+                    f"[CONTEXT_MANAGER] ✅ Restored from backup: {len(self.history)} messages."
                 )
             except Exception:
-                print("[CONTEXT_MANAGER] ❌ Backup juga korup. Memulai dari awal.")
+                print("[CONTEXT_MANAGER] ❌ Backup also corrupted. Starting fresh.")
                 self.history = []
         else:
-            print("[CONTEXT_MANAGER] ❌ Tidak ada backup. Memulai dari awal.")
+            print("[CONTEXT_MANAGER] ❌ No backup available. Starting fresh.")
             self.history = []
 
     def create_backup(self):
@@ -174,9 +174,9 @@ class ContextManager:
             import shutil
 
             shutil.copy2(self.history_file, backup_file)
-            print(f"[CONTEXT_MANAGER] Backup dibuat di {backup_file}")
+            print(f"[CONTEXT_MANAGER] Backup created at {backup_file}")
         except Exception as e:
-            print(f"[CONTEXT_MANAGER WARNING] Gagal membuat backup: {e}")
+            print(f"[CONTEXT_MANAGER WARNING] Failed to create backup: {e}")
 
     @staticmethod
     def safe_split_index(history: list, target_index: int) -> int:

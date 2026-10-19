@@ -43,7 +43,7 @@ for _env_name, _env_value in os.environ.items():
 _found_gemini_keys.sort(key=lambda pair: pair[0])
 GEMINI_API_KEYS = [key for _, key in _found_gemini_keys]
 
-print(f"[LLM_ROUTER] Terdeteksi {len(GEMINI_API_KEYS)} Gemini API key dari .env.")
+print(f"[LLM_ROUTER] Detected {len(GEMINI_API_KEYS)} Gemini API keys from .env.")
 
 PRIMARY_MODEL = os.getenv("DEFAULT_MODEL", "gemini/gemini-3.5-flash")
 
@@ -187,7 +187,7 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
             litellm.api_base = target["base_url"]
 
         print("[LLM_ROUTER] ========================================")
-        print(f"[LLM_ROUTER] >> Mencoba: {model_name}")
+        print(f"[LLM_ROUTER] >> Trying: {model_name}")
         print(f"[LLM_ROUTER] >> Provider: {provider_name}")
         print(f"[LLM_ROUTER] >> Temperature: {target_temperature}")
         print("[LLM_ROUTER] ========================================")
@@ -233,13 +233,13 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
                 response = await litellm.acompletion(**call_kwargs)
 
                 print(
-                    f"[LLM_ROUTER] [SUCCESS] Berhasil menggunakan: {model_name} ({provider_name})"
+                    f"[LLM_ROUTER] [SUCCESS] Succeeded with: {model_name} ({provider_name})"
                 )
                 return response
 
             except RateLimitError as e:
                 print(
-                    f"[LLM_ROUTER] [WARNING] {model_name} RATE LIMIT terdeteksi! Mencoba key/model lain..."
+                    f"[LLM_ROUTER] [WARNING] {model_name} RATE LIMIT detected! Trying another key/model..."
                 )
                 last_error = e
                 break
@@ -251,13 +251,13 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
                     or "invalid schema" in err_str
                 ):
                     print(
-                        f"[LLM_ROUTER] [CRITICAL] {model_name} menolak schema tools. Berhenti mencoba."
+                        f"[LLM_ROUTER] [CRITICAL] {model_name} rejected the tools schema. Stopping attempts."
                     )
                     last_error = e
                     break
                 else:
                     print(
-                        f"[LLM_ROUTER] [WARNING] {model_name} menolak request (400): {str(e)[:100]}"
+                        f"[LLM_ROUTER] [WARNING] {model_name} rejected request (400): {str(e)[:100]}"
                     )
                     last_error = e
                     break
@@ -274,13 +274,13 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
                     # dan cuma membakar kuota free tier. Sekarang ada jeda + jitter.
                     _jeda = min(BACKOFF_BASE ** (attempt + 1), BACKOFF_CAP) * random.uniform(0.7, 1.3)
                     print(
-                        f"[LLM_ROUTER] [WARNING] {model_name} TIMEOUT/KONEKSI GAGAL! "
-                        f"Retry percobaan {attempt + 2}/{MAX_RETRIES} dalam {_jeda:.1f} dtk..."
+                        f"[LLM_ROUTER] [WARNING] {model_name} TIMEOUT/CONNECTION FAILED! "
+                        f"Retry attempt {attempt + 2}/{MAX_RETRIES} in {_jeda:.1f} s..."
                     )
                     await asyncio.sleep(_jeda)
                     continue
                 print(
-                    f"[LLM_ROUTER] [WARNING] {model_name} TIMEOUT/KONEKSI GAGAL setelah {MAX_RETRIES}x percobaan. Pindah model lain."
+                    f"[LLM_ROUTER] [WARNING] {model_name} TIMEOUT/CONNECTION FAILED after {MAX_RETRIES}x attempts. Moving to the next model."
                 )
                 break
 
@@ -297,22 +297,22 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
                     last_error = e
                     if attempt < MAX_RETRIES - 1:
                         print(
-                            f"[LLM_ROUTER] [WARNING] {model_name} koneksi tidak stabil. "
-                            f"Retry percobaan {attempt + 2}/{MAX_RETRIES} pada model yang sama..."
+                            f"[LLM_ROUTER] [WARNING] {model_name} unstable connection. "
+                            f"Retry attempt {attempt + 2}/{MAX_RETRIES} on the same model..."
                         )
                         continue
                     print(
-                        f"[LLM_ROUTER] [WARNING] {model_name} koneksi tidak stabil setelah {MAX_RETRIES}x. Pindah model lain."
+                        f"[LLM_ROUTER] [WARNING] {model_name} unstable connection after {MAX_RETRIES}x attempts. Moving to the next model."
                     )
                     break
                 else:
                     print(
-                        f"[LLM_ROUTER] [WARNING] {model_name} error: {str(e)[:100]}. Mencoba berikutnya..."
+                        f"[LLM_ROUTER] [WARNING] {model_name} error: {str(e)[:100]}. Trying the next one..."
                     )
                     last_error = e
                     break
 
-    print("[LLM_ROUTER] [CRITICAL] Semua model AI gagal merespons.")
+    print("[LLM_ROUTER] [CRITICAL] All AI models failed to respond.")
     raise Exception(
         f"All AI models are busy/failing. Last error: {last_error!s}"
     )

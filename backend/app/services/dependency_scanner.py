@@ -117,7 +117,7 @@ class DependencyScanner:
                     files_data[rel_path] = file_info
                 except Exception as e:
                     # Skip file yang error (misal syntax error) agar tidak crash
-                    print(f"[SCANNER WARNING] Gagal parse {rel_path}: {e}")
+                    print(f"[SCANNER WARNING] Failed to parse {rel_path}: {e}")
                     continue
 
         # Build reverse map (Peta terbalik: Class/Fungsi X ada di file mana saja?)
@@ -229,4 +229,4 @@ class DependencyScanner:
         map_path = os.path.join(orion_dir, "dependency_map.json")
         with open(map_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-        print(f"[SCANNER] Dependency map berhasil disimpan ke {map_path}")
+        print(f"[SCANNER] Dependency map saved to {map_path}")
