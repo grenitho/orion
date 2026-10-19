@@ -18,20 +18,30 @@ For the agent-facing context document (the one Orion itself reads from
 | Multi-task | explicit todo list owned by the backend; loop continues while items remain pending |
 | Resilience | 3-tier LLM router with key rotation, backoff + jitter, `reasoning_effort` mapped to Gemini thinking levels; heartbeat status while the model thinks |
 | Safety | path-traversal guard, confirmation modals, destructive/remote git blocked at code level, automatic `.bak` before overwrite, reversible restores, SSRF-guarded `web_fetch`, closed CORS, loopback bind |
-| Reliability | every run ends with exactly one terminal event; a wrapper guarantees `done`; 77 automated tests, several born from real production incidents |
-| Structure | `main.py` reduced 2,769 → 2,115 lines; schema, prompts and pure-tool dispatch extracted to their own modules |
+| Reliability | every run ends with exactly one terminal event; a wrapper guarantees `done`; 82 automated tests, several born from real production incidents |
+| Structure | `main.py` reduced 2,769 → 2,119 lines; schema, prompts, pure-tool dispatch and the SSE event builders (`sse.py`, Phase C step 1) extracted to their own modules |
+| Language | entire code surface in English — UI/status strings, tool results, logs, comments, system prompt (Phase D); chat replies still follow the user's language by design, and claim-detection keywords stay bilingual on purpose |
 
 ## Next, in order
 
 1. **Phase C — extract the agent loop** (`docs/FASE_C_PLAN.md`). Four separately
    committed steps: `sse.py`, `session_state.py`, `loop_guards.py`, `agent_loop.py`.
    Pure maintainability work; no behaviour change intended.
+   **Step 1 (`sse.py`) is done**; steps 2-4 remain.
 2. **Shared-secret token** between extension and backend (last item promised in
    `SECURITY.md`).
 3. **Semantic search** (embeddings) for large codebases — grep stops being enough
    past a certain size.
 4. **MCP tool servers**, then **parallel sub-agents** (the pattern Google recommends
    for Flash-Lite class models).
+
+**Phase D — internationalization: shipped** (executed right after Phase C step 1).
+User-facing strings, tool results, logs, comments and the system prompt are now
+English, in six reviewable commits ending with the prompt commit `0da6394`
+(before/after comparison inside the commit message; SSE baseline byte-identical;
+prompt shrank 7,003 → 5,275 cl100k tokens). Details and the deliberate
+exceptions (bilingual claim keywords, Indonesian identifiers, untranslated
+historical docs) are recorded at the bottom of `docs/FASE_C_PLAN.md`.
 
 ## Deliberately not planned
 

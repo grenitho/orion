@@ -171,8 +171,12 @@ Diurutkan dari dampak ÷ usaha. **Jangan memulai ini tanpa diminta.**
 
 - Orion **berhenti untuk bertanya** (`ask_user`) kini berakhir bersih, tanpa pesan error.
 - Orion **menolak** menjalankan `git init/push/pull` dan menyuruh Anda melakukannya manual. Itu sengaja.
-- Orion **menantang dirinya sendiri** di log (`[KLAIM TANPA BUKTI]`) kalau mengklaim selesai tanpa mengubah file. Kalau Anda melihat baris itu di log, sistem bekerja.
-- Saat berpikir lama, panel menampilkan "🤔 Masih berpikir... 15 detik", dst.
+- Orion **menantang dirinya sendiri** di log (`[CLAIM WITHOUT EVIDENCE]`) kalau mengklaim selesai tanpa mengubah file. Kalau Anda melihat baris itu di log, sistem bekerja.
+- Saat berpikir lama, panel menampilkan "🤔 Still thinking... 15 seconds", dst.
+  (Fase D: seluruh string user-facing, log, komentar, dan system prompt kini
+  berbahasa Inggris. Balasan chat TETAP mengikuti bahasa user — itu disengaja,
+  dan sekarang dijaga instruksi LANGUAGE RULE eksplisit di system prompt.
+  Daftar kata kunci klaim `KATA_KLAIM` sengaja tetap dwibahasa.)
 
 ---
 
@@ -182,9 +186,20 @@ Diurutkan dari dampak ÷ usaha. **Jangan memulai ini tanpa diminta.**
 |---|---|---|
 | A | `tools_schema.py` (skema 22 tool) + `prompts.py` (system prompt) keluar dari main.py | ✅ selesai |
 | B | `tool_dispatch.py`: 14 tool murni jadi tabel; 8 tool berguard tetap di main.py dengan alasan tercatat | ✅ selesai |
-| C | Loop agent (`_aliran_inti`) ke `agent_loop.py` dalam 4 langkah ber-commit | ⏳ **lihat `docs/FASE_C_PLAN.md`** |
+| C | Loop agent (`_aliran_inti`) ke `agent_loop.py` dalam 4 langkah ber-commit | ⏳ **langkah 1 selesai** (`sse.py`, commit `d8af462`); langkah 2-4 lihat `docs/FASE_C_PLAN.md` |
+| D | i18n: string user-facing, log, komentar, dan system prompt ke bahasa Inggris | ✅ selesai (6 commit, diakhiri `0da6394`) |
 
-Ukuran `main.py`: 2.769 → 2.115 baris. Test: 70 → **77**.
+Ukuran `main.py`: 2.769 → 2.119 baris. Test: 70 → 77 → **82**.
 `docs/FASE_C_PLAN.md` adalah satu-satunya sumber kebenaran untuk Fase C:
 empat langkah ber-commit terpisah, kriteria penerimaan per langkah, dan aturan
 "satu langkah = satu commit, jangan mengubah perilaku saat memindah".
+
+Pencatatan di log startup kini berbunyi `[TOOLS] Consistent: 22 tools
+declared & dispatched.` (sebelum Fase D: `[TOOLS] Konsisten: 22 tool ...`).
+Baseline SSE untuk verifikasi langkah 2-4 bisa direkam tanpa API key lewat
+mock LLM deterministik — prosedurnya tercantum di FASE_C_PLAN.md bagian 5.
+Backlog Fase C kini berisi dua godaan yang sengaja TIDAK diperbaiki saat
+memindah/menerjemahkan kode (matcher `startswith("success")` yang tidak
+pernah cocok untuk `edit_file`, dan kontradiksi instruksi `git push` di
+system prompt) — perbaiki di commit terpisah setelah Fase C, jangan dicuri
+start dari langkah refactoring.
