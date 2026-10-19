@@ -1,0 +1,110 @@
+"""
+loop_guards.py — the end-of-iteration decision as one pure function (Phase C step 3)
+=====================================================================================
+Before this module existed, four decision gates lived inline in the agent
+loop's non-tool-call branch (main.py): the todo-continuation nudge, the
+claim-challenge gate, the checkpoint/pause, and the normal answer — each
+wrapped around long side-effect blocks, which made the DECISION logic
+impossible to unit-test without running the whole stream.
+
+`evaluasi_akhir_iterasi` collapses those gates into one pure function:
+(state + scalars) in, a `Keputusan` enum member out. The loop in main.py
+becomes a `match` on the decision; every side effect (storing messages,
+SSE yields, counter bumps) stays in the match arms, byte-for-byte the same
+code as before.
+
+Decision table (identical to the previous if/elif/else cascade):
+
+  short reply (<50 chars, no claim keyword):
+      at the iteration cap        -> PAUSE_ITERASI
+      below the cap               -> TERUSKAN
+  claim + iterasi > 0 + files actually changed this turn:
+      todos still pending & nudge quota left -> LANJUT_TODO
+      otherwise                              -> CHECKPOINT
+  claim that needs challenging (guard_rules.klaim_perlu_ditantang:
+  claim, zero changed files, challenge quota left) -> TANTANG_KLAIM
+  everything else                                  -> JAWAB_NORMAL
+
+Deviation from FASE_C_PLAN.md, documented deliberately: the plan lists five
+enum members, but the max-iteration pause lives INSIDE the short-reply
+branch, so the below-cap "store it and keep looping silently" outcome needs
+a sixth member (TERUSKAN). Splitting the short-reply check between the loop
+and the evaluator would have been less faithful, not more.
+
+Why the nudge/checkpoint/challenge rules look the way they do (history):
+  - CHECKPOINT requires hard evidence (files_changed_this_turn): keywords
+    like "selesai"/"berhasil" appear in ordinary audit text even when no
+    edit_file/write_file ever ran (the "claims completion while doing
+    nothing" incident).
+  - LANJUT_TODO exists because the old loop broke on the first "done" even
+    with todos pending (the "only does the first task" complaint,
+    PATCH ORION-1); the nudge quota degrades gracefully to CHECKPOINT.
+  - TANTANG_KLAIM (PATCH ORION-17b) rejects a completion claim with zero
+    changed files, bounded by MAX_VERIFIKASI so the gate cannot become a
+    new loop. Once the quota is spent, the claim falls through to
+    JAWAB_NORMAL — exactly the pre-existing behaviour.
+"""
+
+from __future__ import annotations
+
+from enum import Enum, auto
+
+from app.services import guard_rules
+
+
+class Keputusan(Enum):
+    """The end-of-iteration decision (see the module docstring's table)."""
+
+    LANJUT_TODO = auto()    # todos still pending: nudge the model, keep looping
+    TANTANG_KLAIM = auto()  # completion claim with zero evidence: challenge, keep looping
+    CHECKPOINT = auto()     # real work, nothing pending: report + ask_user, stop
+    JAWAB_NORMAL = auto()   # ordinary answer: stream it, stop
+    PAUSE_ITERASI = auto()  # short reply at the iteration cap: pause message, stop
+    TERUSKAN = auto()       # short reply below the cap: store it, keep looping silently
+
+
+def evaluasi_akhir_iterasi(
+    state,
+    konten: str,
+    *,
+    iterasi: int,
+    max_iter: int,
+    sisa_todo: list,
+    maks_nudge: int,
+    maks_verifikasi: int,
+) -> Keputusan:
+    """Decide how the agent loop ends this iteration. PURE: no side effects.
+
+    `state` is a SessionState (reads files_changed_this_turn, nudge_count,
+    verifikasi_count). `iterasi` is the loop counter `_` (0-based); the
+    pause check mirrors the old `current_iter = _ + 1; current_iter >=
+    max_iter`. `sisa_todo` is precomputed by the caller via
+    `state.sisa_todo(todo_manager)` so this function stays dependency-free.
+    """
+    is_task_complete = guard_rules.kata_klaim(konten)
+
+    # Gate 1: a short reply without a tool call is not a real answer.
+    if len(konten.strip()) < 50 and not is_task_complete:
+        if iterasi + 1 >= max_iter:
+            return Keputusan.PAUSE_ITERASI
+        return Keputusan.TERUSKAN
+
+    # Gate 2: a completion claim WITH hard evidence may close the task —
+    # but only after the remaining todos are dealt with.
+    if is_task_complete and iterasi > 0 and state.files_changed_this_turn:
+        if sisa_todo and state.nudge_count < maks_nudge:
+            return Keputusan.LANJUT_TODO
+        return Keputusan.CHECKPOINT
+
+    # Gate 3: a completion claim WITHOUT evidence gets challenged
+    # (bounded by maks_verifikasi so this cannot become a loop).
+    if guard_rules.klaim_perlu_ditantang(
+        is_task_complete,
+        bool(state.files_changed_this_turn),
+        state.verifikasi_count,
+        maks_verifikasi,
+    ):
+        return Keputusan.TANTANG_KLAIM
+
+    # Gate 4: an ordinary, sufficiently long answer.
+    return Keputusan.JAWAB_NORMAL

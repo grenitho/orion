@@ -136,7 +136,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services import guard_rules, research_rules, sse, stream_utils
+from app.services import loop_guards, research_rules, sse, stream_utils
 from app.services import tool_dispatch
 from app.services.prompts import SYSTEM_PROMPT
 from app.services.session_state import SessionState
@@ -1758,20 +1758,42 @@ async def chat_with_orion(request: ChatRequest):
                     content = fix_over_escaped_text(msg.content or "")
                     reasoning_content = getattr(msg, "reasoning_content", None)
 
-                    # Detect whether this is a "task completion" (Orion finished the task)
-                    # >>> PATCH ORION-34: the claim logic moved to guard_rules so it can be tested.
-                    is_task_complete = guard_rules.kata_klaim(content)
+                    # >>> PHASE C STEP 3: the four end-of-iteration gates (todo
+                    # nudge, claim challenge, checkpoint/pause, normal answer)
+                    # collapsed into ONE pure decision function; this branch is
+                    # now a match on its verdict. The gate rules and their
+                    # incident history live in loop_guards.py. Every side
+                    # effect (message storage, SSE yields, counters) stays in
+                    # the arms below, unchanged.
+                    keputusan = loop_guards.evaluasi_akhir_iterasi(
+                        state,
+                        content,
+                        iterasi=_,
+                        max_iter=max_iter,
+                        sisa_todo=state.sisa_todo(todo_manager),
+                        maks_nudge=MAX_TODO_NUDGE,
+                        maks_verifikasi=MAX_VERIFIKASI,
+                    )
+                    match keputusan:
+                        case loop_guards.Keputusan.TERUSKAN:
+                            print(
+                                "[ORION] Orion produced short text without a tool. Continuing iteration..."
+                            )
+                            context_manager.add_message(
+                                "assistant", content, reasoning_content=reasoning_content
+                            )
 
-                    if len(content.strip()) < 50 and not is_task_complete:
-                        print(
-                            "[ORION] Orion produced short text without a tool. Continuing iteration..."
-                        )
-                        context_manager.add_message(
-                            "assistant", content, reasoning_content=reasoning_content
-                        )
+                            state.current_iter = _ + 1
+                            continue
+                        case loop_guards.Keputusan.PAUSE_ITERASI:
+                            print(
+                                "[ORION] Orion produced short text without a tool. Continuing iteration..."
+                            )
+                            context_manager.add_message(
+                                "assistant", content, reasoning_content=reasoning_content
+                            )
 
-                        state.current_iter = _ + 1
-                        if state.current_iter >= max_iter:
+                            state.current_iter = _ + 1
                             pause_msg = f"\n\n[SYSTEM PAUSE]: I have reached the iteration limit ({max_iter}) for this session for token safety. However, I still remember every step I have taken. Please type **'lanjutkan'** or **'continue'** so I can finish this task."
                             yield sse.ev('token', text=pause_msg)
                             yield sse.ev('done')
@@ -1779,65 +1801,35 @@ async def chat_with_orion(request: ChatRequest):
                                 f"[ORION PAUSE] Reached iteration limit {max_iter}. Waiting for user instructions to continue."
                             )
                             break
-
-                        continue
-                    else:
-                        # >>> TASK COMPLETION DETECTED <<<
-                        # Orion finished the task, provide a checkpoint report and pause
-                        # >>> CRITICAL FIX: the condition used to be just `is_task_complete and _ > 0`.
-                        # Keywords like "berhasil"/"selesai" are VERY common in ordinary
-                        # audit/report text even when NO edit_file/write_file tool actually
-                        # ran — as a result Orion could "claim completion" while doing
-                        # nothing at all (and the user watched repeating audit cycles
-                        # without real progress). Now the checkpoint may ONLY close the task
-                        # with hard evidence: at least 1 file truly written/edited on
-                        # THIS turn (files_changed_this_turn).
-                        if is_task_complete and _ > 0 and state.files_changed_this_turn:
-                            # >>> PATCH ORION-1 (CRITICAL) ============================
-                            # BEFORE: as soon as the model wrote the word "done"/"succeeded"
-                            # AND a file had changed, the loop immediately `break`ed. If the
-                            # user asked for 3 things, Orion finished the first one and stopped
-                            # -- exactly the "only does the first task" complaint.
-                            # The old code already DETECTED the remaining todos (pending_warning)
-                            # but only displayed them as a warning, then stopped anyway.
-                            #
-                            # NOW: while pending/in_progress todos remain, the loop does NOT
-                            # stop. A system message pointing at the next item is injected,
-                            # then `continue`. Stopping only happens when all todos are
-                            # complete OR the nudge cap is reached (graceful degradation to
-                            # the old behaviour: checkpoint + warning).
-                            # ==========================================================
+                        case loop_guards.Keputusan.LANJUT_TODO:
                             _pending_items = state.sisa_todo(todo_manager)
+                            _next_todo = _pending_items[0]
+                            state.nudge_count += 1
+                            _next_id = str(_next_todo.get("id", "?"))
+                            _next_text = str(_next_todo.get("text", ""))[:300]
+                            _sisa = len(_pending_items)
 
-                            if _pending_items and state.nudge_count < MAX_TODO_NUDGE:
-                                _next_todo = _pending_items[0]
-                                state.nudge_count += 1
-                                _next_id = str(_next_todo.get("id", "?"))
-                                _next_text = str(_next_todo.get("text", ""))[:300]
-                                _sisa = len(_pending_items)
-
-                                # save this turn's progress so it is not lost from the context
-                                context_manager.add_message(
-                                    "assistant", content,
-                                    reasoning_content=reasoning_content,
-                                )
-                                context_manager.add_message(
-                                    "user",
-                                    "[SYSTEM - CONTINUE]: The first part has been done, but "
-                                    f"the user's task is NOT finished. There are still {_sisa} items on the todo list.\n"
-                                    f"Next item: `[{_next_id}]` {_next_text}\n\n"
-                                    "INSTRUCTION: do NOT conclude the task is complete and do NOT ask "
-                                    f"the user anything. Work on item `[{_next_id}]` NOW. Once it is truly "
-                                    "done, call the `update_todos` tool to mark it 'completed', "
-                                    "then continue to the next item.",
-                                )
-                                yield sse.ev('status', text=f'Continuing with todo [{_next_id}]...')
-                                yield sse.ev('todo_update', markdown=todo_manager.render_markdown(), todos=todo_manager.get_todos())
-                                logger.info("[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
-                                            state.nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
-                                continue
-                            # >>> END OF PATCH ORION-1 ================================
-
+                            # save this turn's progress so it is not lost from the context
+                            context_manager.add_message(
+                                "assistant", content,
+                                reasoning_content=reasoning_content,
+                            )
+                            context_manager.add_message(
+                                "user",
+                                "[SYSTEM - CONTINUE]: The first part has been done, but "
+                                f"the user's task is NOT finished. There are still {_sisa} items on the todo list.\n"
+                                f"Next item: `[{_next_id}]` {_next_text}\n\n"
+                                "INSTRUCTION: do NOT conclude the task is complete and do NOT ask "
+                                f"the user anything. Work on item `[{_next_id}]` NOW. Once it is truly "
+                                "done, call the `update_todos` tool to mark it 'completed', "
+                                "then continue to the next item.",
+                            )
+                            yield sse.ev('status', text=f'Continuing with todo [{_next_id}]...')
+                            yield sse.ev('todo_update', markdown=todo_manager.render_markdown(), todos=todo_manager.get_todos())
+                            logger.info("[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
+                                        state.nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
+                            continue
+                        case loop_guards.Keputusan.CHECKPOINT:
                             checkpoint_report = (
                                 "\n\n---\n\n"
                                 "## ✅ TASK COMPLETED - CHECKPOINT REPORT\n\n"
@@ -1901,33 +1893,7 @@ async def chat_with_orion(request: ChatRequest):
                                 "[ORION TASK COMPLETE] Task finished. Waiting for user response to continue."
                             )
                             break
-                        # >>> PATCH ORION-17b (CLAIM VERIFICATION GATE) ==========
-                        # SYMPTOM FIXED: Orion reported "feature X has been
-                        # successfully integrated" while NOT A SINGLE file was
-                        # changed on this turn. The user checked the files and
-                        # found no changes; Orion would then re-audit and repeat
-                        # the same claim.
-                        #
-                        # CAUSE: `is_task_complete` was detected by word matching
-                        # ("selesai", "berhasil", "sudah saya"). The model can use
-                        # those words while ANALYZING without doing any work,
-                        # and such claims often originate from .orion/master_context.md
-                        # written by a previous session (see PATCH ORION-16).
-                        #
-                        # FIX: when the model claims completion BUT zero files
-                        # changed on this turn, the claim is REJECTED. We inject a
-                        # message forcing verification via search_code/read_file
-                        # before concluding anything. Limited to MAX_VERIFIKASI
-                        # times so it cannot become a new loop.
-                        # ==========================================================
-                        elif (
-                            guard_rules.klaim_perlu_ditantang(
-                                is_task_complete,
-                                bool(state.files_changed_this_turn),
-                                    state.verifikasi_count,
-                                MAX_VERIFIKASI,
-                            )
-                        ):
+                        case loop_guards.Keputusan.TANTANG_KLAIM:
                             state.verifikasi_count += 1
                             logger.warning(
                                 "[CLAIM WITHOUT EVIDENCE] Orion claims completion but 0 files changed "
@@ -1957,9 +1923,7 @@ async def chat_with_orion(request: ChatRequest):
                             )
                             yield sse.ev('status', text='🔍 Verifying completion claim (0 files changed)...')
                             continue
-                        # >>> END OF PATCH ORION-17b
-
-                        else:
+                        case loop_guards.Keputusan.JAWAB_NORMAL:
                             # Not a task completion, just a normal response
                             yield sse.ev('token', text=strip_thinking_blocks(content))
                             context_manager.add_message(
