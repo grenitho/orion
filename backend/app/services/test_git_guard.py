@@ -56,7 +56,7 @@ def eksekutor():
 def test_perintah_berbahaya_ditolak(eksekutor, perintah):
     t, _ = eksekutor
     hasil = t.run_terminal(perintah, timeout=5)
-    assert hasil.startswith("[REJECTED BY SYSTEM]"), f"'{perintah}' seharusnya ditolak: {hasil[:80]}"
+    assert hasil.startswith("[REJECTED BY SYSTEM]"), f"'{perintah}' should be rejected: {hasil[:80]}"
 
 
 def test_penolakan_tanpa_efek_samping(eksekutor):
@@ -70,7 +70,7 @@ def test_penolakan_tanpa_efek_samping(eksekutor):
 def test_perintah_aman_tidak_overblocking(eksekutor, perintah):
     t, _ = eksekutor
     hasil = t.run_terminal(perintah, timeout=10)
-    assert not hasil.startswith("[REJECTED BY SYSTEM]"), f"'{perintah}' tidak seharusnya ditolak"
+    assert not hasil.startswith("[REJECTED BY SYSTEM]"), f"'{perintah}' should not be rejected"
 
 
 def test_pesan_penolakan_memberi_jalan_keluar(eksekutor):

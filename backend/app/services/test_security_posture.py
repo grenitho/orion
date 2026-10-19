@@ -38,7 +38,7 @@ REPO = _cari_root_repo()
 MAIN = REPO / "backend" / "app" / "main.py" if REPO else Path(__file__)
 BACKEND_MANAGER = REPO / "orion" / "src" / "services" / "backendManager.ts" if REPO else Path(__file__)
 
-pytestmark = pytest.mark.skipif(REPO is None, reason="root repo ORION tidak ditemukan")
+pytestmark = pytest.mark.skipif(REPO is None, reason="ORION repo root not found")
 
 
 def test_cors_tidak_terbuka_ke_semua_origin():
@@ -50,18 +50,18 @@ def test_cors_tidak_terbuka_ke_semua_origin():
         for b in src.splitlines()
         if b.strip().startswith("allow_origins=")
     ]
-    assert nilai, "allow_origins tidak ditemukan di konfigurasi CORS"
+    assert nilai, "allow_origins not found in the CORS configuration"
     assert '"*"' not in nilai and "'*'" not in nilai, (
-        f"CORS terbuka ke semua origin ({nilai}): halaman web jahat bisa memanggil "
-        "/execute-terminal di 127.0.0.1 dan menjalankan perintah shell."
+        f"CORS is open to all origins ({nilai}): a malicious web page could call "
+        "/execute-terminal on 127.0.0.1 and run shell commands."
     )
 
 
 def test_backend_bind_loopback():
     src = BACKEND_MANAGER.read_text(encoding="utf-8")
     assert "--host 127.0.0.1" in src or "--host localhost" in src, (
-        "uvicorn harus bind eksplisit ke loopback; tanpa --host beberapa "
-        "versi/konfigurasi bisa jatuh ke antarmuka jaringan lain."
+        "uvicorn must bind explicitly to loopback; without --host some "
+        "versions/configurations can fall back to other network interfaces."
     )
 
 
@@ -75,12 +75,12 @@ def test_tidak_ada_path_pribadi_di_kode():
             continue
         if pola.search(f.read_text(encoding="utf-8", errors="replace")):
             bocor.append(str(f.relative_to(REPO)))
-    assert not bocor, f"Path/identitas pribadi tertanam di: {bocor}"
+    assert not bocor, f"Personal paths/identity embedded in: {bocor}"
 
 
 def test_artefak_pribadi_tidak_ikut_kemasan():
     vsc = (REPO / "orion" / ".vscodeignore").read_text(encoding="utf-8")
-    assert ".orion/**" in vsc, ".orion berisi riwayat percakapan; wajib di luar VSIX"
-    assert "*.vsix" in vsc, "VSIX lama mengandung .orion/session_history.json"
+    assert ".orion/**" in vsc, ".orion contains conversation history; it must stay out of the VSIX"
+    assert "*.vsix" in vsc, "an old VSIX contained .orion/session_history.json"
     gi = (REPO / ".gitignore").read_text(encoding="utf-8")
-    assert ".orion" in gi, ".orion wajib di-ignore git agar riwayat chat tidak ter-push"
+    assert ".orion" in gi, ".orion must be git-ignored so chat history is never pushed"

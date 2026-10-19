@@ -30,7 +30,7 @@ def _fungsi_aliran() -> ast.AsyncFunctionDef:
     for simpul in ast.walk(pohon):
         if isinstance(simpul, ast.AsyncFunctionDef) and simpul.name == "_aliran_inti":
             return simpul
-    raise AssertionError("_aliran_inti tidak ditemukan di main.py")
+    raise AssertionError("_aliran_inti not found in main.py")
 
 
 def test_penghitung_loop_tidak_ditimpa():
@@ -52,10 +52,10 @@ def test_penghitung_loop_tidak_ditimpa():
                 pelanggaran.append(simpul.lineno)
 
     assert not pelanggaran, (
-        f"Nama `_` di-assign sebagai variabel buang di baris {pelanggaran} dalam "
-        "_aliran_inti. `_` adalah PENGHITUNG LOOP agent; menimpanya membuat "
-        "`_ > 0` membandingkan tipe salah (bug produksi ORION-29 v1). "
-        "Pakai nama lain, mis. `_tunggu_pending`."
+        f"The name `_` is assigned as a throwaway variable at lines {pelanggaran} inside "
+        "_aliran_inti. `_` is the agent LOOP COUNTER; overwriting it makes "
+        "`_ > 0` compare the wrong types (production bug ORION-29 v1). "
+        "Use another name, e.g. `_tunggu_pending`."
     )
 
 

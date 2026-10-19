@@ -106,17 +106,17 @@ def test_main_py_hanya_pakai_sse_ev_dengan_nama_beku():
             and node.func.value.id == "sse"
         ):
             assert node.args and isinstance(node.args[0], ast.Constant), (
-                f"sse.ev di baris {node.lineno} harus menerima nama event literal"
+                f"sse.ev at line {node.lineno} must receive a literal event name"
             )
             nama_dipakai.add(node.args[0].value)
 
     manual = _frame_manual_di_main()
     assert not manual, (
-        f"main.py merakit frame SSE manual lagi di baris {manual}; "
-        "gunakan sse.ev(...) supaya kontrak frame terpusat dan ter-test."
+        f"main.py assembles SSE frames manually again at lines {manual}; "
+        "use sse.ev(...) so the frame contract stays centralized and tested."
     )
-    assert nama_dipakai, "tidak ada panggilan sse.ev di main.py — transformasi hilang?"
+    assert nama_dipakai, "no sse.ev calls in main.py — did the transformation get lost?"
     assert nama_dipakai <= set(sse.FROZEN_EVENTS), (
-        f"nama event tak dikenal: {sorted(nama_dipakai - set(sse.FROZEN_EVENTS))}. "
-        "Tujuh nama SSE beku (FASE_C_PLAN.md bagian 1)."
+        f"unknown event names: {sorted(nama_dipakai - set(sse.FROZEN_EVENTS))}. "
+        "The seven SSE event names are frozen (FASE_C_PLAN.md section 1)."
     )

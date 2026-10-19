@@ -50,7 +50,7 @@ export class ChatPanel {
             <html>
             <head>
                 <meta charset="UTF-8">
-                <!-- 1. Load Markdown & Syntax Highlighting dari CDN -->
+                <!-- 1. Load Markdown & Syntax Highlighting from the CDN -->
                 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
                 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -121,7 +121,7 @@ export class ChatPanel {
                         cursor: pointer; font-weight: bold; 
                     }
                     button:disabled { opacity: 0.5; cursor: not-allowed; }
-                    /* >>> BARU: style tombol cancel, merah, hanya terlihat saat processing */
+                    /* >>> NEW: cancel button style, red, only visible while processing */
                     #cancel-btn {
                         background: var(--vscode-errorForeground, #f14c4c);
                         color: white;
@@ -133,8 +133,8 @@ export class ChatPanel {
             <body>
                 <div id="chat-container"></div>
                 <div id="input-area">
-                    <!-- ORION-22: layout dikembalikan sederhana. Kotak ketik memakai
-                         flex:1 dari CSS #input-area sehingga lebarnya penuh. -->
+                    <!-- ORION-22: layout restored to the simple form. The input box uses
+                         flex:1 from the #input-area CSS so it spans the full width. -->
                     <textarea id="msg-input" placeholder="Type a command... (Shift+Enter for a new line)" rows="3"
                               style="flex:1 1 auto;min-width:0;min-height:62px;"></textarea>
                     <button id="send-btn">Send</button>
@@ -145,15 +145,15 @@ export class ChatPanel {
                     const vscode = acquireVsCodeApi();
                     const input = document.getElementById('msg-input');
                     const btn = document.getElementById('send-btn');
-                    const cancelBtn = document.getElementById('cancel-btn'); // >>> BARU
+                    const cancelBtn = document.getElementById('cancel-btn'); // >>> NEW
                     const container = document.getElementById('chat-container');
                     let isProcessing = false;
                     let currentAiText = "";
 
-                    // Fungsi untuk merender pesan dengan Markdown & Highlight
+                    // Function to render a message with Markdown & highlighting
                     function renderMarkdown(text) {
                         let html = marked.parse(text);
-                        // Buat temporary div untuk apply highlight.js
+                        // Create a temporary div to apply highlight.js
                         let tempDiv = document.createElement('div');
                         tempDiv.innerHTML = html;
                         tempDiv.querySelectorAll('pre code').forEach((block) => {
@@ -181,10 +181,10 @@ export class ChatPanel {
                             lastAi = document.createElement('div');
                             lastAi.className = 'msg ai';
                             container.appendChild(lastAi);
-                            currentAiText = ""; // Reset buffer untuk pesan AI baru
+                            currentAiText = ""; // Reset the buffer for a new AI message
                         }
                         currentAiText += token;
-                        // Render ulang secara real-time saat streaming
+                        // Re-render in real time while streaming
                         lastAi.innerHTML = renderMarkdown(currentAiText);
                         container.scrollTop = container.scrollHeight;
                     }
@@ -196,7 +196,7 @@ export class ChatPanel {
                         const text = input.value.trim();
                         if (!text) return;
 
-                        currentAiText = ""; // Reset buffer saat user mengirim pesan baru
+                        currentAiText = ""; // Reset the buffer when the user sends a new message
                         appendMsg(text, 'user');
                         input.value = '';
                         isProcessing = true;
@@ -207,13 +207,13 @@ export class ChatPanel {
                         vscode.postMessage({ command: 'chat', text: text });
                     }
 
-                    // >>> BARU: fungsi cancel
+                    // >>> NEW: cancel function
                     function cancel() {
                         if (!isProcessing) return;
                         vscode.postMessage({ command: 'cancel' });
                     }
 
-                    // >>> PATCH ORION-13b: render daftar todo di panel chat
+                    // >>> PATCH ORION-13b: render the todo list in the chat panel
                     function renderTodos(markdown, todos) {
                         let box = document.getElementById('orion-todo-box');
                         if (!box) {
@@ -243,15 +243,15 @@ export class ChatPanel {
                             isProcessing = false;
                             btn.disabled = false;
                             btn.innerText = 'Send';
-                            cancelBtn.classList.remove('visible'); // >>> BARU
+                            cancelBtn.classList.remove('visible'); // >>> NEW
                         } else if (msg.command === 'stream_error') {
                             isProcessing = false;
                             btn.disabled = false;
                             btn.innerText = 'Send';
-                            cancelBtn.classList.remove('visible'); // >>> BARU
+                            cancelBtn.classList.remove('visible'); // >>> NEW
                             appendMsg('⚠️ **Error:** ' + msg.text, 'ai');
                         } else if (msg.command === 'stream_cancelled') {
-                            // >>> BARU: dibatalkan user, bukan error sungguhan
+                            // >>> NEW: cancelled by the user, not a real error
                             isProcessing = false;
                             btn.disabled = false;
                             btn.innerText = 'Send';
@@ -261,26 +261,26 @@ export class ChatPanel {
                             isProcessing = false;
                             btn.disabled = false;
                             btn.innerText = 'Send';
-                            cancelBtn.classList.remove('visible'); // >>> BARU
+                            cancelBtn.classList.remove('visible'); // >>> NEW
                             appendMsg('❓ ' + msg.question, 'ai');
                         } else if (msg.command === 'append_token') {
                             appendTokenToLastAi(msg.text);
                         }
-                        // >>> PATCH ORION-13 (melengkapi rantai integrasi) ========
-                        // Rantainya sebelumnya PUTUS di mata terakhir:
-                        //   backend kirim 'todo_update'  (main.py:1531)      [ada]
-                        //   -> ChatPanel._processStreamData                  [TIDAK ada -> PATCH-11]
-                        //   -> postMessage ke webview                        [ada]
-                        //   -> webview merender                              [TIDAK ada -> PATCH INI]
-                        // Itulah sebabnya fitur todo tracking tidak pernah terlihat
-                        // bekerja, padahal backend-nya sudah mengirim datanya.
+                        // >>> PATCH ORION-13 (completing the integration chain) ========
+                        // The chain was previously BROKEN at the last link:
+                        //   backend sends 'todo_update'  (main.py:1531)      [present]
+                        //   -> ChatPanel._processStreamData                  [MISSING -> PATCH-11]
+                        //   -> postMessage to the webview                    [present]
+                        //   -> webview renders                               [MISSING -> THIS PATCH]
+                        // That is why the todo-tracking feature never appeared to
+                        // work, even though the backend was already sending the data.
                         else if (msg.command === 'todo_update') {
                             renderTodos(msg.markdown, msg.todos);
                         }
                     });
 
                     btn.addEventListener('click', send);
-                    cancelBtn.addEventListener('click', cancel); // >>> BARU
+                    cancelBtn.addEventListener('click', cancel); // >>> NEW
                     input.addEventListener('keydown', e => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
