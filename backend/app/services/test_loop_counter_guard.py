@@ -10,8 +10,9 @@ REAL bug background (ORION-29 v1): the agent loop uses `_` as its counter
 in production, during a real conversation.
 
 This test is cheap (it only reads the source with ast, no main import) and
-guarantees: inside `_aliran_inti`, the name `_` MUST NOT be assigned except
-as the target of the counter for-loop itself.
+guarantees: inside `aliran_agent` (agent_loop.py since Phase C step 4; it was
+`_aliran_inti` in main.py), the name `_` MUST NOT be assigned except as the
+target of the counter for-loop itself.
 
 Run:
     python -m pytest backend/app/services/test_loop_counter_guard.py -v
@@ -22,15 +23,15 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-MAIN = Path(__file__).resolve().parents[1] / "main.py"
+AGENT_LOOP = Path(__file__).resolve().parent / "agent_loop.py"
 
 
 def _fungsi_aliran() -> ast.AsyncFunctionDef:
-    pohon = ast.parse(MAIN.read_text(encoding="utf-8"))
+    pohon = ast.parse(AGENT_LOOP.read_text(encoding="utf-8"))
     for simpul in ast.walk(pohon):
-        if isinstance(simpul, ast.AsyncFunctionDef) and simpul.name == "_aliran_inti":
+        if isinstance(simpul, ast.AsyncFunctionDef) and simpul.name == "aliran_agent":
             return simpul
-    raise AssertionError("_aliran_inti not found in main.py")
+    raise AssertionError("aliran_agent not found in agent_loop.py")
 
 
 def test_penghitung_loop_tidak_ditimpa():
@@ -53,7 +54,7 @@ def test_penghitung_loop_tidak_ditimpa():
 
     assert not pelanggaran, (
         f"The name `_` is assigned as a throwaway variable at lines {pelanggaran} inside "
-        "_aliran_inti. `_` is the agent LOOP COUNTER; overwriting it makes "
+        "aliran_agent. `_` is the agent LOOP COUNTER; overwriting it makes "
         "`_ > 0` compare the wrong types (production bug ORION-29 v1). "
         "Use another name, e.g. `_tunggu_pending`."
     )

@@ -77,6 +77,19 @@ WAJIB_DI_MAIN = {
 }
 
 
+# The 22 tool names that REALLY have a dispatch branch in the agent loop
+# (agent_loop.py). Lives here since Phase C step 4; main.py's startup
+# consistency checker and the loop's unknown-tool message both use it.
+NAMA_TOOL_AKTIF = {
+    "ask_user", "update_todos", "list_files", "read_file", "read_file_range",
+    "write_file", "edit_file", "search_code", "read_json_path", "run_terminal",
+    "web_search", "web_fetch", "git_status", "git_diff", "verify_html",
+    "verify_code",
+    "restore_backup", "list_backups", "delete_file", "move_file", "git_commit",
+    "run_tests",
+}
+
+
 def tool_sederhana(nama: str) -> bool:
     return nama in TABLE
 

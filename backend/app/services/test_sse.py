@@ -9,9 +9,10 @@ guarded here:
   2. ev('done') stays compatible with stream_utils: the "exactly one done"
      guarantee is detected via the PENANDA_DONE substring, so the two must
      never diverge;
-  3. an AST guard over main.py: manually assembled SSE frames must never
-     reappear, and every sse.ev(...) call may only use the seven frozen
-     event names (FASE_C_PLAN.md section 1).
+  3. an AST guard over main.py and agent_loop.py: manually assembled SSE
+     frames must never reappear, every sse.ev(...) call may only use the
+     seven frozen event names (FASE_C_PLAN.md section 1), and the loop's
+     status frames must keep flowing through deps.kirim_status.
 
 Style follows test_loop_counter_guard.py: read the source with ast, without
 importing main.
@@ -27,6 +28,7 @@ from app.services import sse
 from app.services.stream_utils import PENANDA_DONE, buat_event_done
 
 MAIN = Path(__file__).resolve().parents[1] / "main.py"
+AGENT_LOOP = Path(__file__).resolve().parent / "agent_loop.py"
 
 
 def _bentuk_lama(event_type: str, **payload) -> str:
@@ -73,10 +75,10 @@ def test_nama_event_beku():
     )
 
 
-def _frame_manual_di_main() -> list[int]:
-    """Lines in main.py that still assemble SSE frames via f-string
+def _frame_manual(path: Path) -> list[int]:
+    """Lines in the given file that still assemble SSE frames via f-string
     json.dumps (the pattern replaced by sse.ev in Phase C step 1)."""
-    pohon = ast.parse(MAIN.read_text(encoding="utf-8"))
+    pohon = ast.parse(path.read_text(encoding="utf-8"))
     pelanggaran = []
     for node in ast.walk(pohon):
         if not isinstance(node, ast.JoinedStr):
@@ -94,9 +96,12 @@ def _frame_manual_di_main() -> list[int]:
     return pelanggaran
 
 
-def test_main_py_hanya_pakai_sse_ev_dengan_nama_beku():
-    pohon = ast.parse(MAIN.read_text(encoding="utf-8"))
-    nama_dipakai = set()
+def _panggilan_sse_ev(path: Path) -> tuple[set, list[int]]:
+    """Event names passed to sse.ev(...) in the file, plus the line numbers of
+    any direct sse.ev('status', ...) calls."""
+    pohon = ast.parse(path.read_text(encoding="utf-8"))
+    nama = set()
+    status_langsung = []
     for node in ast.walk(pohon):
         if (
             isinstance(node, ast.Call)
@@ -106,17 +111,39 @@ def test_main_py_hanya_pakai_sse_ev_dengan_nama_beku():
             and node.func.value.id == "sse"
         ):
             assert node.args and isinstance(node.args[0], ast.Constant), (
-                f"sse.ev at line {node.lineno} must receive a literal event name"
+                f"sse.ev at line {node.lineno} in {path.name} must receive a literal event name"
             )
-            nama_dipakai.add(node.args[0].value)
+            nama.add(node.args[0].value)
+            if node.args[0].value == "status":
+                status_langsung.append(node.lineno)
+    return nama, status_langsung
 
-    manual = _frame_manual_di_main()
-    assert not manual, (
-        f"main.py assembles SSE frames manually again at lines {manual}; "
-        "use sse.ev(...) so the frame contract stays centralized and tested."
-    )
-    assert nama_dipakai, "no sse.ev calls in main.py — did the transformation get lost?"
-    assert nama_dipakai <= set(sse.FROZEN_EVENTS), (
-        f"unknown event names: {sorted(nama_dipakai - set(sse.FROZEN_EVENTS))}. "
+
+def test_main_py_hanya_pakai_sse_ev_dengan_nama_beku():
+    """Since Phase C step 4 this guards BOTH files: main.py (the no-project
+    error frame + the kirim_status construction) and agent_loop.py (every
+    frame of the loop itself). Status frames inside the loop must go through
+    deps.kirim_status, whose single sse.ev('status', ...) construction site
+    lives in main.py's Deps build."""
+    for path in (MAIN, AGENT_LOOP):
+        manual = _frame_manual(path)
+        assert not manual, (
+            f"{path.name} assembles SSE frames manually again at lines {manual}; "
+            "use sse.ev(...) so the frame contract stays centralized and tested."
+        )
+
+    nama_main, status_main = _panggilan_sse_ev(MAIN)
+    nama_loop, status_loop = _panggilan_sse_ev(AGENT_LOOP)
+    gabungan = nama_main | nama_loop
+    assert gabungan, "no sse.ev calls found — did the transformation get lost?"
+    assert gabungan <= set(sse.FROZEN_EVENTS), (
+        f"unknown event names: {sorted(gabungan - set(sse.FROZEN_EVENTS))}. "
         "The seven SSE event names are frozen (FASE_C_PLAN.md section 1)."
+    )
+    assert not status_loop, (
+        f"agent_loop.py bypasses deps.kirim_status with direct status frames at lines {status_loop}"
+    )
+    assert status_main, (
+        "main.py no longer builds kirim_status via sse.ev('status', ...) — the "
+        "loop would lose its status frames"
     )

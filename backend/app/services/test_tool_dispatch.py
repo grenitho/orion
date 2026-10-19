@@ -6,7 +6,7 @@ Ensures the main.py split did not silently shift responsibilities:
   * every tool in the table is really declared in the TOOLS schema
   * tools with guards/interaction do NOT leak into the simple table
   * every table entry points at a method that really exists on ToolExecutor
-  * no individual branches for simple tools remain in main.py
+  * no individual branches for simple tools remain in the agent loop
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from app.services import tool_dispatch
 from app.services.tool_executor import ToolExecutor
 from app.services.tools_schema import TOOLS
 
-MAIN = Path(__file__).resolve().parents[1] / "main.py"
+AGENT_LOOP = Path(__file__).resolve().parent / "agent_loop.py"
 NAMA_SKEMA = {t["function"]["name"] for t in TOOLS}
 
 
@@ -42,19 +42,19 @@ def test_setiap_entri_tabel_punya_method_di_executor():
 
 
 def test_cabang_individual_sudah_diangkat_dari_main():
-    src = MAIN.read_text(encoding="utf-8")
+    src = AGENT_LOOP.read_text(encoding="utf-8")
     for nama in tool_dispatch.TABLE:
         assert f'elif func_name == "{nama}":' not in src, (
-            f"branch '{nama}' still exists in main.py even though it is in the dispatch table"
+            f"branch '{nama}' still exists in agent_loop.py even though it is in the dispatch table"
         )
     assert "tool_dispatch.tool_sederhana(func_name)" in src
 
 
 def test_tool_rumit_masih_ditangani_main():
-    src = MAIN.read_text(encoding="utf-8")
+    src = AGENT_LOOP.read_text(encoding="utf-8")
     for nama in sorted(tool_dispatch.WAJIB_DI_MAIN):
         assert f'func_name == "{nama}"' in src, (
-            f"'{nama}' should still be handled by main.py but its branch was not found"
+            f"'{nama}' should still be handled by the agent loop but its branch was not found"
         )
 
 
