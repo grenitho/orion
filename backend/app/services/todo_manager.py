@@ -92,8 +92,8 @@ class TodoManager:
         """Update status 1 item tanpa perlu kirim ulang seluruh list."""
         if status not in VALID_STATUSES:
             return (
-                f"[TODO_MANAGER ERROR] Status '{status}' tidak valid. "
-                f"Gunakan salah satu: {', '.join(sorted(VALID_STATUSES))}"
+                f"[TODO_MANAGER ERROR] Invalid status '{status}'. "
+                f"Use one of: {', '.join(sorted(VALID_STATUSES))}"
             )
         found = False
         for item in self.todos:
