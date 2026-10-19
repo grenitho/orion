@@ -102,7 +102,7 @@ class TodoManager:
                 found = True
                 break
         if not found:
-            return f"[TODO_MANAGER ERROR] Todo dengan id '{todo_id}' tidak ditemukan."
+            return f"[TODO_MANAGER ERROR] Todo with id '{todo_id}' not found."
         self.save()
         return self.render_markdown()
 
@@ -112,7 +112,7 @@ class TodoManager:
     def render_markdown(self) -> str:
         """Representasi ringkas untuk ditampilkan ke user di chat."""
         if not self.todos:
-            return "_(Todo list kosong)_"
+            return "_(Todo list is empty)_"
         icon_map = {"pending": "⬜", "in_progress": "🔄", "completed": "✅"}
         lines = []
         for item in self.todos:

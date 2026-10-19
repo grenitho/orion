@@ -55,7 +55,7 @@ def eksekutor():
 def test_perintah_berbahaya_ditolak(eksekutor, perintah):
     t, _ = eksekutor
     hasil = t.run_terminal(perintah, timeout=5)
-    assert hasil.startswith("[DITOLAK SISTEM]"), f"'{perintah}' seharusnya ditolak: {hasil[:80]}"
+    assert hasil.startswith("[REJECTED BY SYSTEM]"), f"'{perintah}' seharusnya ditolak: {hasil[:80]}"
 
 
 def test_penolakan_tanpa_efek_samping(eksekutor):
@@ -69,11 +69,11 @@ def test_penolakan_tanpa_efek_samping(eksekutor):
 def test_perintah_aman_tidak_overblocking(eksekutor, perintah):
     t, _ = eksekutor
     hasil = t.run_terminal(perintah, timeout=10)
-    assert not hasil.startswith("[DITOLAK SISTEM]"), f"'{perintah}' tidak seharusnya ditolak"
+    assert not hasil.startswith("[REJECTED BY SYSTEM]"), f"'{perintah}' tidak seharusnya ditolak"
 
 
 def test_pesan_penolakan_memberi_jalan_keluar(eksekutor):
     """Penolakan yang baik memberi tahu apa yang harus dilakukan, bukan hanya 'tidak'."""
     t, _ = eksekutor
     hasil = t.run_terminal("git push origin main", timeout=5)
-    assert "Minta user" in hasil or "manual" in hasil
+    assert "Ask the user" in hasil or "manual" in hasil

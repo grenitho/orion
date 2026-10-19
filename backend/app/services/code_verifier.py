@@ -87,7 +87,7 @@ def cek_python(path: str, teks: str, interpreter: str | None = None) -> list[str
     try:
         pohon = ast.parse(teks, filename=path)
     except SyntaxError as e:
-        temuan.append(f"SINTAKS PYTHON baris {e.lineno}: {e.msg}")
+        temuan.append(f"PYTHON SYNTAX line {e.lineno}: {e.msg}")
         if e.lineno:
             temuan.append(f"     -> {_kutipan(teks, e.lineno)}")
         return temuan   # tidak ada gunanya melanjutkan kalau sintaks rusak
@@ -115,11 +115,11 @@ def cek_python(path: str, teks: str, interpreter: str | None = None) -> list[str
                 if m not in stdlib and m not in lokal and m.isidentifier()]
     hilang = _modul_hilang_via_interpreter(kandidat, path, interpreter)
     if hilang:
-        temuan.append("IMPOR TIDAK TERPASANG (akan ModuleNotFoundError saat dijalankan): "
+        temuan.append("MISSING IMPORTS (will raise ModuleNotFoundError when run): "
                       f"{', '.join(hilang[:12])}")
-        temuan.append("     -> pasang dengan: pip install " + " ".join(hilang[:6])
+        temuan.append("     -> install with: pip install " + " ".join(hilang[:6])
                       if all(_paket_pip(m) == m for m in hilang[:6]) else
-                      "     -> periksa requirements.txt / environment proyek ini")
+                      "     -> check this project's requirements.txt / environment")
 
     # 3. linter opsional (ruff atau pyflakes), memberi temuan nama-tak-terdefinisi dll.
     for alat, arg in (("ruff", ["check", "--select", "F,E9", "--no-cache", path]),
@@ -139,7 +139,7 @@ def cek_python(path: str, teks: str, interpreter: str | None = None) -> list[str
         keluaran = (r.stdout or r.stderr).strip()
         if keluaran and r.returncode != 0:
             baris = keluaran.splitlines()
-            temuan.append(f"TEMUAN {alat.upper()} ({len(baris)} baris):")
+            temuan.append(f"{alat.upper()} FINDINGS ({len(baris)} lines):")
             temuan.extend(f"     {b[:150]}" for b in baris[:12])
         break   # cukup satu linter yang pertama tersedia
 
@@ -196,12 +196,12 @@ def _modul_python_bisa(nama: str) -> bool:
 def cek_js(path: str, teks: str) -> list[str]:
     node = _node()
     if not node:
-        return ["node tidak terpasang; pemeriksaan sintaks JS dilewati."]
+        return ["node is not installed; JS syntax check skipped."]
     tmp = _file_sementara(teks, ".js")
     try:
         r = _jalankan([node, "--check", tmp], timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
-        return [f"pemeriksaan JS gagal dijalankan: {e}"]
+        return [f"JS check failed to run: {e}"]
     finally:
         try:
             os.unlink(tmp)
@@ -213,7 +213,7 @@ def cek_js(path: str, teks: str) -> list[str]:
     baris = int(m.group(1)) if m else 0
     pesan = next((x.strip() for x in r.stderr.splitlines() if "Error" in x),
                  r.stderr.strip()[:200])
-    out = [f"SINTAKS JAVASCRIPT baris {baris}: {pesan}"]
+    out = [f"JAVASCRIPT SYNTAX line {baris}: {pesan}"]
     if baris:
         out.append(f"     -> {_kutipan(teks, baris)}")
     return out
@@ -228,16 +228,16 @@ def cek_ts(path: str) -> list[str]:
     ]
     tsc = next((c for c in kandidat if c and os.path.exists(c)), None)
     if not tsc:
-        return ["tsc tidak tersedia di proyek ini; pemeriksaan TypeScript dilewati. "
-                "(npm install typescript untuk mengaktifkannya)"]
+        return ["tsc is not available in this project; TypeScript check skipped. "
+                "(run npm install typescript to enable it)"]
     try:
         r = _jalankan([tsc, "--noEmit", path], timeout=180)
     except (OSError, subprocess.SubprocessError) as e:
-        return [f"tsc gagal dijalankan: {e}"]
+        return [f"tsc failed to run: {e}"]
     if r.returncode == 0:
         return []
     baris = [x.strip() for x in (r.stdout or r.stderr).splitlines() if x.strip()][:12]
-    return ["TEMUAN TSC:"] + [f"     {b[:160]}" for b in baris]
+    return ["TSC FINDINGS:"] + [f"     {b[:160]}" for b in baris]
 
 
 def cek_html(path: str, teks: str) -> list[str]:
@@ -251,7 +251,7 @@ def cek_json(teks: str) -> list[str]:
         json.loads(teks)
         return []
     except json.JSONDecodeError as e:
-        return [f"JSON TIDAK VALID baris {e.lineno} kolom {e.colno}: {e.msg}",
+        return [f"INVALID JSON line {e.lineno} column {e.colno}: {e.msg}",
                 f"     -> {_kutipan(teks, e.lineno or 1)}"]
 
 
@@ -261,7 +261,7 @@ def cek_xml(teks: str) -> list[str]:
         ET.fromstring(teks)
         return []
     except ET.ParseError as e:
-        return [f"XML/SVG TIDAK VALID: {e}"]
+        return [f"INVALID XML/SVG: {e}"]
 
 
 def cek_yaml(teks: str) -> list[str]:
@@ -271,19 +271,19 @@ def cek_yaml(teks: str) -> list[str]:
             yaml.safe_load(teks)
             return []
         except Exception as e:  # noqa: BLE001
-            return [f"YAML TIDAK VALID: {e}"]
+            return [f"INVALID YAML: {e}"]
     buka = teks.count("{") + teks.count("[")
     tutup = teks.count("}") + teks.count("]")
     if buka != tutup:
-        return [f"YAML: kurung tidak seimbang ({buka} buka vs {tutup} tutup) "
-                "(pemeriksaan mendalam butuh: pip install pyyaml)"]
+        return [f"YAML: unbalanced brackets ({buka} opening vs {tutup} closing) "
+                "(a deep check requires: pip install pyyaml)"]
     return []
 
 
 def cek_css(teks: str) -> list[str]:
     buka, tutup = teks.count("{"), teks.count("}")
     if buka != tutup:
-        return [f"CSS: kurung kurawal tidak seimbang ({buka} buka vs {tutup} tutup)"]
+        return [f"CSS: unbalanced curly braces ({buka} opening vs {tutup} closing)"]
     return []
 
 
@@ -297,18 +297,18 @@ def verify_path(abs_path: str, interpreter: str | None = None) -> str:
         return _verify_folder(abs_path, interpreter)
 
     if not os.path.isfile(abs_path):
-        return f"Error: tidak ditemukan: {abs_path}"
+        return f"Error: not found: {abs_path}"
 
     ext = os.path.splitext(abs_path)[1].lower()
     if ext not in EKSTENSI_DIDUKUNG:
-        return (f"verify_code belum mendukung '{ext}'. Yang didukung: "
+        return (f"verify_code does not support '{ext}' yet. Supported: "
                 + ", ".join(sorted(EKSTENSI_DIDUKUNG)))
 
     try:
         with open(abs_path, encoding="utf-8", errors="replace") as f:
             teks = f.read()
     except OSError as e:
-        return f"Error membaca {abs_path}: {e}"
+        return f"Error reading {abs_path}: {e}"
 
     temuan = _periksa(ext, abs_path, teks, interpreter)
     return _laporan(abs_path, temuan)
@@ -336,10 +336,10 @@ def _periksa(ext: str, path: str, teks: str, interpreter: str | None = None) -> 
 
 def _laporan(nama: str, temuan: list[str]) -> str:
     if not temuan:
-        return f"OK: {nama} lolos pemeriksaan verify_code."
+        return f"OK: {nama} passed the verify_code checks."
     n = len([t for t in temuan if not t.startswith("     ")])
-    return (f"!!! {nama} TIDAK SEHAT ({n} temuan):\n" + "\n".join(temuan) +
-            "\n\nPerbaiki temuan di atas SEBELUM menyatakan file ini berfungsi.")
+    return (f"!!! {nama} IS NOT HEALTHY ({n} findings):\n" + "\n".join(temuan) +
+            "\n\nFix the findings above BEFORE declaring this file works.")
 
 
 def _verify_folder(abs_dir: str, interpreter: str | None = None) -> str:
@@ -353,7 +353,7 @@ def _verify_folder(abs_dir: str, interpreter: str | None = None) -> str:
                 continue
             jumlah += 1
             if jumlah > MAKS_FILE_PER_FOLDER:
-                ringkas.append(f"... dan seterusnya (batas {MAKS_FILE_PER_FOLDER} file per pemeriksaan)")
+                ringkas.append(f"... and so on (limit of {MAKS_FILE_PER_FOLDER} files per check)")
                 return _laporan_folder(abs_dir, ringkas, jumlah)
             path = os.path.join(akar, nama)
             try:
@@ -371,10 +371,10 @@ def _verify_folder(abs_dir: str, interpreter: str | None = None) -> str:
 
 def _laporan_folder(nama: str, ringkas: list[str], jumlah: int) -> str:
     if not ringkas:
-        return (f"OK: {jumlah} file didukung di {nama} lolos pemeriksaan verify_code "
-                "(sintaks, impor, JSON/XML/YAML/CSS, dan struktur HTML).")
+        return (f"OK: {jumlah} supported files in {nama} passed the verify_code checks "
+                "(syntax, imports, JSON/XML/YAML/CSS, and HTML structure).")
     bermasalah = len([r for r in ringkas if r.startswith("--- ")])
-    return (f"!!! {nama}: {bermasalah} dari {jumlah} file bermasalah:\n"
+    return (f"!!! {nama}: {bermasalah} of {jumlah} files have issues:\n"
             + "\n".join(ringkas)
-            + "\n\nPerbaiki yang berlabel ERROR/SINTAKS lebih dulu; "
-              "satu file yang rusak bisa mematikan seluruh aplikasi.")
+            + "\n\nFix the ones labeled ERROR/SYNTAX first; "
+              "one broken file can take down the whole application.")

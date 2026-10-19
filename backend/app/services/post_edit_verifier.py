@@ -46,32 +46,32 @@ def verify_file_write(full_path: str, expected_content: str = None) -> str:
     """
     if not os.path.exists(full_path):
         return (
-            "⚠️ [VERIFIKASI GAGAL] File tidak ditemukan di disk setelah "
-            "write_file dipanggil. Kemungkinan write gagal diam-diam "
-            "(permission, disk penuh, atau path salah)."
+            "⚠️ [VERIFICATION FAILED] File not found on disk after "
+            "write_file was called. The write likely failed silently "
+            "(permissions, full disk, or wrong path)."
         )
 
     try:
         actual_size = os.path.getsize(full_path)
     except Exception as e:
-        return f"⚠️ [VERIFIKASI GAGAL] File ada tapi gagal dibaca ukurannya: {e}"
+        return f"⚠️ [VERIFICATION FAILED] File exists but its size could not be read: {e}"
 
     if expected_content is not None:
         try:
             with open(full_path, "r", encoding="utf-8") as f:
                 actual_content = f.read()
         except Exception as e:
-            return f"⚠️ [VERIFIKASI GAGAL] File ada tapi gagal dibaca ulang: {e}"
+            return f"⚠️ [VERIFICATION FAILED] File exists but could not be re-read: {e}"
 
         if actual_content != expected_content:
             return (
-                "⚠️ [VERIFIKASI TIDAK COCOK] File tersimpan, tapi isinya berbeda "
-                "dari konten yang dikirim (mungkin normalisasi line-ending, atau "
-                "proses lain menimpa file ini setelahnya). WAJIB baca ulang file "
-                "ini sebelum melanjutkan."
+                "⚠️ [VERIFICATION MISMATCH] File saved, but its contents differ "
+                "from the content that was sent (possibly line-ending normalization, or "
+                "another process overwrote this file afterwards). You MUST re-read this "
+                "file before continuing."
             )
 
-    return f"✅ [VERIFIKASI OK] File terkonfirmasi tersimpan di disk ({actual_size} bytes)."
+    return f"✅ [VERIFICATION OK] File confirmed saved on disk ({actual_size} bytes)."
 
 
 def verify_file_edit(full_path: str, expected_snippet: str) -> str:
@@ -80,26 +80,26 @@ def verify_file_edit(full_path: str, expected_snippet: str) -> str:
     benar-benar muncul di file hasil akhir.
     """
     if not os.path.exists(full_path):
-        return "⚠️ [VERIFIKASI GAGAL] File tidak ditemukan di disk setelah edit_file dipanggil."
+        return "⚠️ [VERIFICATION FAILED] File not found on disk after edit_file was called."
 
     try:
         with open(full_path, "r", encoding="utf-8") as f:
             actual_content = f.read()
     except Exception as e:
-        return f"⚠️ [VERIFIKASI GAGAL] File ada tapi gagal dibaca ulang: {e}"
+        return f"⚠️ [VERIFICATION FAILED] File exists but could not be re-read: {e}"
 
     snippet = (expected_snippet or "").strip()
     if not snippet:
         # Tidak ada snippet spesifik untuk dicocokkan (format diff tidak standar) --
         # tetap laporkan file ada, tapi jangan klaim isi sudah benar.
-        return "ℹ️ [VERIFIKASI SEBAGIAN] File ada di disk, tapi tidak ada potongan spesifik untuk dicocokkan otomatis. Disarankan baca ulang manual jika ragu."
+        return "ℹ️ [VERIFICATION PARTIAL] File exists on disk, but there is no specific snippet to match automatically. A manual re-read is recommended if in doubt."
 
     if snippet in actual_content:
-        return "✅ [VERIFIKASI OK] Potongan REPLACE terkonfirmasi ada di file hasil akhir."
+        return "✅ [VERIFICATION OK] REPLACE snippet confirmed present in the final file."
 
     return (
-        "⚠️ [VERIFIKASI TIDAK COCOK] Potongan REPLACE TIDAK ditemukan di file "
-        "hasil akhir. Edit mungkin gagal diam-diam, atau format SEARCH/REPLACE "
-        "tidak match persis dengan isi file. WAJIB baca ulang file ini "
-        "(read_file) sebelum melanjutkan atau mengklaim task selesai."
+        "⚠️ [VERIFICATION MISMATCH] REPLACE snippet NOT found in the "
+        "final file. The edit may have failed silently, or the SEARCH/REPLACE format "
+        "did not match the file contents exactly. You MUST re-read this file "
+        "(read_file) before continuing or claiming the task is complete."
     )

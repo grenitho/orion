@@ -12,22 +12,22 @@ import sys
 class ToolExecutor:
     # >>> PATCH ORION-27b: daftar operasi git yang dilarang lewat run_terminal.
     GIT_DIBLOKIR = [
-        (r"^git\s+init\b", "mengubah struktur folder dan terbukti bisa hang",
-         "Tidak perlu repo git untuk bekerja. Titik aman tersedia lewat .orion/backups "
-         "dan tool git_commit (bila repo sudah ada)."),
-        (r"^git\s+push\b", "mengirim kode ke server luar tanpa bisa ditinjau dulu",
-         "Minta user menjalankan push sendiri setelah meninjau perubahannya."),
-        (r"^git\s+(pull|fetch)\b", "menarik perubahan jaringan yang bisa merge otomatis",
-         "Minta user melakukan pull/fetch sendiri."),
-        (r"^git\s+clone\b", "mengunduh repo besar yang bisa hang melewati timeout",
-         "Minta user melakukan clone sendiri, lalu arahkan project ke folder hasilnya."),
+        (r"^git\s+init\b", "restructures folders and is proven to hang",
+         "No git repo is needed to work. Safe points are available via .orion/backups "
+         "and the git_commit tool (when a repo already exists)."),
+        (r"^git\s+push\b", "sends code to an external server without review first",
+         "Ask the user to run push themselves after reviewing the changes."),
+        (r"^git\s+(pull|fetch)\b", "pulls remote changes that may auto-merge",
+         "Ask the user to run pull/fetch themselves."),
+        (r"^git\s+clone\b", "downloads large repos and can hang past the timeout",
+         "Ask the user to clone it themselves, then point the project at the resulting folder."),
         (r"git\s+reset\s+--hard|git\s+clean\s+-f|git\s+checkout\s+\.\s*$|"
          r"git\s+restore\s+\.\s*$|git\s+branch\s+-[dD]\b",
-         "MEMBUANG pekerjaan secara permanen dan tidak bisa dibatalkan",
-         "Untuk membatalkan satu file pakai restore_backup; untuk melihat perbedaan "
-         "pakai git_diff. Jangan pernah membuang pekerjaan user."),
-        (r"git\s+(rebase|merge)\b", "menulis ulang sejarah commit yang berisiko konflik",
-         "Serahkan rebase/merge kepada user."),
+         "DISCARDS work permanently and cannot be undone",
+         "To revert a single file use restore_backup; to inspect differences "
+         "use git_diff. Never discard the user's work."),
+        (r"git\s+(rebase|merge)\b", "rewrites commit history with a risk of conflicts",
+         "Leave rebase/merge to the user."),
     ]
 
     def __init__(self, project_path: str = "."):
@@ -53,8 +53,8 @@ class ToolExecutor:
             project_root + os.sep
         ):
             return None, (
-                f"Error: Path '{relative_path}' menghasilkan lokasi di luar folder "
-                f"project ({project_root}). Operasi ditolak demi keamanan."
+                f"Error: Path '{relative_path}' resolves to a location outside the "
+                f"project folder ({project_root}). Operation denied for security."
             )
         return candidate, None
 
@@ -64,7 +64,7 @@ class ToolExecutor:
         if err:
             return err
         if not os.path.exists(target_path):
-            return f"Error: Path '{path}' tidak ditemukan."
+            return f"Error: Path '{path}' not found."
 
         tree = []
         ignored_dirs = {
@@ -101,7 +101,7 @@ class ToolExecutor:
                 if not file.startswith("."):  # Abaikan file hidden
                     tree.append(f"{sub_indent}{file}")
 
-        return "\n".join(tree) if tree else "Folder kosong."
+        return "\n".join(tree) if tree else "Empty folder."
 
     def read_file(self, file_path: str) -> str:
         """Membaca isi lengkap dari sebuah file."""
@@ -112,7 +112,7 @@ class ToolExecutor:
             with open(full_path, "r", encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
-            return f"Error: Tidak bisa membaca file. {e!s}"
+            return f"Error: Cannot read file. {e!s}"
 
     def read_file_range(
         self, file_path: str, start_line: int = 1, end_line: int = 50
@@ -125,7 +125,7 @@ class ToolExecutor:
             with open(full_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
         except Exception as e:
-            return f"Error: Tidak bisa membaca file. {e!s}"
+            return f"Error: Cannot read file. {e!s}"
 
         total_lines = len(lines)
         # Konversi ke index 0-based dan batasi agar tidak error
@@ -133,7 +133,7 @@ class ToolExecutor:
         end_idx = min(total_lines, end_line)
 
         if start_idx >= total_lines:
-            return f"Error: start_line ({start_line}) melebihi total baris file ({total_lines})."
+            return f"Error: start_line ({start_line}) exceeds the file's total lines ({total_lines})."
 
         result_lines = []
         for i in range(start_idx, end_idx):
@@ -151,7 +151,7 @@ class ToolExecutor:
             with open(full_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as e:
-            return f"Error: Tidak bisa membaca file JSON. {e!s}"
+            return f"Error: Cannot read JSON file. {e!s}"
 
         keys = json_path.split(".")
         current = data
@@ -162,9 +162,9 @@ class ToolExecutor:
                 elif isinstance(current, list):
                     current = current[int(key)]
                 else:
-                    return f"Error: Path '{json_path}' tidak valid (menabrak tipe data non-dict/list)."
+                    return f"Error: Path '{json_path}' is invalid (it hits a non-dict/list data type)."
         except (KeyError, IndexError, ValueError):
-            return f"Error: Path '{json_path}' tidak ditemukan di dalam JSON."
+            return f"Error: Path '{json_path}' not found inside the JSON."
 
         # Format output agar mudah dibaca LLM
         if isinstance(current, (dict, list)):
@@ -190,7 +190,7 @@ class ToolExecutor:
             shutil.copy2(full_path, backup_path)
             return ""
         except Exception as e:
-            return f" [PERINGATAN: backup gagal dibuat: {e}]"
+            return f" [WARNING: backup could not be created: {e}]"
 
     def write_file(self, file_path: str, content: str) -> str:
         """Membuat file baru atau menimpa file yang ada."""
@@ -202,9 +202,9 @@ class ToolExecutor:
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            return f"Sukses: File '{file_path}' berhasil ditulis/diperbarui.{backup_warning}"
+            return f"Success: File '{file_path}' written/updated.{backup_warning}"
         except Exception as e:
-            return f"Error: Tidak bisa menulis file. {e!s}"
+            return f"Error: Cannot write file. {e!s}"
 
     def edit_file(self, file_path: str, diff: str):
         """
@@ -215,13 +215,13 @@ class ToolExecutor:
             return err
 
         if not os.path.exists(abs_path):
-            return f"Error: File '{file_path}' tidak ditemukan. Pastikan path benar."
+            return f"Error: File '{file_path}' not found. Make sure the path is correct."
 
         try:
             with open(abs_path, "r", encoding="utf-8") as f:
                 original_content = f.read()
         except Exception as e:
-            return f"Error membaca file: {e!s}"
+            return f"Error reading file: {e!s}"
 
         # Regex untuk mengekstrak blok SEARCH dan REPLACE
         # Format yang diharapkan:
@@ -236,7 +236,7 @@ class ToolExecutor:
         matches = pattern.findall(diff)
 
         if not matches:
-            return "Error: Format diff tidak valid. Pastikan Anda menggunakan format <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE dengan persis."
+            return "Error: Invalid diff format. Make sure you use the <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE format exactly."
 
         new_content = original_content
         success_count = 0
@@ -247,7 +247,7 @@ class ToolExecutor:
             replace_block = replace_block.strip("\n")
 
             if search_block not in new_content:
-                return f"Error: Blok SEARCH tidak ditemukan di dalam file asli. Mungkin ada spasi/baris baru yang berbeda.\n\nBlok SEARCH Anda:\n---\n{search_block}\n---"
+                return f"Error: SEARCH block not found in the original file. There may be differing whitespace/newlines.\n\nYour SEARCH block:\n---\n{search_block}\n---"
 
             # Ganti hanya yang pertama kali ditemukan untuk menghindari duplikasi jika bloknya sama
             new_content = new_content.replace(search_block, replace_block, 1)
@@ -258,9 +258,9 @@ class ToolExecutor:
             with open(abs_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
         except Exception as e:
-            return f"Error menulis file: {e!s}"
+            return f"Error writing file: {e!s}"
 
-        return f"Berhasil mengedit file '{file_path}'. Total {success_count} blok berhasil di-replace.{backup_warning}"
+        return f"Edited file '{file_path}'. {success_count} block(s) replaced.{backup_warning}"
 
     def search_code(self, query: str, file_pattern: str = "*") -> str:
         import fnmatch
@@ -289,7 +289,7 @@ class ToolExecutor:
         try:
             pattern = re.compile(re.escape(query), re.IGNORECASE)
         except re.error:
-            return "Error: Format regex tidak valid."
+            return "Error: Invalid regex format."
 
         for root, dirs, files in os.walk(self.project_path):
             # Abaikan folder yang tidak perlu
@@ -332,13 +332,13 @@ class ToolExecutor:
                                 if len(results) >= max_results:
                                     return (
                                         "\n".join(results)
-                                        + f"\n\n... [DIBATASI: Ditemukan lebih dari {max_results} hasil. Pertajam query Anda.]"
+                                        + f"\n\n... [LIMITED: More than {max_results} results found. Sharpen your query.]"
                                     )
                 except Exception:
                     continue
 
         if not results:
-            return f"Tidak ditemukan hasil untuk '{query}' dengan pattern '{file_pattern}'."
+            return f"No results found for '{query}' with pattern '{file_pattern}'."
         return "\n".join(results)
 
     def web_search(self, query: str, max_results: int = 5) -> str:
@@ -350,7 +350,7 @@ class ToolExecutor:
                 results = [r for r in ddgs.text(query, max_results=max_results)]
 
             if not results:
-                return "Tidak ada hasil ditemukan untuk query tersebut."
+                return "No results found for that query."
 
             # Format hasil agar mudah dibaca oleh LLM
             formatted_results = []
@@ -363,9 +363,9 @@ class ToolExecutor:
             return "\n\n---\n\n".join(formatted_results)
 
         except ImportError:
-            return "Error: Library 'duckduckgo-search' tidak terinstall. Jalankan: pip install duckduckgo-search"
+            return "Error: Library 'duckduckgo-search' is not installed. Run: pip install duckduckgo-search"
         except Exception as e:
-            return f"Error saat melakukan web search: {e!s}"
+            return f"Error during web search: {e!s}"
 
     def web_fetch(self, url: str, max_chars: int = 20000) -> str:
         """Ambil isi sebuah URL dan kembalikan sebagai teks bersih.
@@ -384,7 +384,7 @@ class ToolExecutor:
         from urllib.parse import urlparse
 
         if not url or not isinstance(url, str):
-            return "Error: URL kosong."
+            return "Error: Empty URL."
         url = url.strip()
         if not url.lower().startswith(("http://", "https://")):
             url = "https://" + url
@@ -392,23 +392,23 @@ class ToolExecutor:
         try:
             parsed = urlparse(url)
         except ValueError as e:
-            return f"Error: URL tidak valid: {e}"
+            return f"Error: Invalid URL: {e}"
 
         if parsed.hostname is None:
-            return "Error: URL tidak punya hostname."
+            return "Error: URL has no hostname."
 
         # ---- proteksi SSRF ----
         try:
             host = parsed.hostname.lower()
             if host in ("localhost", "metadata.google.internal"):
-                return "Error: URL lokal/metadata ditolak (proteksi SSRF)."
+                return "Error: local/metadata URL rejected (SSRF protection)."
             infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
             for info in infos:
                 ip = ipaddress.ip_address(info[4][0])
                 if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    return f"Error: {host} menuju alamat privat/loopback ({ip}). Ditolak (proteksi SSRF)."
+                    return f"Error: {host} resolves to a private/loopback address ({ip}). Rejected (SSRF protection)."
         except (socket.gaierror, ValueError, OSError) as e:
-            return f"Error: gagal resolusi DNS untuk {parsed.hostname}: {e}"
+            return f"Error: DNS resolution failed for {parsed.hostname}: {e}"
 
         try:
             req = urllib.request.Request(url, headers={
@@ -420,16 +420,16 @@ class ToolExecutor:
                 ctype = resp.headers.get("Content-Type", "")
                 mentah = resp.read(3_000_000)   # batas 3 MB
         except urllib.error.HTTPError as e:
-            return f"Error HTTP {e.code} saat mengambil {url}: {e.reason}"
+            return f"HTTP error {e.code} while fetching {url}: {e.reason}"
         except urllib.error.URLError as e:
-            return f"Error koneksi saat mengambil {url}: {e.reason}"
+            return f"Connection error while fetching {url}: {e.reason}"
         except (OSError, ValueError) as e:
-            return f"Error saat mengambil {url}: {type(e).__name__}: {e}"
+            return f"Error while fetching {url}: {type(e).__name__}: {e}"
 
         try:
             teks = mentah.decode("utf-8", errors="replace")
         except Exception:  # noqa: BLE001
-            return f"Error: gagal decode respons dari {url} (Content-Type: {ctype})."
+            return f"Error: failed to decode response from {url} (Content-Type: {ctype})."
 
         # ---- bersihkan HTML jadi teks ----
         if "html" in ctype.lower() or teks.lstrip()[:1].startswith("<"):
@@ -452,7 +452,7 @@ class ToolExecutor:
 
         teks = teks.strip()
         if not teks:
-            return f"URL {url} berhasil diambil (HTTP {status}) tapi isinya kosong setelah dibersihkan."
+            return f"URL {url} was fetched (HTTP {status}) but its content is empty after cleaning."
 
         try:
             batas = max(1000, min(int(max_chars), 100_000))
@@ -463,10 +463,10 @@ class ToolExecutor:
             teks = teks[:batas]
 
         return (
-            f"=== ISI {url} (HTTP {status}, {ctype.split(';')[0]}) ===\n"
+            f"=== CONTENT OF {url} (HTTP {status}, {ctype.split(';')[0]}) ===\n"
             f"{teks}\n"
-            + (f"\n=== [TERPOTONG di {batas} karakter; halaman aslinya lebih panjang] ==="
-               if terpotong else "\n=== [AKHIR] ===")
+            + (f"\n=== [TRUNCATED at {batas} characters; the original page is longer] ==="
+               if terpotong else "\n=== [END] ===")
         )
 
     # >>> PATCH ORION-23a ================================================
@@ -483,8 +483,8 @@ class ToolExecutor:
 
         node = shutil.which("node")
         if not node:
-            return (0, "node tidak terpasang; pemeriksaan sintaks JS dilewati. "
-                       "Pasang Node.js agar verify_html bekerja penuh.")
+            return (0, "node is not installed; JS syntax check skipped. "
+                       "Install Node.js so verify_html works fully.")
         tmp = None
         try:
             with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
@@ -501,7 +501,7 @@ class ToolExecutor:
                           if "Error" in x), r.stderr.strip()[:200])
             return (baris, pesan)
         except (OSError, subprocess.SubprocessError) as e:
-            return (0, f"pemeriksaan sintaks gagal dijalankan: {e}")
+            return (0, f"syntax check failed to run: {e}")
         finally:
             if tmp:
                 try:
@@ -548,7 +548,7 @@ class ToolExecutor:
         """Daftar backup yang tersedia untuk dipulihkan."""
         root = os.path.join(self.project_path, ".orion", "backups")
         if not os.path.isdir(root):
-            return "Belum ada backup sama sekali di .orion/backups/."
+            return "No backups exist yet in .orion/backups/."
         entri = []
         for akar, _dirs, files in os.walk(root):
             for nama in sorted(files):
@@ -563,11 +563,11 @@ class ToolExecutor:
                     wt = datetime.fromtimestamp(os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M")
                 except OSError:
                     uk, wt = 0, "?"
-                entri.append(f"  {rel}  ({uk} byte, {wt})")
+                entri.append(f"  {rel}  ({uk} bytes, {wt})")
         if not entri:
-            return ("Tidak ada backup" + (f" untuk '{file_path}'" if file_path else "")
-                    + " di .orion/backups/.")
-        return f"Backup tersedia ({len(entri)}):\n" + "\n".join(entri[:40])
+            return ("No backups" + (f" for '{file_path}'" if file_path else "")
+                    + " in .orion/backups/.")
+        return f"Available backups ({len(entri)}):\n" + "\n".join(entri[:40])
 
     def restore_backup(self, file_path: str) -> str:
         """Pulihkan file dari backup terakhirnya.
@@ -581,19 +581,19 @@ class ToolExecutor:
             return err
         bak = self._path_backup(file_path)
         if not os.path.isfile(bak):
-            return (f"Error: tidak ada backup untuk '{file_path}'. "
-                    f"Jalankan list_backups untuk melihat yang tersedia.")
+            return (f"Error: no backup for '{file_path}'. "
+                    f"Run list_backups to see what is available.")
         try:
             if os.path.isfile(full):
                 shutil.copy2(full, bak + ".pre-restore.bak")
             os.makedirs(os.path.dirname(full), exist_ok=True)
             shutil.copy2(bak, full)
-            return (f"Sukses: '{file_path}' dipulihkan dari backup. "
-                    f"Versi sebelum restore disimpan di .orion/backups/"
-                    f"{file_path}.pre-restore.bak kalau Anda perlu balik lagi. "
-                    f"Sekarang jalankan verify_code pada file itu untuk memastikan isinya sehat.")
+            return (f"Success: '{file_path}' restored from backup. "
+                    f"The pre-restore version is kept in .orion/backups/"
+                    f"{file_path}.pre-restore.bak in case you need to roll back again. "
+                    f"Now run verify_code on that file to make sure its contents are healthy.")
         except OSError as e:
-            return f"Error: gagal memulihkan '{file_path}': {e}"
+            return f"Error: failed to restore '{file_path}': {e}"
 
     def delete_file(self, file_path: str) -> str:
         """Hapus file, TAPI backup dulu sehingga bisa dipulihkan.
@@ -605,15 +605,15 @@ class ToolExecutor:
         if err:
             return err
         if not os.path.isfile(full):
-            return f"Error: file tidak ditemukan: {file_path}"
+            return f"Error: file not found: {file_path}"
         try:
             peringatan = self._backup_before_overwrite(full, file_path)
             os.remove(full)
-            return (f"Sukses: '{file_path}' dihapus. Salinan terakhirnya ada di "
-                    f".orion/backups/{file_path}.bak — pulihkan dengan restore_backup "
-                    f"bila ternyata dibutuhkan.{peringatan}")
+            return (f"Success: '{file_path}' deleted. Its last copy is in "
+                    f".orion/backups/{file_path}.bak — restore it with restore_backup "
+                    f"if it turns out to be needed.{peringatan}")
         except OSError as e:
-            return f"Error: gagal menghapus '{file_path}': {e}"
+            return f"Error: failed to delete '{file_path}': {e}"
 
     def move_file(self, from_path: str, to_path: str) -> str:
         """Pindah/ganti nama file di dalam project, dengan backup sumber dulu."""
@@ -624,19 +624,19 @@ class ToolExecutor:
         if err2:
             return err2
         if not os.path.isfile(src):
-            return f"Error: sumber tidak ditemukan: {from_path}"
+            return f"Error: source not found: {from_path}"
         if os.path.exists(dst):
-            return (f"Error: tujuan sudah ada: {to_path}. Hapus dulu dengan delete_file "
-                    f"kalau memang ingin menimpa, supaya niatnya eksplisit.")
+            return (f"Error: destination already exists: {to_path}. Delete it first with delete_file "
+                    f"if you really intend to overwrite, so the intent is explicit.")
         try:
             self._backup_before_overwrite(src, from_path)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.move(src, dst)
-            return (f"Sukses: '{from_path}' dipindah ke '{to_path}'. "
-                    f"Backup sumber tetap ada di .orion/backups/{from_path}.bak. "
-                    f"Ingat: perbarui impor/referensi yang menunjuk path lama.")
+            return (f"Success: '{from_path}' moved to '{to_path}'. "
+                    f"The source backup remains in .orion/backups/{from_path}.bak. "
+                    f"Remember: update imports/references that point to the old path.")
         except OSError as e:
-            return f"Error: gagal memindah: {e}"
+            return f"Error: failed to move: {e}"
 
     def git_commit(self, message: str) -> str:
         """Buat titik aman (checkpoint) dengan git commit.
@@ -646,11 +646,11 @@ class ToolExecutor:
         terkendali: hanya `git add -A` + `git commit`, tanpa shell, dan menolak
         dengan pesan jelas kalau folder bukan repo git.
         """
-        pesan = (message or "").strip() or "checkpoint Orion"
+        pesan = (message or "").strip() or "Orion checkpoint"
         if not os.path.isdir(os.path.join(self.project_path, ".git")):
-            return ("Error: folder project ini BUKAN repo git, jadi tidak ada yang bisa "
-                    "di-commit. Kalau Anda ingin titik aman tanpa git, pakai backup: "
-                    "setiap write_file/edit_file sudah menyimpan .orion/backups otomatis.")
+            return ("Error: this project folder is NOT a git repo, so there is nothing to "
+                    "commit. If you want a safe point without git, use the backups: "
+                    "every write_file/edit_file already saves .orion/backups automatically.")
         try:
             r = subprocess.run(["git", "add", "-A"], cwd=self.project_path,
                                capture_output=True, text=True, timeout=120,
@@ -663,11 +663,11 @@ class ToolExecutor:
             keluar = (r2.stdout or r2.stderr).strip()
             if r2.returncode != 0:
                 if "nothing to commit" in keluar.lower():
-                    return "Tidak ada perubahan untuk di-commit (working tree bersih)."
+                    return "Nothing to commit (working tree clean)."
                 return f"Error git commit: {keluar[:300]}"
-            return f"Sukses: checkpoint git dibuat. {keluar.splitlines()[0] if keluar else ''}"
+            return f"Success: git checkpoint created. {keluar.splitlines()[0] if keluar else ''}"
         except (OSError, subprocess.SubprocessError) as e:
-            return f"Error menjalankan git: {e}"
+            return f"Error running git: {e}"
     # >>> AKHIR PATCH ORION-26a ==========================================
 
     # >>> PATCH ORION-30a ================================================
@@ -760,21 +760,21 @@ class ToolExecutor:
             deteksi = self._deteksi_runner_test()
             if not deteksi:
                 return (
-                    "Tidak ditemukan framework test di project ini (tidak ada pytest.ini/"
-                    "conftest.py/test_*.py, script test di package.json, atau go.mod). "
-                    "Project tanpa test tidak bisa memverifikasi perilakunya sendiri -- "
-                    "pertimbangkan menambahkan setidaknya satu test, atau jalankan "
-                    "verify_code untuk pemeriksaan sintaks dan struktur."
+                    "No test framework found in this project (no pytest.ini/"
+                    "conftest.py/test_*.py, no test script in package.json, and no go.mod). "
+                    "A project without tests cannot verify its own behavior -- "
+                    "consider adding at least one test, or run "
+                    "verify_code for syntax and structure checks."
                 )
             nama, argv = deteksi
 
         if nama == "pytest-hilang":
             interp = argv[0]
             return (
-                "Project ini PUNYA file test, tapi pytest tidak terpasang di interpreter "
-                f"project ({interp}). Ini bukan kegagalan kode. Jalankan sendiri: "
-                f'"{interp}" -m pip install pytest   lalu panggil run_tests lagi, '
-                "atau minta izin user untuk memasangkannya."
+                "This project HAS test files, but pytest is not installed in the project "
+                f"interpreter ({interp}). This is not a code failure. Run it yourself: "
+                f'"{interp}" -m pip install pytest   then call run_tests again, '
+                "or ask the user for permission to install it."
             )
 
         try:
@@ -787,11 +787,11 @@ class ToolExecutor:
                                text=True, timeout=batas, encoding="utf-8",
                                errors="replace", stdin=subprocess.DEVNULL)
         except subprocess.TimeoutExpired:
-            return (f"Test ({nama}) TIDAK SELESAI dalam {batas} detik. "
-                    "Kemungkinan ada test yang hang (menunggu input/jaringan). "
-                    "Jalankan manual dengan timeout lebih panjang untuk melihat test mana.")
+            return (f"Tests ({nama}) DID NOT FINISH within {batas} seconds. "
+                    "A test is likely hanging (waiting for input/network). "
+                    "Run it manually with a longer timeout to see which one.")
         except (OSError, subprocess.SubprocessError) as e:
-            return f"Gagal menjalankan test ({nama}): {e}"
+            return f"Failed to run tests ({nama}): {e}"
 
         keluar = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
         return self._urai_hasil_test(nama, r.returncode, keluar)
@@ -806,31 +806,31 @@ class ToolExecutor:
             ringkasan = next((b.strip() for b in reversed(baris)
                               if re.search(r"\d+ (passed|failed|error)", b)), "")
             if kode_keluar == 0 and not gagal and not error:
-                return (f"SEMUA TEST LULUS ({nama}). {ringkasan or 'lihat output'}. "
-                        "Perubahan kode aman dari sisi test yang ada.")
-            bagian = [f"TEST GAGAL ({nama}). {ringkasan}"]
+                return (f"ALL TESTS PASSED ({nama}). {ringkasan or 'see output'}. "
+                        "The code changes are safe with respect to the existing tests.")
+            bagian = [f"TESTS FAILED ({nama}). {ringkasan}"]
             bagian.extend(f"  {g[:160]}" for g in gagal[:15])
             bagian.extend(f"  {e[:160]}" for e in error[:10])
             sebab = [b.strip() for b in baris if re.match(r"^.{0,120}Error|assert", b.strip())]
             if sebab:
-                bagian.append("  penyebab (baris terkait):")
+                bagian.append("  causes (related lines):")
                 bagian.extend(f"    {x[:150]}" for x in sebab[:8])
-            bagian.append("Perbaiki kegagalan di atas dulu; JANGAN melaporkan tugas selesai "
-                          "selama test masih merah.")
+            bagian.append("Fix the failures above first; do NOT report the task as complete "
+                          "while tests are still red.")
             return "\n".join(bagian)
 
         # runner lain (npm/go/manual): padatkan secara umum
         pola_gagal = re.search(r"(\d+)\s+(?:failed|failing)", keluar, re.I)
         pola_lulus = re.search(r"(\d+)\s+(?:passed|ok\b)", keluar, re.I)
         if kode_keluar == 0:
-            return (f"TEST LULUS ({nama}). "
-                    f"lulus={pola_lulus.group(1) if pola_lulus else '?'} "
-                    f"gagal={pola_gagal.group(1) if pola_gagal else '0'}.")
+            return (f"TESTS PASSED ({nama}). "
+                    f"passed={pola_lulus.group(1) if pola_lulus else '?'} "
+                    f"failed={pola_gagal.group(1) if pola_gagal else '0'}.")
         penting = [b.strip() for b in baris if b.strip()][-25:]
-        return (f"TEST GAGAL ({nama}, exit {kode_keluar}). "
-                f"gagal={pola_gagal.group(1) if pola_gagal else '?'}.\n"
-                "  25 baris terakhir output:\n" + "\n".join(f"    {b[:160]}" for b in penting)
-                + "\nPerbaiki dulu sebelum mengklaim selesai.")
+        return (f"TESTS FAILED ({nama}, exit {kode_keluar}). "
+                f"failed={pola_gagal.group(1) if pola_gagal else '?'}.\n"
+                "  last 25 lines of output:\n" + "\n".join(f"    {b[:160]}" for b in penting)
+                + "\nFix these before claiming completion.")
     # >>> AKHIR PATCH ORION-30a ==========================================
 
     def git_status(self) -> str:
@@ -843,16 +843,16 @@ class ToolExecutor:
             )
             if result.returncode == 0:
                 if not result.stdout.strip():
-                    return "Working tree bersih. Tidak ada file yang berubah."
+                    return "Working tree clean. No files changed."
 
                 # Format output agar mudah dibaca dan sangat singkat
                 lines = result.stdout.strip().split("\n")
-                return f"File yang berubah ({len(lines)} file):\n" + "\n".join(
+                return f"Changed files ({len(lines)} files):\n" + "\n".join(
                     [f"- {line[3:]}" for line in lines if line]
                 )
             return f"Error git status: {result.stderr}"
         except Exception as e:
-            return f"Gagal menjalankan git status: {e!s}"
+            return f"Failed to run git status: {e!s}"
 
     def git_diff(self, file_path: str = "") -> str:
         """Melihat perubahan kode. AMAN: Jika file_path kosong, hanya merangkum file yang berubah, bukan menampilkan seluruh diff."""
@@ -870,12 +870,12 @@ class ToolExecutor:
                 if result.returncode == 0:
                     diff_text = result.stdout
                     if not diff_text.strip():
-                        return f"Tidak ada perubahan pada {file_path}."
+                        return f"No changes in {file_path}."
                     # 🛡️ PENGAMAN: Batasi output diff maksimal 1500 karakter (~300 token)
                     if len(diff_text) > 1500:
                         return (
                             diff_text[:1500]
-                            + "\n\n[... DIFF DIPOTONG. Gunakan read_file_range pada file ini jika perlu melihat detail ...]"
+                            + "\n\n[... DIFF TRUNCATED. Use read_file_range on this file if you need the details ...]"
                         )
                     return diff_text
                 return f"Error git diff: {result.stderr}"
@@ -884,10 +884,10 @@ class ToolExecutor:
                 # Cukup panggil git_status agar model tahu file mana yang berubah.
                 return (
                     self.git_status()
-                    + "\n\n[INFO: Untuk melihat isi perubahan, panggil git_diff dengan argumen file_path spesifik, atau gunakan read_file_range.]"
+                    + "\n\n[INFO: To see the actual changes, call git_diff with a specific file_path argument, or use read_file_range.]"
                 )
         except Exception as e:
-            return f"Gagal menjalankan git diff: {e!s}"
+            return f"Failed to run git diff: {e!s}"
 
     def run_terminal(self, command: str, timeout: int = 120) -> str:
         """
@@ -904,10 +904,10 @@ class ToolExecutor:
         for pola, alasan, saran in self.GIT_DIBLOKIR:
             if re.search(pola, command.strip().lower()):
                 return (
-                    f"[DITOLAK SISTEM] Perintah '{command.strip()[:70]}' tidak boleh "
-                    f"dijalankan lewat run_terminal karena {alasan}. {saran} "
-                    "JANGAN mencoba mengakali penolakan ini dengan varian perintah lain; "
-                    "laporkan ke user bahwa operasi tersebut memerlukan tindakan manual."
+                    f"[REJECTED BY SYSTEM] Command '{command.strip()[:70]}' may not "
+                    f"be run through run_terminal because it {alasan}. {saran} "
+                    "Do NOT try to work around this rejection with other command variants; "
+                    "report to the user that the operation requires manual action."
                 )
         # >>> FIX (crash fatal di non-Windows): subprocess.CREATE_NEW_PROCESS_GROUP
         # cuma ADA sebagai atribut modul di Windows. Di Linux/Mac,
@@ -960,9 +960,9 @@ class ToolExecutor:
                             pass
                 return (
                     f"{output if output else ''}\n\n"
-                    f"⏰ [SYSTEM TIMEOUT]: Perintah dibatalkan setelah {timeout} detik. "
-                    f"Proses dan semua child-process (misal: rustc.exe) telah dipaksa berhenti. "
-                    f"Jika ini adalah build berat (seperti Tauri Release), silakan jalankan manual di terminal Anda."
+                    f"⏰ [SYSTEM TIMEOUT]: Command cancelled after {timeout} seconds. "
+                    f"The process and all child processes (e.g. rustc.exe) were force-stopped. "
+                    f"If this is a heavy build (such as a Tauri Release), run it manually in your own terminal."
                 )
 
             # >>> PERBAIKAN KRITIS: Berikan pesan error yang jelas <<<
@@ -973,14 +973,14 @@ class ToolExecutor:
                     else f"Process exited with code {process.returncode}"
                 )
                 return (
-                    f"❌ [ERROR EXECUTION]: Perintah gagal dengan kode exit {process.returncode}\n\n"
+                    f"❌ [ERROR EXECUTION]: Command failed with exit code {process.returncode}\n\n"
                     f"--- Output/Error Log ---\n{error_msg}\n"
                     f"--- End of Log ---\n\n"
-                    f"[SYSTEM HINT]: Analisis error di atas. Jika ini masalah dependensi, "
-                    f"coba install package yang dibutuhkan. Jika syntax error, perbaiki kode."
+                    f"[SYSTEM HINT]: Analyze the error above. If this is a dependency issue, "
+                    f"try installing the required packages. If it is a syntax error, fix the code."
                 )
 
-            return output.strip() if output.strip() else "Berhasil, tidak ada output."
+            return output.strip() if output.strip() else "Success, no output."
 
         except Exception as e:
             # Fallback kill jika ada error lain (cross-platform)
@@ -997,4 +997,4 @@ class ToolExecutor:
                         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 except Exception:
                     pass
-            return f"❌ [SYSTEM ERROR]: Gagal menjalankan terminal. {e!s}"
+            return f"❌ [SYSTEM ERROR]: Failed to run the terminal command. {e!s}"

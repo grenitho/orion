@@ -40,15 +40,15 @@ def is_path_safe(project_path: str, file_path: str):
     (khusus Windows).
     """
     if not project_path:
-        return False, "project_path belum diset di sistem."
+        return False, "project_path has not been set in the system."
     if not file_path or not str(file_path).strip():
-        return False, "file_path kosong."
+        return False, "file_path is empty."
 
     try:
         project_root = os.path.realpath(project_path)
         target_path = os.path.realpath(os.path.join(project_path, file_path))
     except Exception as e:
-        return False, f"Gagal me-resolve path: {e}"
+        return False, f"Failed to resolve path: {e}"
 
     try:
         common = os.path.commonpath([project_root, target_path])
@@ -56,14 +56,14 @@ def is_path_safe(project_path: str, file_path: str):
         # Terjadi kalau project & target di drive berbeda (khusus Windows,
         # misal project di D:\ tapi target ter-resolve ke C:\)
         return False, (
-            f"Path '{file_path}' mengarah ke drive/lokasi berbeda dari root "
-            f"project ('{project_root}'). Operasi ditolak untuk keamanan."
+            f"Path '{file_path}' points to a different drive/location than the "
+            f"project root ('{project_root}'). Operation denied for security."
         )
 
     if common != project_root:
         return False, (
-            f"Path '{file_path}' ter-resolve ke LUAR folder project "
-            f"('{project_root}'). Operasi ditolak untuk mencegah path traversal."
+            f"Path '{file_path}' resolves OUTSIDE the project folder "
+            f"('{project_root}'). Operation denied to prevent path traversal."
         )
 
     return True, "OK"

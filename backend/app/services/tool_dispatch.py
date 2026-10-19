@@ -26,36 +26,36 @@ Label = Callable[[dict], str]
 # nama tool -> (label_mulai(args), label_selesai(args) | None)
 TABLE: dict[str, tuple[Label, Optional[Label]]] = {
     "list_files": (
-        lambda a: f"📂 Sedang membaca struktur folder: {a.get('path', '.')}",
-        lambda a: "✅ Struktur folder berhasil dibaca",
+        lambda a: f"📂 Reading folder structure: {a.get('path', '.')}",
+        lambda a: "✅ Folder structure read",
     ),
     "search_code": (
-        lambda a: f"🔍 Sedang mencari: {str(a.get('query', ''))[:60]}",
-        lambda a: "✅ Pencarian selesai",
+        lambda a: f"🔍 Searching: {str(a.get('query', ''))[:60]}",
+        lambda a: "✅ Search complete",
     ),
     "read_json_path": (
-        lambda a: f"📋 Membaca JSON path: {a.get('json_path', '')} dari {a.get('file_path', '')}",
-        lambda a: "✅ JSON path berhasil dibaca",
+        lambda a: f"📋 Reading JSON path: {a.get('json_path', '')} from {a.get('file_path', '')}",
+        lambda a: "✅ JSON path read",
     ),
     "web_search": (
-        lambda a: f"🌐 Mencari di web: {str(a.get('query', ''))[:60]}",
-        lambda a: "✅ Pencarian web selesai",
+        lambda a: f"🌐 Searching the web: {str(a.get('query', ''))[:60]}",
+        lambda a: "✅ Web search complete",
     ),
     "web_fetch": (
-        lambda a: f"📄 Membaca halaman: {str(a.get('url', ''))[:70]}",
-        lambda a: "✅ Halaman selesai dibaca",
+        lambda a: f"📄 Fetching page: {str(a.get('url', ''))[:70]}",
+        lambda a: "✅ Page fetched",
     ),
-    "verify_code": (lambda a: f"🩺 Memeriksa: {a.get('file_path', '')}", None),
-    "verify_html": (lambda a: f"🩺 Memeriksa HTML: {a.get('file_path', '')}", None),
-    "run_tests": (lambda a: "🧪 Menjalankan test suite...", None),
-    "git_status": (lambda a: "🔀 Memeriksa git status...", None),
-    "git_commit": (lambda a: "🔒 Membuat checkpoint git...", None),
-    "list_backups": (lambda a: "🗄️ Mencatat backup yang tersedia...", None),
-    "restore_backup": (lambda a: f"♻️ Memulihkan: {a.get('file_path', '')}", None),
+    "verify_code": (lambda a: f"🩺 Verifying: {a.get('file_path', '')}", None),
+    "verify_html": (lambda a: f"🩺 Verifying HTML: {a.get('file_path', '')}", None),
+    "run_tests": (lambda a: "🧪 Running test suite...", None),
+    "git_status": (lambda a: "🔀 Checking git status...", None),
+    "git_commit": (lambda a: "🔒 Creating git checkpoint...", None),
+    "list_backups": (lambda a: "🗄️ Listing available backups...", None),
+    "restore_backup": (lambda a: f"♻️ Restoring: {a.get('file_path', '')}", None),
     "delete_file": (
-        lambda a: f"🗑️ Menghapus (dengan backup dulu): {a.get('file_path', '')}", None),
+        lambda a: f"🗑️ Deleting (with backup first): {a.get('file_path', '')}", None),
     "move_file": (
-        lambda a: f"📦 Memindah: {a.get('from_path', '')} -> {a.get('to_path', '')}", None),
+        lambda a: f"📦 Moving: {a.get('from_path', '')} -> {a.get('to_path', '')}", None),
 }
 
 # nama tool == nama method di ToolExecutor untuk ke-14 entri ini.

@@ -249,5 +249,5 @@ def describe_attachments(attachments: list | None) -> str:
         l = _normalkan(a)
         if l:
             nama.append(l["nama"])
-    ekstra = f" (+{len(attachments) - 6} lagi)" if len(attachments) > 6 else ""
-    return f"{len(attachments)} lampiran: {', '.join(nama)}{ekstra}"
+    ekstra = f" (+{len(attachments) - 6} more)" if len(attachments) > 6 else ""
+    return f"{len(attachments)} attachments: {', '.join(nama)}{ekstra}"

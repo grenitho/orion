@@ -166,7 +166,7 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
 
     if not execution_queue:
         raise Exception(
-            "[LLM_ROUTER] Tidak ada model yang dikonfigurasi. Cek .env Anda."
+            "[LLM_ROUTER] No models configured. Check your .env."
         )
 
     last_error = None
@@ -314,5 +314,5 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
 
     print("[LLM_ROUTER] [CRITICAL] Semua model AI gagal merespons.")
     raise Exception(
-        f"Semua model AI sedang sibuk/gagal. Error terakhir: {last_error!s}"
+        f"All AI models are busy/failing. Last error: {last_error!s}"
     )

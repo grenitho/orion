@@ -147,7 +147,7 @@ def test_describe_attachments_untuk_log():
     assert describe_attachments(None) == ""
     assert describe_attachments([]) == ""
     teks = describe_attachments([{"name": "a.png"}, {"name": "b.py"}])
-    assert "2 lampiran" in teks
+    assert "2 attachments" in teks
     assert "a.png" in teks
 
 

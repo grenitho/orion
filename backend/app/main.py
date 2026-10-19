@@ -519,7 +519,7 @@ async def set_project(request: ProjectPathRequest):
     global tool_executor
 
     if not os.path.isdir(request.path):
-        return {"success": False, "error": "Folder tidak ditemukan."}
+        return {"success": False, "error": "Folder not found."}
 
     # 1. Validasi struktur folder
     structure_warnings = validate_project_structure(request.path)
@@ -572,7 +572,7 @@ async def set_project(request: ProjectPathRequest):
 
     return {
         "success": True,
-        "message": "Project berhasil dipindai.",
+        "message": "Project scanned successfully.",
         "project_map_preview": context_manager.get_project_map()[:500] + "...",
         "structure_warnings": structure_warnings,  # Kirim warning ke frontend
     }
@@ -667,7 +667,7 @@ async def chat_with_orion(request: ChatRequest):
     if not context_manager.project_map or tool_executor is None:
 
         async def error_gen():
-            yield sse.ev('error', text='Silakan set project terlebih dahulu.')
+            yield sse.ev('error', text='Please set a project first.')
 
         return StreamingResponse(error_gen(), media_type="text/event-stream")
 
@@ -745,7 +745,7 @@ async def chat_with_orion(request: ChatRequest):
         # >>> AUTO-SUMMARIZE CONTEXT WINDOW (AWAL CHAT) <<<
         history = context_manager.get_history()
         if len(history) > 15:
-            yield sse.ev('status', text='🧠 Memori penuh, sedang mengompresi konteks...')
+            yield sse.ev('status', text='🧠 Memory full, compressing context...')
             try:
                 await execute_summarize(context_manager, history, threshold=15)
                 print("[ORION SUMMARIZE] Konteks awal berhasil diringkas.")
@@ -812,7 +812,7 @@ async def chat_with_orion(request: ChatRequest):
                 # >>> LANGKAH 1: DYNAMIC SLIDING WINDOW SUMMARIZE (DI DALAM LOOP) <<<
                 history = context_manager.get_history()
                 if len(history) > 20:
-                    yield sse.ev('status', text='🧠 Memori penuh, sedang mengompresi konteks...')
+                    yield sse.ev('status', text='🧠 Memory full, compressing context...')
                     try:
                         await execute_summarize(context_manager, history, threshold=20)
                         print(
@@ -829,13 +829,13 @@ async def chat_with_orion(request: ChatRequest):
                 soft_limit = int(max_iter * 0.8)
                 if _ == soft_limit:
                     warning_msg = (
-                        f"\n\n**[PERINGATAN SISTEM - SOFT LIMIT]**\n"
-                        f"Saya telah mencapai {_} iterasi (80% dari batas maksimal {max_iter}).\n"
-                        f"Agar tidak membuang token, saya akan berhenti sejenak.\n\n"
-                        f"**Status saat ini:** Saya sedang mengerjakan [sebutkan task terakhir].\n"
-                        f"**Opsi untuk Anda:**\n"
-                        f"1. Ketik **'lanjut'** jika saya berada di jalur yang benar.\n"
-                        f"2. Berikan instruksi baru jika saya terlihat berputar-putar atau salah arah.\n"
+                        f"\n\n**[SYSTEM WARNING - SOFT LIMIT]**\n"
+                        f"I have reached {_} iterations (80% of the {max_iter} iteration limit).\n"
+                        f"To avoid burning tokens, I will pause here for a moment.\n\n"
+                        f"**Current status:** I was working on [mention the last task].\n"
+                        f"**Your options:**\n"
+                        f"1. Type **'lanjut'** / **'continue'** if I am on the right track.\n"
+                        f"2. Give new instructions if I seem to be going in circles or off track.\n"
                     )
 
                     # Simpan ke history agar Orion ingat dia sudah diperingatkan
@@ -845,7 +845,7 @@ async def chat_with_orion(request: ChatRequest):
 
                     # Kirim ke frontend dan PAUSE
                     yield sse.ev('token', text=warning_msg)
-                    yield sse.ev('ask_user', question='Soft limit tercapai. Lanjutkan atau ubah instruksi?')
+                    yield sse.ev('ask_user', question='Soft limit reached. Continue, or give new instructions?')
                     yield sse.ev('done')
                     print(
                         "[ORION SOFT LIMIT] Mencapai 80% iterasi. Menunggu instruksi user."
@@ -1038,7 +1038,7 @@ async def chat_with_orion(request: ChatRequest):
                 # >>> AKHIR TOKEN BUDGET GUARD <<<
 
                 # >>> LANGKAH 5: PANGGILAN BERSIH KE LLM_ROUTER (RESILIENT) <<<
-                yield sse.ev('status', text='⏳ Sedang berpikir...')
+                yield sse.ev('status', text='⏳ Thinking...')
 
                 response = None  # Reset variabel agar tidak memakai nilai stale dari iterasi sebelumnya
                 start_time = asyncio.get_event_loop().time()
@@ -1123,7 +1123,7 @@ async def chat_with_orion(request: ChatRequest):
                         _selesai, _tunggu_pending = await asyncio.wait({_tugas_llm}, timeout=15)
                         if not _selesai:
                             _detik = int(_loop_waktu.time() - _mulai)
-                            yield sse.ev('status', text=f'🤔 Masih berpikir... {_detik} detik')
+                            yield sse.ev('status', text=f'🤔 Still thinking... {_detik} seconds')
                     response = _tugas_llm.result()
 
                 except Exception as api_err:
@@ -1147,7 +1147,7 @@ async def chat_with_orion(request: ChatRequest):
                             and current_error_msg == last_400_error_msg
                         ):
                             # ERROR YANG SAMA BERULANG - BERHENTI SEKARANG
-                            yield sse.ev('error', text=f'⚠️ Model saat ini kemungkinan TIDAK KOMPATIBEL dengan format permintaan. Error berulang 2x: {err_str[:250]}. Silakan ganti DEFAULT_MODEL di file .env atau periksa dokumentasi provider.')
+                            yield sse.ev('error', text=f'⚠️ The current model is probably INCOMPATIBLE with the request format. The same error occurred twice: {err_str[:250]}. Change DEFAULT_MODEL in your .env file or check the provider documentation.')
                             print(
                                 "[ORION RECOVERY] ❌ Error 400 berulang dengan pesan yang sama. Berhenti untuk mencegah infinite loop."
                             )
@@ -1170,9 +1170,9 @@ async def chat_with_orion(request: ChatRequest):
                     # 2. Safe Yield (Mencegah crash jika Frontend sudah disconnect)
                     try:
                         status_text = (
-                            "⚠️ Model lambat, beralih ke cadangan..."
+                            "⚠️ Model slow, switching to fallback..."
                             if not is_400_error
-                            else "⚠️ Konteks terlalu besar, mengecilkan..."
+                            else "⚠️ Context too large, shrinking..."
                         )
                         yield sse.ev('status', text=status_text)
                     except (RuntimeError, asyncio.CancelledError):
@@ -1216,7 +1216,7 @@ async def chat_with_orion(request: ChatRequest):
                 # >>> AKHIR LOGGING <<<
 
                 if getattr(msg, "tool_calls", None):
-                    yield sse.ev('status', text='Memproses tool...')
+                    yield sse.ev('status', text='Processing tool...')
 
                     if msg.content:
                         cleaned = fix_over_escaped_text(
@@ -1293,7 +1293,7 @@ async def chat_with_orion(request: ChatRequest):
                             # PENTING: Simpan pesan tool placeholder untuk ask_user itu sendiri
                             context_manager.add_message(
                                 "tool",
-                                "[MENUNGGU JAWABAN USER]",
+                                "[AWAITING USER ANSWER]",
                                 tool_call_id=tc_id,
                             )
 
@@ -1311,16 +1311,16 @@ async def chat_with_orion(request: ChatRequest):
                             # jadi dicek PALING AWAL sebelum guard tool_executor is None.
                             if func_name == "update_todos":
                                 if todo_manager is None:
-                                    result = "Info: Fitur todo-list tidak tersedia saat ini (modul belum terpasang), lanjutkan tanpa update_todos."
+                                    result = "Info: The todo-list feature is currently unavailable (module not installed); continue without update_todos."
                                 else:
                                     rendered = todo_manager.set_todos(
                                         func_args.get("todos", [])
                                     )
                                     yield sse.ev('todo_update', markdown=rendered, todos=todo_manager.get_todos())
-                                    result = f"Todo list diperbarui:\n{rendered}"
+                                    result = f"Todo list updated:\n{rendered}"
 
                             elif tool_executor is None:
-                                result = "Error: Tool executor belum diinisialisasi."
+                                result = "Error: Tool executor not initialized."
 
                             # >>> PATCH ORION-38 (Fase B): 14 tool murni ditangani
                             # tabel dispatch di app/services/tool_dispatch.py.
@@ -1335,12 +1335,12 @@ async def chat_with_orion(request: ChatRequest):
                             elif func_name == "read_file":
                                 file_path = func_args.get("file_path", "")
                                 if file_path in analyzed_files:
-                                    result = f"[SYSTEM WARNING] REDUNDANSI TERDETEKSI: Anda sudah membaca '{file_path}' di sesi ini. Informasinya sudah ada di memori Anda. JANGAN baca ulang. Lanjutkan analisis atau eksekusi berdasarkan apa yang sudah Anda ketahui."
+                                    result = f"[SYSTEM WARNING] REDUNDANCY DETECTED: You already read '{file_path}' in this session. The information is already in your memory. Do NOT re-read it. Continue the analysis or execution based on what you already know."
                                 else:
-                                    yield sse.ev('status', text=f' Sedang membaca file: {file_path}')
+                                    yield sse.ev('status', text=f' Reading file: {file_path}')
                                     result = tool_executor.read_file(**func_args)
                                     analyzed_files.add(file_path)
-                                    yield sse.ev('status', text=f'✅ File {file_path} berhasil dibaca')
+                                    yield sse.ev('status', text=f'✅ File {file_path} read')
 
                             elif func_name == "read_file_range":
                                 file_path = func_args.get("file_path", "")
@@ -1353,13 +1353,13 @@ async def chat_with_orion(request: ChatRequest):
                                 if range_key in analyzed_files:
                                     result = f"[SYSTEM WARNING] REDUNDANSI TERDETEKSI: Anda sudah membaca rentang baris {start}-{end} dari '{file_path}' di sesi ini. Gunakan informasi yang sudah ada."
                                 else:
-                                    yield sse.ev('status', text=f'📖 Sedang membaca {file_path} (baris {start}-{end})')
+                                    yield sse.ev('status', text=f'📖 Reading {file_path} (lines {start}-{end})')
                                     result = tool_executor.read_file_range(**func_args)
 
                                     # Simpan kunci unik ini, bukan cuma nama file
                                     analyzed_files.add(range_key)
 
-                                    yield sse.ev('status', text=f'✅ File {file_path} berhasil dibaca')
+                                    yield sse.ev('status', text=f'✅ File {file_path} read')
 
                             elif func_name == "write_file":
                                 file_path = func_args.get("file_path", "unknown")
@@ -1370,18 +1370,18 @@ async def chat_with_orion(request: ChatRequest):
                                     tool_executor.project_path, file_path
                                 )
                                 if not path_ok:
-                                    result = f"🚫 [DITOLAK SISTEM - PATH TIDAK AMAN]: {path_reason}"
-                                    yield sse.ev('status', text='🚫 Operasi file ditolak (di luar folder project)')
+                                    result = f"🚫 [REJECTED BY SYSTEM - UNSAFE PATH]: {path_reason}"
+                                    yield sse.ev('status', text='🚫 File operation denied (outside the project folder)')
                                 elif is_sensitive_file(file_path):
                                     result = (
-                                        f"🚫 [DITOLAK SISTEM - FILE SENSITIF]: '{file_path}' terdeteksi "
-                                        f"sebagai file sensitif (kredensial/kunci). Tidak ditimpa otomatis. "
-                                        f"Jika ini memang perlu, minta user melakukannya secara manual atau "
-                                        f"konfirmasi eksplisit lewat ask_user terlebih dahulu."
+                                        f"🚫 [REJECTED BY SYSTEM - SENSITIVE FILE]: '{file_path}' was detected "
+                                        f"as a sensitive file (credentials/keys). Not overwritten automatically. "
+                                        f"If this is really necessary, ask the user to do it manually or "
+                                        f"get explicit confirmation via ask_user first."
                                     )
-                                    yield sse.ev('status', text='🚫 Ditolak: file sensitif')
+                                    yield sse.ev('status', text='🚫 Denied: sensitive file')
                                 else:
-                                    yield sse.ev('status', text=f'📝 Sedang membuat/menimpa file: {file_path}')
+                                    yield sse.ev('status', text=f'📝 Creating/overwriting file: {file_path}')
                                     result = tool_executor.write_file(**func_args)
                                     print(
                                         f"[ORION WRITE_FILE] Berhasil menulis: {file_path}"
@@ -1389,7 +1389,7 @@ async def chat_with_orion(request: ChatRequest):
                                     # Hanya catat sebagai bukti kerja nyata jika benar2 sukses
                                     if isinstance(
                                         result, str
-                                    ) and result.lower().startswith("sukses"):
+                                    ) and result.lower().startswith("success"):
                                         files_changed_this_turn.append(
                                             f"- `{file_path}` (write_file)"
                                         )
@@ -1414,7 +1414,7 @@ async def chat_with_orion(request: ChatRequest):
                                     analyzed_files.discard(
                                         file_path
                                     )  # FIX: Invalidate cache agar bisa dibaca ulang jika perlu
-                                    yield sse.ev('status', text=f'✅ File {file_path} berhasil dibuat')
+                                    yield sse.ev('status', text=f'✅ File {file_path} created')
 
                             elif func_name == "edit_file":
                                 file_path = func_args.get("file_path", "unknown")
@@ -1424,18 +1424,18 @@ async def chat_with_orion(request: ChatRequest):
                                     tool_executor.project_path, file_path
                                 )
                                 if not path_ok:
-                                    result = f"🚫 [DITOLAK SISTEM - PATH TIDAK AMAN]: {path_reason}"
-                                    yield sse.ev('status', text='🚫 Operasi file ditolak (di luar folder project)')
+                                    result = f"🚫 [REJECTED BY SYSTEM - UNSAFE PATH]: {path_reason}"
+                                    yield sse.ev('status', text='🚫 File operation denied (outside the project folder)')
                                 elif is_sensitive_file(file_path):
                                     result = (
-                                        f"🚫 [DITOLAK SISTEM - FILE SENSITIF]: '{file_path}' terdeteksi "
-                                        f"sebagai file sensitif (kredensial/kunci). Tidak diedit otomatis. "
-                                        f"Jika ini memang perlu, minta user melakukannya secara manual atau "
-                                        f"konfirmasi eksplisit lewat ask_user terlebih dahulu."
+                                        f"🚫 [REJECTED BY SYSTEM - SENSITIVE FILE]: '{file_path}' was detected "
+                                        f"as a sensitive file (credentials/keys). Not edited automatically. "
+                                        f"If this is really necessary, ask the user to do it manually or "
+                                        f"get explicit confirmation via ask_user first."
                                     )
-                                    yield sse.ev('status', text='🚫 Ditolak: file sensitif')
+                                    yield sse.ev('status', text='🚫 Denied: sensitive file')
                                 else:
-                                    yield sse.ev('status', text=f'🔧 Sedang mengedit file: {file_path}')
+                                    yield sse.ev('status', text=f'🔧 Editing file: {file_path}')
                                     result = tool_executor.edit_file(**func_args)
                                     print(
                                         f"[ORION EDIT_FILE] Berhasil mengedit: {file_path}"
@@ -1443,7 +1443,7 @@ async def chat_with_orion(request: ChatRequest):
                                     # Hanya catat sebagai bukti kerja nyata jika benar2 sukses
                                     if isinstance(
                                         result, str
-                                    ) and result.lower().startswith("sukses"):
+                                    ) and result.lower().startswith("success"):
                                         files_changed_this_turn.append(
                                             f"- `{file_path}` (edit_file)"
                                         )
@@ -1466,13 +1466,13 @@ async def chat_with_orion(request: ChatRequest):
                                     analyzed_files.discard(
                                         file_path
                                     )  # FIX: Invalidate cache agar bisa dibaca ulang jika perlu
-                                    yield sse.ev('status', text=f'✅ File {file_path} berhasil diedit')
+                                    yield sse.ev('status', text=f'✅ File {file_path} edited')
 
                             elif func_name == "run_terminal":
                                 cmd_to_run = func_args.get("command", "")
 
                                 try:
-                                    yield sse.ev('status', text=f'⚙️ Sedang menjalankan: {cmd_to_run}')
+                                    yield sse.ev('status', text=f'⚙️ Running: {cmd_to_run}')
 
                                     # 1. Cek Perintah Berbahaya
                                     if is_dangerous_command(cmd_to_run):
@@ -1493,7 +1493,7 @@ async def chat_with_orion(request: ChatRequest):
                                             )
                                         context_manager.add_message(
                                             "tool",
-                                            f"[MENUNGGU KONFIRMASI]: {cmd_to_run}",
+                                            f"[AWAITING CONFIRMATION]: {cmd_to_run}",
                                             tool_call_id=tc_id,
                                         )
                                         # Flush notice anti-loop yang mungkin sudah
@@ -1501,7 +1501,7 @@ async def chat_with_orion(request: ChatRequest):
                                         for notice in pending_system_notices:
                                             context_manager.add_message("user", notice)
                                         yield sse.ev('confirm_terminal', command=cmd_to_run)
-                                        result = "[MENUNGGU KONFIRMASI USER]"
+                                        result = "[AWAITING USER CONFIRMATION]"
                                         return  # Keluar dari loop tool saat ini, biarkan frontend menunggu user
 
                                     # 1b. Cek Perintah Server Long-Running (HARD GUARD, bukan cuma imbauan prompt)
@@ -1512,17 +1512,17 @@ async def chat_with_orion(request: ChatRequest):
                                     # proses server yang benar-benar spawn dan membengkak resource.
                                     if is_long_running_server(cmd_to_run):
                                         result = (
-                                            f"🚫 [DITOLAK SISTEM]: Perintah '{cmd_to_run}' terdeteksi sebagai "
-                                            f"server/proses yang berjalan selamanya (dev server, watch mode, dll). "
-                                            f"Perintah ini TIDAK dijalankan untuk mencegah proses menggantung dan "
-                                            f"menghabiskan resource sistem.\n\n"
-                                            f"[SYSTEM HINT]: Jika perlu verifikasi bahwa server bisa jalan, gunakan "
-                                            f"cek cepat non-blocking (misal: cek port kosong, `--version`, atau "
-                                            f"compile-check saja seperti `python -m py_compile`/`npm run build`). "
-                                            f"Jika user memang minta menjalankan server, beri tahu user untuk "
-                                            f"menjalankannya sendiri secara manual di terminal mereka."
+                                            f"🚫 [REJECTED BY SYSTEM]: Command '{cmd_to_run}' was detected as "
+                                            f"a server/process that runs forever (dev server, watch mode, etc). "
+                                            f"This command was NOT executed, to prevent a hanging process and "
+                                            f"system resource exhaustion.\n\n"
+                                            f"[SYSTEM HINT]: If you need to verify that the server can run, use "
+                                            f"a quick non-blocking check (e.g. a free-port check, `--version`, or "
+                                            f"just a compile-check like `python -m py_compile`/`npm run build`). "
+                                            f"If the user explicitly asked to run a server, tell the user to "
+                                            f"run it themselves manually in their own terminal."
                                         )
-                                        yield sse.ev('status', text='🚫 Perintah server ditolak (mencegah proses menggantung)')
+                                        yield sse.ev('status', text='🚫 Server command denied (prevents a hanging process)')
 
                                     else:
                                         # 2. JALANKAN DENGAN MEKANISME HEARTBEAT
@@ -1542,12 +1542,12 @@ async def chat_with_orion(request: ChatRequest):
 
                                         # 3. HEARTBEAT LOOP: Kirim sinyal ke frontend setiap 10 detik
                                         while not future.done():
-                                            yield sse.ev('status', text='⏳ Proses masih berjalan, harap tunggu... (Heartbeat)')
+                                            yield sse.ev('status', text='⏳ Process still running, please wait... (heartbeat)')
                                             await asyncio.sleep(10)
 
                                         # 4. Ambil hasil setelah proses benar-benar selesai
                                         result = future.result()
-                                        yield sse.ev('status', text='✅ Perintah terminal selesai')
+                                        yield sse.ev('status', text='✅ Terminal command finished')
 
                                 except (RuntimeError, asyncio.CancelledError):
                                     # Ini tertangkap jika VS Code menutup chat/refresh di tengah proses
@@ -1577,7 +1577,7 @@ async def chat_with_orion(request: ChatRequest):
                             # "berhenti diam-diam" yang belum terdeteksi sebelumnya.
                             # ==========================================================
                             elif func_name == "git_diff":
-                                yield sse.ev('status', text='🔀 Memeriksa git diff...')
+                                yield sse.ev('status', text='🔀 Checking git diff...')
                                 result = tool_executor.git_diff(**func_args)
 
                             else:
@@ -1585,10 +1585,10 @@ async def chat_with_orion(request: ChatRequest):
                                 # "Tool tidak dikenal." saja membuat model menebak-nebak.
                                 # Sekarang model diberi daftar tool yang benar-benar jalan.
                                 result = (
-                                    f"Error: tool '{func_name}' TIDAK TERSEDIA. "
-                                    f"Tool yang benar-benar bisa dipakai: {sorted(_NAMA_TOOL_AKTIF)}. "
-                                    "Gunakan salah satu dari itu, atau selesaikan dengan cara lain. "
-                                    "JANGAN memanggil tool yang sama lagi."
+                                    f"Error: tool '{func_name}' is NOT AVAILABLE. "
+                                    f"Tools that actually work: {sorted(_NAMA_TOOL_AKTIF)}. "
+                                    "Use one of those, or accomplish the goal another way. "
+                                    "Do NOT call the same tool again."
                                 )
                                 logger.error("[TOOL MATI] Model memanggil %r yang tidak punya dispatch.", func_name)
 
@@ -1608,15 +1608,15 @@ async def chat_with_orion(request: ChatRequest):
                             str(result) if result is not None else "Tool returned None"
                         )
                         if not res_str.strip():
-                            res_str = "Berhasil dijalankan, tidak ada output."
+                            res_str = "Executed successfully, no output."
 
                         # >>> SMART TRUNCATION <<<
                         if len(res_str) > 15000:
                             res_str = res_str[:15000] + (
-                                "\n\n[⚠️ PERINGATAN SISTEM: Output terlalu panjang dan telah dipotong.]"
-                                "\n[JANGAN gunakan 'read_file' lagi untuk file ini.]"
-                                "\n[CARA BENAR: Gunakan 'search_code' untuk menemukan kata kunci/baris, "
-                                "lalu gunakan 'read_file_range' dengan start_line dan end_line yang spesifik.]"
+                                "\n\n[⚠️ SYSTEM WARNING: Output was too long and has been truncated.]"
+                                "\n[Do NOT use 'read_file' again for this file.]"
+                                "\n[CORRECT APPROACH: Use 'search_code' to find keywords/lines, "
+                                "then use 'read_file_range' with specific start_line and end_line.]"
                             )
 
                         tool_results.append(
@@ -1764,7 +1764,7 @@ async def chat_with_orion(request: ChatRequest):
 
                         current_iter = _ + 1
                         if current_iter >= max_iter:
-                            pause_msg = f"\n\n[SYSTEM PAUSE]: Saya telah mencapai batas iterasi ({max_iter}) untuk sesi ini demi keamanan token. Namun, saya masih mengingat semua langkah yang telah saya lakukan. Silakan ketik **'lanjutkan'** atau **'continue'** agar saya dapat menyelesaikan tugas ini."
+                            pause_msg = f"\n\n[SYSTEM PAUSE]: I have reached the iteration limit ({max_iter}) for this session for token safety. However, I still remember every step I have taken. Please type **'lanjutkan'** or **'continue'** so I can finish this task."
                             yield sse.ev('token', text=pause_msg)
                             yield sse.ev('done')
                             print(
@@ -1828,7 +1828,7 @@ async def chat_with_orion(request: ChatRequest):
                                     "selesai, panggil tool `update_todos` untuk menandainya 'completed', "
                                     "lalu lanjut ke item berikutnya.",
                                 )
-                                yield sse.ev('status', text=f'Melanjutkan ke todo [{_next_id}]...')
+                                yield sse.ev('status', text=f'Continuing with todo [{_next_id}]...')
                                 yield sse.ev('todo_update', markdown=todo_manager.render_markdown(), todos=todo_manager.get_todos())
                                 logger.info("[ORION NUDGE %d/%d] Masih ada %d todo. Lanjut ke [%s].",
                                             _nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
@@ -1838,8 +1838,8 @@ async def chat_with_orion(request: ChatRequest):
                             checkpoint_report = (
                                 "\n\n---\n\n"
                                 "## ✅ TASK COMPLETED - CHECKPOINT REPORT\n\n"
-                                "**Status:** Task selesai dikerjakan\n\n"
-                                "**File yang diubah:**\n"
+                                "**Status:** Task completed\n\n"
+                                "**Files changed:**\n"
                             )
 
                             # Pakai daftar file yang benar2 diubah PADA TURN INI SAJA,
@@ -1850,7 +1850,7 @@ async def chat_with_orion(request: ChatRequest):
                                     files_changed_this_turn[-10:]
                                 )  # Max 10 file terakhir
                             else:
-                                checkpoint_report += "- Tidak ada file yang diubah"
+                                checkpoint_report += "- No files changed"
 
                             # >>> FIX KRITIS: cegah item todo yang diam-diam "hilang".
                             # Sebelumnya, kalau user minta 3 fitur tapi Orion cuma
@@ -1875,16 +1875,16 @@ async def chat_with_orion(request: ChatRequest):
                                     for t in pending_items
                                 )
                                 pending_warning = (
-                                    f"\n\n**⚠️ PERHATIAN: Masih ada item todo yang BELUM selesai:**\n"
+                                    f"\n\n**⚠️ WARNING: There are todo items still NOT finished:**\n"
                                     f"{pending_list}\n\n"
-                                    f"Task ini TIDAK 100% tuntas -- item di atas belum dikerjakan."
+                                    f"This task is NOT 100% complete -- the items above have not been done."
                                 )
 
                             checkpoint_report += pending_warning
 
                             checkpoint_report += (
-                                "\n\n**Rencana selanjutnya:**\n"
-                                "Silakan review perubahan di atas. Apakah ada yang perlu disesuaikan, atau saya lanjutkan ke task berikutnya?\n\n"
+                                "\n\n**Next steps:**\n"
+                                "Please review the changes above. Is there anything to adjust, or shall I continue to the next task?\n\n"
                                 "---\n"
                             )
 
@@ -1899,7 +1899,7 @@ async def chat_with_orion(request: ChatRequest):
                             )
 
                             # PAUSE: Tunggu respons user
-                            yield sse.ev('ask_user', question='Task selesai. Apakah ada yang perlu disesuaikan, atau saya lanjutkan ke task berikutnya?')
+                            yield sse.ev('ask_user', question='Task complete. Is there anything to adjust, or shall I continue to the next task?')
                             yield sse.ev('done')
                             print(
                                 "[ORION TASK COMPLETE] Task selesai. Menunggu respons user untuk lanjut."
@@ -1959,7 +1959,7 @@ async def chat_with_orion(request: ChatRequest):
                                 "JANGAN mengulang klaim tanpa bukti. JANGAN meng-audit ulang untuk "
                                 "membenarkan diri. Jangan bertanya ke user sebelum langkah 1-2 selesai.",
                             )
-                            yield sse.ev('status', text='🔍 Memverifikasi klaim selesai (0 file berubah)...')
+                            yield sse.ev('status', text='🔍 Verifying completion claim (0 files changed)...')
                             continue
                         # >>> AKHIR PATCH ORION-17b
 
@@ -2011,7 +2011,7 @@ async def chat_with_orion(request: ChatRequest):
 @app.post("/clear-chat")
 async def clear_chat():
     context_manager.clear_history(persist=True)
-    return {"success": True, "message": "Riwayat chat dihapus."}
+    return {"success": True, "message": "Chat history cleared."}
 
 
 class TerminalRequest(BaseModel):
@@ -2030,7 +2030,7 @@ async def execute_approved_terminal(request: TerminalRequest):
     history = context_manager.get_history()
     for i in range(len(history) - 1, -1, -1):
         msg = history[i]
-        if msg.get("role") == "tool" and "[MENUNGGU KONFIRMASI]" in msg.get(
+        if msg.get("role") == "tool" and "[AWAITING CONFIRMATION]" in msg.get(
             "content", ""
         ):
             history[i]["content"] = output
@@ -2048,7 +2048,7 @@ async def execute_approved_terminal(request: TerminalRequest):
 async def get_performance():
     """Membaca dan menghitung statistik dari performance_log.jsonl"""
     if tool_executor is None:
-        return {"error": "Project belum di-set."}
+        return {"error": "Project not set yet."}
 
     log_file = os.path.join(
         tool_executor.project_path, ".orion", "performance_log.jsonl"
@@ -2092,7 +2092,7 @@ async def get_performance():
                         # KeyboardInterrupt/SystemExit, dan menyembunyikan baris log rusak.
                         continue
     except OSError as e:
-        return {"error": f"Gagal membaca log: {e!s}"}
+        return {"error": f"Failed to read log: {e!s}"}
 
     total_requests = len(logs)
     avg_duration = total_duration / total_requests if total_requests > 0 else 0
