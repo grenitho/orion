@@ -185,21 +185,36 @@ Diurutkan dari dampak ÷ usaha. **Jangan memulai ini tanpa diminta.**
 | Fase | Isi | Status |
 |---|---|---|
 | A | `tools_schema.py` (skema 22 tool) + `prompts.py` (system prompt) keluar dari main.py | ✅ selesai |
-| B | `tool_dispatch.py`: 14 tool murni jadi tabel; 8 tool berguard tetap di main.py dengan alasan tercatat | ✅ selesai |
-| C | Loop agent (`_aliran_inti`) ke `agent_loop.py` dalam 4 langkah ber-commit | ⏳ **langkah 1 selesai** (`sse.py`, commit `d8af462`); langkah 2-4 lihat `docs/FASE_C_PLAN.md` |
+| B | `tool_dispatch.py`: 14 tool murni jadi tabel; 8 tool berguard dengan alasan tercatat | ✅ selesai |
+| C | Loop agent ke `agent_loop.py` dalam 4 langkah ber-commit | ✅ **selesai semua**: `sse.py` (`d8af462`), `session_state.py` (`14e0b6e`), `loop_guards.py` (`4534987`), `agent_loop.py` (`4ee5f46`) |
 | D | i18n: string user-facing, log, komentar, dan system prompt ke bahasa Inggris | ✅ selesai (6 commit, diakhiri `0da6394`) |
 
-Ukuran `main.py`: 2.769 → 2.119 baris. Test: 70 → 77 → **82**.
-`docs/FASE_C_PLAN.md` adalah satu-satunya sumber kebenaran untuk Fase C:
-empat langkah ber-commit terpisah, kriteria penerimaan per langkah, dan aturan
-"satu langkah = satu commit, jangan mengubah perilaku saat memindah".
+Ukuran `main.py`: 2.769 → 2.119 → **569 baris** (hanya routing HTTP + komposisi;
+target rencana <700). Test: 70 → 77 → 82 → **97**.
+`docs/FASE_C_PLAN.md` merekam kriteria penerimaan per langkah beserta hasilnya.
+
+### Peta modul backend (setelah Fase C)
+
+| Modul | Tanggung jawab |
+|---|---|
+| `main.py` | Routing HTTP (`/`, `/set-project`, `/chat`, `/clear-chat`, `/execute-terminal`, `/performance`), startup, config & persistensi project, pemeriksa konsistensi tool, komposisi `SessionState`+`Deps`, wrapper `jamin_done` |
+| `agent_loop.py` | **Loop agent** (`aliran_agent`): panggil LLM + heartbeat, dispatch tool, guard anti-loop/token/400, semua event SSE; plus helper privat loop (normalisasi teks, estimasi token, kebijakan perintah berbahaya/server, summarize/prune, log performa) |
+| `session_state.py` | `SessionState`: seluruh state mutable per-turn (file berubah, analyzed_files, notice tertunda, kuota nudge/verifikasi, gambar lampiran sekali pakai) |
+| `loop_guards.py` | `evaluasi_akhir_iterasi` → enum `Keputusan`: SATU fungsi murni untuk 4 gerbang akhir iterasi (nudge todo, tantang klaim, checkpoint, jawab normal, pause) |
+| `sse.py` | Pembuat frame SSE (`ev`) + tujuh nama event BEKU |
+| `stream_utils.py` | Jaminan "tepat satu `done` per run" (`jamin_done`) |
+| `guard_rules.py` | Deteksi klaim selesai (`KATA_KLAIM` — sengaja dwibahasa) + gerbang tantangan |
+| `tool_dispatch.py` | Tabel 14 tool murni + `NAMA_TOOL_AKTIF` (22 tool) + daftar tool berguard |
+| `tools_schema.py` / `prompts.py` | Skema 22 tool / system prompt (data murni) |
+| Sisanya | `context_manager`, `todo_manager`, `llm_router`, `tool_executor`, `code_verifier`, `html_checker`, `permission_manager`, `post_edit_verifier`, `attachments`, `dependency_scanner`, `research_rules`, `logging_setup` |
 
 Pencatatan di log startup kini berbunyi `[TOOLS] Consistent: 22 tools
 declared & dispatched.` (sebelum Fase D: `[TOOLS] Konsisten: 22 tool ...`).
-Baseline SSE untuk verifikasi langkah 2-4 bisa direkam tanpa API key lewat
+Baseline SSE untuk verifikasi refactoring bisa direkam tanpa API key lewat
 mock LLM deterministik — prosedurnya tercantum di FASE_C_PLAN.md bagian 5.
-Backlog Fase C kini berisi dua godaan yang sengaja TIDAK diperbaiki saat
+Backlog Fase C berisi dua godaan yang sengaja TIDAK diperbaiki saat
 memindah/menerjemahkan kode (matcher `startswith("success")` yang tidak
 pernah cocok untuk `edit_file`, dan kontradiksi instruksi `git push` di
-system prompt) — perbaiki di commit terpisah setelah Fase C, jangan dicuri
-start dari langkah refactoring.
+system prompt) — perbaiki di commit terpisah, jangan dicuri start dari
+langkah refactoring. Skenario manual VS Code c/d (file rusak → `verify_code`;
+Cancel di tengah generasi) masih perlu dicoba sekali sebelum rilis.

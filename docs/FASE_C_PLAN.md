@@ -1,11 +1,12 @@
 # FASE C — Execution Plan: extracting the agent loop out of main.py
 
-**Status:** STEP 1 DONE (commit `d8af462`, `sse.py` extracted, baseline
-byte-identical, tag `pre-fase-c` points at `da208b2`). Steps 2-4 NOT STARTED.
-Phase D (i18n) was executed after step 1 and is complete — see the Phase D
-section at the bottom. This document is the single source of truth for the
-remaining steps. Read all of it before touching code. Written to be executable
-by an agent or engineer with **no prior context** beyond this repository.
+**Status:** COMPLETE — all four steps are committed: step 1 `d8af462`
+(`sse.py`), step 2 `14e0b6e` (`session_state.py`), step 3 `4534987`
+(`loop_guards.py`), step 4 `4ee5f46` (`agent_loop.py`). Tag `pre-fase-c`
+points at `da208b2`. Phase D (i18n) was executed between step 1 and step 2
+and is complete — see the Phase D section at the bottom. This document
+remains the reference for what was done and for re-verifying it. Read all of
+it before touching the loop again.
 
 Companion documents: `docs/README.md` (what is canonical), `STATUS_ORION.md`
 (agent-context, Indonesian), `DEVELOPMENT_ROADMAP.md` (what comes after).
@@ -16,11 +17,11 @@ Companion documents: `docs/README.md` (what is canonical), `STATUS_ORION.md`
 
 | Fact | Value | How to check |
 |---|---|---|
-| `main.py` size | ~2,119 lines | `wc -l backend/app/main.py` (or PowerShell `(Get-Content …).Count`) |
-| Agent loop | `async def _aliran_inti()` inside `/chat` | search `_aliran_inti` |
+| `main.py` size | ~569 lines — HTTP routing + composition only | `wc -l backend/app/main.py` (or PowerShell `(Get-Content …).Count`) |
+| Agent loop | `async def aliran_agent(state, deps)` in `app/services/agent_loop.py` | search `aliran_agent` |
 | Tools | 22 declared & dispatched | startup log line `[TOOLS] Consistent: 22 tools declared & dispatched.` |
-| Tests | 82 passing (77 + 5 in `test_sse.py`) | `python -m pytest backend/app/services/ -q` |
-| Already extracted | `tools_schema.py`, `prompts.py`, `tool_dispatch.py`, `guard_rules.py`, `research_rules.py`, `stream_utils.py`, `code_verifier.py`, `html_checker.py`, `sse.py` (step 1) | `ls backend/app/services/` |
+| Tests | 97 passing | `python -m pytest backend/app/services/ -q` |
+| Already extracted | `tools_schema.py`, `prompts.py`, `tool_dispatch.py`, `guard_rules.py`, `research_rules.py`, `stream_utils.py`, `code_verifier.py`, `html_checker.py`, `sse.py`, `session_state.py`, `loop_guards.py`, `agent_loop.py` | `ls backend/app/services/` |
 | Static checks | `ruff --select=F,E9,B` clean | run it |
 | Extension type-check | `tsc --noEmit` clean | `cd orion && npx tsc --noEmit -p tsconfig.json` |
 | Code language | English strings/comments/prompt (Phase D done); identifiers deliberately stay Indonesian | read any module |
@@ -79,14 +80,17 @@ identity with the legacy inline form, `ev('done') == stream_utils.buat_event_don
 AST guard against manual frames and non-frozen names); 82 tests green; baseline
 transcripts re-recorded and **byte-identical**, not just sequence-identical.
 
-### Step 2 — `session_state.py`: the per-turn state (risk: medium)
+### Step 2 — `session_state.py`: the per-turn state (risk: medium) — ✅ DONE (`14e0b6e`)
 Move the mutated names above into a `SessionState` dataclass with methods
 (`catat_file_berubah`, `tambah_notice`, `reset_per_turn`, `sisa_todo`, …).
 The loop stays in `main.py` for now, but stops carrying 10 loose variables.
 *Accept:* 77 tests green; new `test_session_state.py` covering `reset_per_turn`
 and file-change accounting; no behaviour change observable in baseline transcript.
+*Result:* 88 tests green (6 new); five baseline transcripts byte-identical.
+Inventory correction recorded in the module docstring: `total_input_tokens`/
+`total_output_tokens` are locals of the `/performance` route, not loop state.
 
-### Step 3 — `loop_guards.py`: the four gates as one decision (risk: medium)
+### Step 3 — `loop_guards.py`: the four gates as one decision (risk: medium) — ✅ DONE (`4534987`)
 Collapse the four decision points (todo-continuation nudge, claim-challenge gate,
 checkpoint/pause, normal answer) into
 `evaluasi_akhir_iterasi(state, konten, ...) -> Keputusan` with enum
@@ -96,8 +100,14 @@ can be unit-tested with synthetic inputs.
 *Accept:* previous tests green; new tests feed five synthetic situations and assert
 five distinct decisions, including "claim with zero changed files" and
 "todos still pending".
+*Result:* 97 tests green (9 new: the five required situations plus TERUSKAN,
+first-iteration claim, and both quota-degradation edges); five baseline
+transcripts byte-identical. Documented deviation: the enum has a sixth member
+(`TERUSKAN`) because the max-iteration pause lives inside the short-reply
+branch — splitting that branch between loop and evaluator would have been
+less faithful.
 
-### Step 4 — `agent_loop.py`: the generator itself (risk: high, last)
+### Step 4 — `agent_loop.py`: the generator itself (risk: high, last) — ✅ DONE (`4ee5f46`)
 Move `_aliran_inti` to `app/services/agent_loop.py` as
 `async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]`
 where `Deps` holds: `context_manager`, `todo_manager`, `tool_executor`,
@@ -106,6 +116,15 @@ where `Deps` holds: `context_manager`, `todo_manager`, `tool_executor`,
 and wraps with `stream_utils.jamin_done`.
 *Accept:* all tests green; consistency check KONSEN; and the four manual scenarios
 in section 6 pass in VS Code.
+*Result:* main.py 569 lines; 97 tests green; `[TOOLS] Consistent: 22 tools`;
+five baseline transcripts byte-identical; guard tests repointed to
+agent_loop.py. Implementation notes: the heartbeat while-loop stays inside
+the generator and `Deps.llm_call` carries the raw `get_ai_response` (a
+heartbeat that yields SSE frames cannot be a plain async function);
+`Deps` also carries the two per-request inputs `context_message` and
+`lampiran_desc`; `Deps.tool_executor` is a per-request snapshot (documented
+in the module docstring). Manual scenarios a/b are covered by the mock
+recordings; c/d await a VS Code pass.
 
 ## 4. Hard rules
 
@@ -156,11 +175,11 @@ touching later work. The pre-Phase-C tag is recommended before step 1:
 
 ## 8. Definition of done
 
-- `main.py` under ~700 lines, containing only HTTP routing + composition
-- 77+ tests green, including new `session_state` / `loop_guards` tests
-- baseline event sequence unchanged
-- four manual scenarios pass
-- `STATUS_ORION.md` updated with new module map
+- `main.py` under ~700 lines, containing only HTTP routing + composition — **done: 569 lines**
+- 77+ tests green, including new `session_state` / `loop_guards` tests — **done: 97 green (6 + 9 new)**
+- baseline event sequence unchanged — **done: five mock scenarios, transcripts byte-identical across all four steps**
+- four manual scenarios pass — **a/b covered end-to-end by mock scenarios D (todo nudge → checkpoint) and C (dangerous command → `confirm_terminal`); c (broken file → `verify_code` cited) and d (Cancel mid-generation) still need a manual pass in VS Code before release**
+- `STATUS_ORION.md` updated with new module map — **done**
 
 ## Backlog (temptations deferred during Phase C)
 
