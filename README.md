@@ -107,7 +107,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 cd ../orion
 npm install
 npm run package                     # type-check + lint + production build
-npx vsce package --allow-missing-repository
+npx vsce package                    # produces orion-<version>.vsix
 code --install-extension orion-<version>.vsix --force
 ```
 
@@ -186,6 +186,23 @@ SECURITY.md              threat model and honest limitations
 
 ---
 
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Backend silent / chat reports a lost connection | Read `<project>\.orion\logs\backend.log` (fallback: `backend\logs\backend.log`) and `~/orion_stdout.log`; make sure port 8000 is free |
+| `No module named 'mcp'` on the first chat | `pip install mcp` inside the backend venv (newer litellm needs it for tool calls) |
+| Extension shows a stale UI after updating | Fully restart VS Code and close old chat tabs |
+| Two Orion extensions installed at once | Keep exactly one (`code --list-extensions`); duplicate copies split the activity log and the chat panel |
+
+The extension auto-starts the backend when the opened workspace contains (or
+sits near) this repository's `backend/` folder; otherwise start it manually as
+in Quick start §1. Everything Orion remembers about a project lives in that
+project's `.orion/` folder — gitignored, never packaged, and safe to delete to
+reset its memory.
+
+---
+
 ## Roadmap
 
 Done and guarded by tests: multi-task continuation, claim verification, editor
@@ -193,9 +210,13 @@ diagnostics, multi-language verification, test runner, auto-research on repeated
 failure, safe file operations with reversible restores, git checkpoints, heartbeat
 progress, closed CORS + loopback bind.
 
-Planned: split `main.py` into prompt/schema/dispatch/loop modules, semantic search for
-large codebases, MCP tool servers, parallel sub-agents, and a shared-secret token
-between extension and backend.
+Done since: the `main.py` split is complete (Phase C: `sse.py`, `session_state.py`,
+`loop_guards.py`, `agent_loop.py` — 2,769 → 569 lines) and the whole code surface
+is English (Phase D: UI, logs, comments, system prompt), while chat replies keep
+following the user's language.
+
+Planned next: a shared-secret token between extension and backend, semantic search
+for large codebases, MCP tool servers, and parallel sub-agents.
 
 ---
 

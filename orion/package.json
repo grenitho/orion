@@ -1,13 +1,32 @@
 {
   "name": "orion",
-  "displayName": "Orion",
-  "description": "AI Software Engineer Assistant",
+  "displayName": "Orion — AI Software Engineer",
+  "publisher": "grenitho",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/grenitho/orion.git"
+  },
+  "galleryBanner": {
+    "color": "#0d1117",
+    "theme": "dark"
+  },
+  "description": "Autonomous AI software engineer: plans with todo lists, edits code, runs tests and terminal commands with your approval, verifies its own work, and reports honestly — in your language.",
   "version": "0.0.5",
   "engines": {
     "vscode": "^1.125.0"
   },
   "categories": [
-    "Other"
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "agentic",
+    "coding assistant",
+    "autonomous",
+    "gemini"
   ],
   "activationEvents": [
     "onStartupFinished"
