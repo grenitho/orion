@@ -67,7 +67,7 @@ def test_base64_tidak_bocor_ke_riwayat():
     assert "iVBOR" not in hasil.ringkasan          # not a PNG base64 fragment
     assert PNG_PALSU not in hasil.ringkasan
     assert len(hasil.ringkasan) < 500              # placeholder pendek
-    assert "LAMPIRAN GAMBAR" in hasil.ringkasan
+    assert "IMAGE ATTACHMENT" in hasil.ringkasan
 
 
 def test_file_teks_ditempel_sebagai_teks_bukan_part_gambar():
@@ -115,13 +115,13 @@ def test_gambar_lebih_dari_7mb_ditolak():
 def test_base64_rusak_dilaporkan_bukan_membuat_crash():
     hasil = proses("x", [_gambar(nama="rusak.png", data="!!!bukan-base64!!!")])
     assert hasil.parts == []
-    assert any("tidak valid" in c for c in hasil.catatan_gagal)
+    assert any("invalid" in c for c in hasil.catatan_gagal)
 
 
 def test_tipe_tidak_didukung_ditolak_dengan_pesan_jelas():
     hasil = proses("x", [{"name": "arsip.zip", "mime": "application/zip", "data": PNG_PALSU}])
     assert hasil.parts == []
-    assert any("tidak didukung" in c for c in hasil.catatan_gagal)
+    assert any("not supported" in c for c in hasil.catatan_gagal)
 
 
 def test_model_diberitahu_kalau_lampiran_gagal():
@@ -131,14 +131,14 @@ def test_model_diberitahu_kalau_lampiran_gagal():
     received.
     """
     hasil = proses("x", [_gambar(nama="rusak.png", data="!!!")])
-    assert "GAGAL diproses" in hasil.ringkasan
-    assert "Jangan berasumsi" in hasil.ringkasan
+    assert "FAILED to process" in hasil.ringkasan
+    assert "Do not assume" in hasil.ringkasan
 
 
 def test_teks_panjang_dipotong_dengan_penanda():
     panjang = base64.b64encode(("x" * 200_000).encode()).decode()
     hasil = proses("cek", [{"name": "besar.log", "mime": "text/plain", "data": panjang}])
-    assert "TERPOTONG" in hasil.ringkasan or "terpotong" in hasil.ringkasan
+    assert "TRUNCATED" in hasil.ringkasan or "truncated" in hasil.ringkasan
 
 
 # ---------------------------------------------------------------- util

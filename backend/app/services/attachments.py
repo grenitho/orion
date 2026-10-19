@@ -23,7 +23,7 @@ tier quota would be gone within a few messages, and the history file would
 stay bloated permanently.
 
 What this module does:
-  - the history only stores a text PLACEHOLDER: "[LAMPIRAN: error.png (image/png)]"
+  - the history only stores a text PLACEHOLDER: "[ATTACHMENT: error.png (image/png)]"
   - the actual image is injected ONLY into the first request of that turn
   - text files (not images) have their contents read and pasted as plain text,
     because that is cheap and stays useful in the following iterations
@@ -59,8 +59,8 @@ EKSTENSI_TEKS = {
 }
 
 PESAN_GAGAL = (
-    "[SISTEM: lampiran berikut GAGAL diproses dan TIDAK terlihat oleh model. "
-    "Jangan berasumsi Anda bisa melihatnya. Beri tahu user alasannya.]\n"
+    "[SYSTEM: the following attachments FAILED to process and are NOT visible to the model. "
+    "Do not assume you can see them. Tell the user why.]\n"
 )
 
 
@@ -77,7 +77,7 @@ def _normalkan(lamp: dict) -> dict:
     """Accept the various payload shapes sent by the extension."""
     if not isinstance(lamp, dict):
         return {}
-    nama = str(lamp.get("name") or lamp.get("filename") or "lampiran")
+    nama = str(lamp.get("name") or lamp.get("filename") or "attachment")
     mime = str(lamp.get("mime") or lamp.get("mimeType") or lamp.get("type") or "").lower()
     data = lamp.get("data") or lamp.get("base64") or lamp.get("content") or ""
 
@@ -161,27 +161,27 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
     for item in lampiran:
         l = _normalkan(item)
         if not l:
-            out.catatan_gagal.append("lampiran tidak dikenali (bukan objek)")
+            out.catatan_gagal.append("unrecognized attachment (not an object)")
             continue
 
         nama, mime = l["nama"], l["mime"] or _tebak_mime(l["nama"])
         mentah = _decode(l["data"])
         if mentah is None:
-            out.catatan_gagal.append(f"{nama}: data base64 tidak valid")
-            baris_ringkasan.append(f"[LAMPIRAN GAGAL: {nama} — data rusak]")
+            out.catatan_gagal.append(f"{nama}: invalid base64 data")
+            baris_ringkasan.append(f"[ATTACHMENT FAILED: {nama} — corrupted data]")
             continue
 
         # ---------------- IMAGE ----------------
         if mime in MIME_GAMBAR:
             if jumlah_gambar >= MAX_GAMBAR:
-                out.catatan_gagal.append(f"{nama}: melebihi batas {MAX_GAMBAR} gambar/pesan")
-                baris_ringkasan.append(f"[LAMPIRAN DITOLAK: {nama} — terlalu banyak gambar]")
+                out.catatan_gagal.append(f"{nama}: exceeds the limit of {MAX_GAMBAR} images/message")
+                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — too many images]")
                 continue
             if len(mentah) > MAX_BYTE_GAMBAR:
                 out.catatan_gagal.append(
-                    f"{nama}: {len(mentah) / 1024 / 1024:.1f} MB > batas 7 MB Gemini"
+                    f"{nama}: {len(mentah) / 1024 / 1024:.1f} MB > Gemini's 7 MB limit"
                 )
-                baris_ringkasan.append(f"[LAMPIRAN DITOLAK: {nama} — lebih dari 7 MB]")
+                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — larger than 7 MB]")
                 continue
 
             out.parts.append({
@@ -190,8 +190,8 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
             })
             jumlah_gambar += 1
             baris_ringkasan.append(
-                f"[LAMPIRAN GAMBAR: {nama} ({mime}, {len(mentah) // 1024} KB) "
-                f"— gambar ini HANYA terlihat pada giliran ini]"
+                f"[IMAGE ATTACHMENT: {nama} ({mime}, {len(mentah) // 1024} KB) "
+                f"— this image is ONLY visible on this turn]"
             )
             continue
 
@@ -199,34 +199,34 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
         ekstensi = ("." + nama.rsplit(".", 1)[-1].lower()) if "." in nama else ""
         if ekstensi in EKSTENSI_TEKS or mime.startswith("text/"):
             if len(mentah) > MAX_BYTE_TEKS:
-                out.catatan_gagal.append(f"{nama}: file teks terlalu besar ({len(mentah)} byte)")
-                baris_ringkasan.append(f"[LAMPIRAN DITOLAK: {nama} — file terlalu besar]")
+                out.catatan_gagal.append(f"{nama}: text file too large ({len(mentah)} bytes)")
+                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — file too large]")
                 continue
             try:
                 isi = mentah.decode("utf-8", errors="replace")
             except Exception:  # noqa: BLE001
-                out.catatan_gagal.append(f"{nama}: gagal decode sebagai teks")
+                out.catatan_gagal.append(f"{nama}: failed to decode as text")
                 continue
 
             terpotong = len(isi) > MAX_CHAR_TEKS
             if terpotong:
                 isi = isi[:MAX_CHAR_TEKS]
             bagian_teks.append(
-                f"\n\n----- ISI FILE LAMPIRAN: {nama} -----\n{isi}"
-                + ("\n----- [TERPOTONG, file lebih panjang dari ini] -----" if terpotong else "")
-                + f"\n----- AKHIR {nama} -----"
+                f"\n\n----- ATTACHED FILE CONTENTS: {nama} -----\n{isi}"
+                + ("\n----- [TRUNCATED, the file is longer than this] -----" if terpotong else "")
+                + f"\n----- END OF {nama} -----"
             )
             baris_ringkasan.append(
-                f"[LAMPIRAN TEKS: {nama} ({len(mentah) // 1024} KB"
-                + (", terpotong" if terpotong else "") + ") — isinya ada di pesan ini]"
+                f"[TEXT ATTACHMENT: {nama} ({len(mentah) // 1024} KB"
+                + (", truncated" if terpotong else "") + ") — its contents are in this message]"
             )
             continue
 
         # ---------------- UNSUPPORTED ----------------
-        out.catatan_gagal.append(f"{nama}: tipe '{mime or ekstensi or 'tidak dikenal'}' tidak didukung")
+        out.catatan_gagal.append(f"{nama}: type '{mime or ekstensi or 'unknown'}' is not supported")
         baris_ringkasan.append(
-            f"[LAMPIRAN DITOLAK: {nama} — tipe tidak didukung. "
-            f"Yang bisa: gambar (png/jpg/webp/heic) atau file teks/kode]"
+            f"[ATTACHMENT REJECTED: {nama} — unsupported type. "
+            f"Supported: images (png/jpg/webp/heic) or text/code files]"
         )
 
     if out.catatan_gagal:
@@ -237,7 +237,7 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
 
     # When there are images, the text must be the first part in the content list
     if jumlah_gambar:
-        out.parts.insert(0, {"type": "text", "text": teks_gabung or "(lihat gambar terlampir)"})
+        out.parts.insert(0, {"type": "text", "text": teks_gabung or "(see the attached image)"})
 
     return out
 

@@ -8,17 +8,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "Membaca struktur folder dan file di path tertentu.",
+            "description": "Read the folder and file structure at a given path.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path relatif folder (default: '.').",
+                        "description": "Relative folder path (default: '.').",
                     },
                     "depth": {
                         "type": "integer",
-                        "description": "Kedalaman folder (default: 2).",
+                        "description": "Folder depth (default: 2).",
                     },
                 },
                 # There is NO "required": [] HERE
@@ -29,13 +29,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Membaca isi lengkap dari sebuah file.",
+            "description": "Read the full contents of a file.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path relatif file dari root project.",
+                        "description": "File path relative to the project root.",
                     }
                 },
                 "required": ["file_path"],
@@ -46,17 +46,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Membuat file baru atau menimpa file yang ada.",
+            "description": "Create a new file or overwrite an existing one.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path relatif file.",
+                        "description": "Relative file path.",
                     },
                     "content": {
                         "type": "string",
-                        "description": "Konten lengkap yang akan ditulis.",
+                        "description": "The full content to write.",
                     },
                 },
                 "required": ["file_path", "content"],
@@ -67,17 +67,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": "Mengedit bagian spesifik dari file yang sudah ada menggunakan format SEARCH/REPLACE.",
+            "description": "Edit specific parts of an existing file using the SEARCH/REPLACE format.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path relatif file.",
+                        "description": "Relative file path.",
                     },
                     "diff": {
                         "type": "string",
-                        "description": "Blok pencarian dan penggantian. Format: <<<<<<< SEARCH\\n[kode lama]\\n=======\\n[kode baru]\\n>>>>>>> REPLACE",
+                        "description": "The search and replace block. Format: <<<<<<< SEARCH\\n[old code]\\n=======\\n[new code]\\n>>>>>>> REPLACE",
                     },
                 },
                 "required": ["file_path", "diff"],
@@ -88,17 +88,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_code",
-            "description": "Mencari string atau regex di seluruh project.",
+            "description": "Search for a string or regex across the whole project.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Kata kunci atau regex yang ingin dicari.",
+                        "description": "The keyword or regex to search for.",
                     },
                     "file_pattern": {
                         "type": "string",
-                        "description": "Filter ekstensi file (misal: '*.py'). Kosongkan untuk semua file.",
+                        "description": "File extension filter (e.g. '*.py'). Leave empty for all files.",
                     },
                 },
                 "required": ["query"],
@@ -109,31 +109,31 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "restore_backup",
-            "description": "Pulihkan sebuah file dari backup terakhirnya di .orion/backups. Reversibel: versi sekarang disimpan dulu sebagai .pre-restore.bak. Pakai ini kalau edit_file/write_file ternyata merusak sesuatu.",
-            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Path relatif file yang akan dipulihkan."}}, "required": ["file_path"]},
+            "description": "Restore a file from its latest backup in .orion/backups. Reversible: the current version is saved first as .pre-restore.bak. Use this when edit_file/write_file turned out to break something.",
+            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Relative path of the file to restore."}}, "required": ["file_path"]},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "list_backups",
-            "description": "Daftar backup yang tersedia untuk dipulihkan. Pakai sebelum restore_backup kalau tidak yakin backupnya ada.",
-            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Opsional: saring berdasarkan path."}}, "required": []},
+            "description": "List the backups available for restoration. Use before restore_backup when unsure whether a backup exists.",
+            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Optional: filter by path."}}, "required": []},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "delete_file",
-            "description": "Hapus sebuah file SECARA AMAN: salinan terakhirnya di-backup dulu ke .orion/backups sehingga bisa dipulihkan. JANGAN menghapus file lewat run_terminal.",
-            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Path relatif file yang akan dihapus."}}, "required": ["file_path"]},
+            "description": "Delete a file SAFELY: its last copy is backed up to .orion/backups first so it can be restored. Do NOT delete files through run_terminal.",
+            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Relative path of the file to delete."}}, "required": ["file_path"]},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "move_file",
-            "description": "Pindah atau ganti nama sebuah file di dalam project, dengan backup sumber dulu. Menolak menimpa file yang sudah ada di tujuan.",
+            "description": "Move or rename a file inside the project, backing up the source first. Refuses to overwrite an existing file at the destination.",
             "parameters": {"type": "object", "properties": {"from_path": {"type": "string"}, "to_path": {"type": "string"}}, "required": ["from_path", "to_path"]},
         },
     },
@@ -141,8 +141,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "git_commit",
-            "description": "Buat titik aman (checkpoint) dengan git add -A + git commit. Pakai SETELAH sekelompok perubahan lolos verify_code, supaya ada titik kembali yang bersih. Menolak dengan penjelasan kalau folder bukan repo git. JANGAN commit lewat run_terminal.",
-            "parameters": {"type": "object", "properties": {"message": {"type": "string", "description": "Pesan commit yang menjelaskan perubahan."}}, "required": ["message"]},
+            "description": "Create a safe point (checkpoint) with git add -A + git commit. Use AFTER a batch of changes passes verify_code, so there is a clean point to return to. Rejects with an explanation when the folder is not a git repo. Do NOT commit through run_terminal.",
+            "parameters": {"type": "object", "properties": {"message": {"type": "string", "description": "Commit message describing the changes."}}, "required": ["message"]},
         },
     },
     {
@@ -150,17 +150,17 @@ TOOLS = [
         "function": {
             "name": "run_tests",
             "description": (
-                "Menjalankan test suite project (pytest / npm test / go test, terdeteksi "
-                "otomatis) dan mengembalikan laporan TERURAI: jumlah lulus/gagal plus daftar "
-                "test yang gagal dan satu baris penyebabnya. WAJIB dipanggil setelah mengubah "
-                "kode bila project punya test, dan WAJIB dikutip hasilnya saat melaporkan "
-                "selesai. Selama test masih merah, klaim selesai adalah kebohongan."
+                "Run the project's test suite (pytest / npm test / go test, detected "
+                "automatically) and return a DETAILED report: pass/fail counts plus the list "
+                "of failed tests and one cause line each. MUST be called after changing code "
+                "when the project has tests, and its results MUST be quoted when reporting "
+                "completion. While tests are still red, a completion claim is a lie."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "Opsional: perintah test manual. Kosongkan untuk deteksi otomatis."},
-                    "timeout": {"type": "integer", "description": "Batas detik (default 180, maks 600).", "default": 180},
+                    "command": {"type": "string", "description": "Optional: manual test command. Leave empty for automatic detection."},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (default 180, max 600).", "default": 180},
                 },
                 "required": [],
             },
@@ -171,20 +171,20 @@ TOOLS = [
         "function": {
             "name": "verify_code",
             "description": (
-                "Memeriksa file APA PUN dengan parser/compiler sungguhan: .py (sintaks + "
-                "impor yang tidak terpasang + ruff), .js/.mjs/.cjs/.jsx (node --check), "
-                ".ts/.tsx (tsc --noEmit), .html/.htm (sintaks script inline, id duplikat, "
-                "referensi DOM, keseimbangan tag), .json/.xml/.svg/.yaml/.css. Menerima "
-                "juga FOLDER untuk memeriksa banyak file sekaligus. WAJIB dipanggil "
-                "SEBELUM menyatakan kode berfungsi, lulus, atau selesai. Model tidak "
-                "bisa melihat kurung yang hilang; pemeriksa ini bisa."
+                "Check ANY file with real parsers/compilers: .py (syntax + "
+                "uninstalled imports + ruff), .js/.mjs/.cjs/.jsx (node --check), "
+                ".ts/.tsx (tsc --noEmit), .html/.htm (inline script syntax, duplicate ids, "
+                "DOM references, tag balance), .json/.xml/.svg/.yaml/.css. Also accepts "
+                "a FOLDER to check many files at once. MUST be called "
+                "BEFORE declaring code working, passing, or finished. The model cannot "
+                "see a missing bracket; this checker can."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path relatif file atau folder yang akan diperiksa.",
+                        "description": "Relative path of the file or folder to check.",
                     },
                 },
                 "required": ["file_path"],
@@ -196,18 +196,18 @@ TOOLS = [
         "function": {
             "name": "verify_html",
             "description": (
-                "Memeriksa file HTML/JS dengan pemeriksa NYATA: node --check untuk sintaks "
-                "JavaScript, deteksi id duplikat, dan referensi getElementById/querySelector "
-                "yang elemennya tidak ada. WAJIB dipanggil SEBELUM menyatakan sebuah halaman "
-                "berfungsi, terhubung, atau bebas error. Satu kurung yang hilang mematikan "
-                "seluruh blok script, dan hal semacam itu TIDAK terlihat dengan membaca kode."
+                "Check HTML/JS files with a REAL checker: node --check for JavaScript "
+                "syntax, duplicate id detection, and getElementById/querySelector references "
+                "whose elements do not exist. MUST be called BEFORE declaring a page "
+                "working, connected, or error-free. A single missing bracket kills the entire "
+                "script block, and that kind of thing is NOT visible by reading the code."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path relatif file .html/.htm/.js yang akan diperiksa.",
+                        "description": "Relative path of the .html/.htm/.js file to check.",
                     },
                 },
                 "required": ["file_path"],
@@ -219,21 +219,21 @@ TOOLS = [
         "function": {
             "name": "web_fetch",
             "description": (
-                "Membaca ISI sebuah URL secara utuh dan mengembalikannya sebagai teks. "
-                "Gunakan SETELAH web_search menemukan URL yang relevan, atau untuk membaca "
-                "dokumentasi resmi / halaman issue / changelog. web_search hanya memberi "
-                "cuplikan; tool ini memberi isi lengkapnya."
+                "Read the CONTENTS of a URL in full and return them as text. "
+                "Use AFTER web_search found a relevant URL, or to read official "
+                "documentation / issue pages / changelogs. web_search only gives "
+                "snippets; this tool gives the full content."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "url": {
                         "type": "string",
-                        "description": "URL lengkap yang ingin dibaca (http/https).",
+                        "description": "The full URL to read (http/https).",
                     },
                     "max_chars": {
                         "type": "integer",
-                        "description": "Batas karakter isi yang dikembalikan (default 20000, maksimum 100000).",
+                        "description": "Cap on the number of content characters returned (default 20000, maximum 100000).",
                         "default": 20000,
                     },
                 },
@@ -245,17 +245,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Mencari informasi real-time dari internet. WAJIB digunakan jika mengalami error yang tidak dikenal, butuh URL terbaru, atau dokumentasi API.",
+            "description": "Search the internet for real-time information. MUST be used when hitting an unknown error, needing a current URL, or needing API documentation.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Kata kunci pencarian yang spesifik (misal: 'piper tts indonesian male voice huggingface url').",
+                        "description": "Specific search keywords (e.g. 'piper tts indonesian male voice huggingface url').",
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Jumlah hasil maksimal (default 5).",
+                        "description": "Maximum number of results (default 5).",
                         "default": 5,
                     },
                 },
@@ -267,16 +267,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file_range",
-            "description": "Membaca file per rentang baris.",
+            "description": "Read a file by line range.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path relatif file.",
+                        "description": "Relative file path.",
                     },
-                    "start_line": {"type": "integer", "description": "Baris awal."},
-                    "end_line": {"type": "integer", "description": "Baris akhir."},
+                    "start_line": {"type": "integer", "description": "Start line."},
+                    "end_line": {"type": "integer", "description": "End line."},
                 },
                 "required": ["file_path"],
             },
@@ -286,17 +286,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_json_path",
-            "description": "Membaca nilai spesifik dari file JSON menggunakan dot notation.",
+            "description": "Read a specific value from a JSON file using dot notation.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path relatif file JSON.",
+                        "description": "Relative path of the JSON file.",
                     },
                     "json_path": {
                         "type": "string",
-                        "description": "Path key dengan pemisah titik.",
+                        "description": "Key path with dot separators.",
                     },
                 },
                 "required": ["file_path", "json_path"],
@@ -307,11 +307,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "run_terminal",
-            "description": "Menjalankan perintah terminal/shell.",
+            "description": "Run a terminal/shell command.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "Perintah terminal."}
+                    "command": {"type": "string", "description": "The terminal command."}
                 },
                 "required": ["command"],
             },
@@ -321,13 +321,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "ask_user",
-            "description": "HENTIKAN proses untuk berdiskusi dengan user.",
+            "description": "STOP the process to discuss with the user.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "question": {
                         "type": "string",
-                        "description": "Pertanyaan atau penawaran opsi kepada user.",
+                        "description": "The question or set of options presented to the user.",
                     }
                 },
                 "required": ["question"],
@@ -339,34 +339,34 @@ TOOLS = [
         "function": {
             "name": "update_todos",
             "description": (
-                "Buat atau perbarui daftar todo (checklist) untuk task multi-langkah "
-                "yang sedang dikerjakan, supaya progres terlihat jelas oleh user. "
-                "WAJIB dipanggil di AWAL saat menerima instruksi berpoin/multi-langkah "
-                "(misal 'tambahkan fitur A, B, C'), lalu update status tiap item "
-                "seiring progres (pending -> in_progress -> completed). "
-                "Untuk task sederhana satu langkah, tool ini BOLEH dilewati."
+                "Create or update the todo (checklist) list for the multi-step task "
+                "being worked on, so progress is clearly visible to the user. "
+                "MUST be called at the START when receiving a multi-step/itemized "
+                "instruction (e.g. 'add features A, B, C'), then update each item's status "
+                "as progress is made (pending -> in_progress -> completed). "
+                "For a simple single-step task, this tool MAY be skipped."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "todos": {
                         "type": "array",
-                        "description": "Daftar lengkap todo (mengganti seluruh list sebelumnya).",
+                        "description": "The complete todo list (replaces the entire previous list).",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "id": {
                                     "type": "string",
-                                    "description": "ID unik singkat, misal '1', '2'.",
+                                    "description": "Short unique id, e.g. '1', '2'.",
                                 },
                                 "text": {
                                     "type": "string",
-                                    "description": "Deskripsi singkat sub-task.",
+                                    "description": "Short description of the sub-task.",
                                 },
                                 "status": {
                                     "type": "string",
                                     "enum": ["pending", "in_progress", "completed"],
-                                    "description": "Status terkini sub-task ini.",
+                                    "description": "The current status of this sub-task.",
                                 },
                             },
                             "required": ["text"],
@@ -381,7 +381,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "git_status",
-            "description": "Melihat daftar singkat file yang telah dimodifikasi, ditambah, atau dihapus.",
+            "description": "View a short list of files that were modified, added, or deleted.",
             "parameters": {
                 "type": "object"
                 # ONLY "type": "object". NO properties or required.
@@ -392,13 +392,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "git_diff",
-            "description": "Melihat perubahan kode.",
+            "description": "View code changes.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path relatif file spesifik (opsional). Kosongkan untuk ringkasan.",
+                        "description": "Relative path of a specific file (optional). Leave empty for a summary.",
                     }
                 },
                 # There is NO "required": [] HERE

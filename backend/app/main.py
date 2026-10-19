@@ -284,7 +284,7 @@ async def summarize_old_history(old_messages: list) -> str:
     """Call the LLM to summarize old chat history.
     IMPORTANT: this function does NOT swallow exceptions. If the API fails, the error is raised to the caller.
     """
-    prompt = "Rangkum percakapan berikut menjadi 1 paragraf padat yang berisi konteks utama, keputusan yang diambil, dan status tugas saat ini. Abaikan basa-basi.\n\n"
+    prompt = "Summarize the following conversation into 1 dense paragraph containing the main context, the decisions made, and the current task status. Ignore pleasantries.\n\n"
     for msg in old_messages:
         role = msg.get("role", "")
         content = msg.get("content", "")
@@ -433,7 +433,7 @@ def load_orion_config(project_path: str):
             # Match it to the context window of the model you actually use
             # (do not assume 8K if your model supports a larger context).
             "token_budget_threshold": 12000,
-            "description": "Pengaturan Orion. Ubah max_iterations untuk membatasi loop berpikir AI. token_budget_threshold mengatur kapan emergency pruning context terjadi.",
+            "description": "Orion settings. Change max_iterations to limit the AI thinking loop. token_budget_threshold controls when emergency context pruning occurs.",
         }
         try:
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -544,10 +544,10 @@ async def set_project(request: ProjectPathRequest):
         print(f"[ORION INIT] Creating .orion/ folder at {orion_dir}")
 
         default_files = {
-            "master_context.md": "# Master Context\n\nProject: [Nama Project]\nVersi: 0.1\nTeknologi: \n",
-            "decision_log.md": "# Decision Log\n\nBelum ada keputusan arsitektur.\n",
-            "coding_rules.md": "# Coding Rules\n\nBelum ada aturan coding.\n",
-            "current_sprint.md": "# Current Sprint\n\nSprint: Inisialisasi\nStatus: Baru dimulai\n",
+            "master_context.md": "# Master Context\n\nProject: [Project Name]\nVersion: 0.1\nTechnology: \n",
+            "decision_log.md": "# Decision Log\n\nNo architecture decisions yet.\n",
+            "coding_rules.md": "# Coding Rules\n\nNo coding rules yet.\n",
+            "current_sprint.md": "# Current Sprint\n\nSprint: Initialization\nStatus: Just started\n",
         }
         for filename, content in default_files.items():
             file_path = os.path.join(orion_dir, filename)
@@ -564,12 +564,12 @@ async def set_project(request: ProjectPathRequest):
 
         # Build the project structure string and save it to context_manager
         map_lines = [f"📁 {path}" for path in scan_result["files"].keys()]
-        project_map_str = "Struktur Project:\n" + "\n".join(map_lines)
+        project_map_str = "Project Structure:\n" + "\n".join(map_lines)
         context_manager.set_project_map(project_map_str)
 
     except Exception as e:
         print(f"[ORION INIT WARNING] Failed to generate Dependency Map: {e}")
-        context_manager.set_project_map("Struktur Project: Gagal memindai.")
+        context_manager.set_project_map("Project Structure: Scan failed.")
 
     # 6. Load config
     load_orion_config(request.path)
@@ -592,7 +592,7 @@ async def execute_summarize(context_manager, history, threshold=15):
     messages_to_summarize = history[:split_idx]
     recent_messages = history[split_idx:]
 
-    prompt = "Rangkum percakapan dan hasil tool berikut menjadi 1 paragraf padat. Fokus pada: file apa yang sudah dibaca/diubah, error apa yang ditemukan, dan apa langkah selanjutnya. Abaikan basa-basi.\n\n"
+    prompt = "Summarize the following conversation and tool results into 1 dense paragraph. Focus on: which files were read/changed, which errors were found, and what the next step is. Ignore pleasantries.\n\n"
     for msg in messages_to_summarize:
         role = msg.get("role", "")
         content = str(msg.get("content", ""))[:1000]
@@ -606,7 +606,7 @@ async def execute_summarize(context_manager, history, threshold=15):
 
     # Remove old history and fill it with the summary + the most recent messages
     context_manager.clear_history()
-    context_manager.add_message("user", f"[RINGKASAN SESI SEBELUMNYA]: {summary_text}")
+    context_manager.add_message("user", f"[SUMMARY OF PREVIOUS SESSION]: {summary_text}")
     for m in recent_messages:
         context_manager.add_message(
             m["role"],
@@ -716,28 +716,28 @@ async def chat_with_orion(request: ChatRequest):
 
     _aktif = str(_editor_ctx.get("activeFile") or "")
     if _aktif and not _aktif.startswith(".."):
-        _editor_block += f"\n\nFILE YANG SEDANG DIBUKA USER SAAT INI: {_aktif}"
+        _editor_block += f"\n\nFILE THE USER CURRENTLY HAS OPEN: {_aktif}"
 
     _sel = str(_editor_ctx.get("selection") or "")
     if _sel:
-        _editor_block += f"\n\nTEKS YANG SEDANG DISOROT USER DI FILE ITU:\n```\n{_sel[:4000]}\n```"
+        _editor_block += f"\n\nTEXT THE USER CURRENTLY HAS SELECTED IN THAT FILE:\n```\n{_sel[:4000]}\n```"
 
     _diags = _editor_ctx.get("diagnostics") or []
     if isinstance(_diags, list) and _diags:
         _editor_block += (
-            "\n\nDIAGNOSTICS TERBARU DARI VS CODE (panel Problems). "
-            "Ini FAKTA tentang keadaan kode saat ini, lebih akurat daripada dugaanmu:\n"
+            "\n\nLATEST DIAGNOSTICS FROM VS CODE (Problems panel). "
+            "These are FACTS about the current state of the code, more accurate than your guesses:\n"
             + "\n".join(str(d) for d in _diags[:30])
-            + "\n\nATURAN: kalau kamu baru saja mengubah sebuah file dan daftar di atas "
-            "menyebut ERROR pada file tersebut, berarti perubahanmu RUSAK atau belum lengkap. "
-            "Perbaiki dulu sampai errornya hilang SEBELUM melaporkan tugas selesai. "
-            "Kalau errornya ada di file yang tidak kamu sentuh, sebutkan ke user sebagai temuan, "
-            "jangan diam-diam abaikan."
+            + "\n\nRULE: if you just changed a file and the list above "
+            "mentions an ERROR in that file, your change is BROKEN or incomplete. "
+            "Fix it first until the error is gone BEFORE reporting the task complete. "
+            "If the error is in a file you did not touch, mention it to the user as a finding, "
+            "do not silently ignore it."
         )
 
     context_message = {
         "role": "user",
-        "content": f"Struktur project saat ini:\n{context_manager.get_project_map()}"
+        "content": f"Current project structure:\n{context_manager.get_project_map()}"
         + _editor_block,
     }
 
@@ -844,7 +844,7 @@ async def chat_with_orion(request: ChatRequest):
 
                     # Save to history so Orion remembers it was already warned
                     context_manager.add_message(
-                        "user", f"[PERINGATAN SISTEM]: {warning_msg}"
+                        "user", f"[SYSTEM WARNING]: {warning_msg}"
                     )
 
                     # Send to the frontend and PAUSE
@@ -885,7 +885,7 @@ async def chat_with_orion(request: ChatRequest):
                         msg_content = api_messages[i].get("content", "")
                         if (
                             api_messages[i].get("role") == "user"
-                            and "Struktur project saat ini" not in msg_content
+                            and "Current project structure" not in msg_content
                         ):
                             last_user_idx = i
                             break
@@ -939,13 +939,13 @@ async def chat_with_orion(request: ChatRequest):
 
                             if has_options:
                                 reminder = (
-                                    "\n\n[SYSTEM CONTEXT REMINDER - WAJIB DIPATUHI]:\n"
-                                    "User sedang MENJAWAB pertanyaan/pilihan yang ANDA sendiri berikan di pesan sebelumnya.\n"
-                                    "1. JAWAB LANGSUNG berdasarkan konteks rekomendasi Anda sebelumnya.\n"
-                                    "2. JANGAN bertanya balik 'untuk keperluan apa'.\n"
-                                    "3. JANGAN memanggil tool read_file untuk membaca .orion/ atau file dokumentasi apapun.\n"
-                                    "4. Fokus 100% pada apa yang user pilih dan langsung eksekusi.\n"
-                                    "[AKHIR REMINDER]"
+                                    "\n\n[SYSTEM CONTEXT REMINDER - MUST BE OBEYED]:\n"
+                                    "The user is ANSWERING a question/set of options that YOU yourself gave in your previous message.\n"
+                                    "1. ANSWER DIRECTLY based on the context of your previous recommendation.\n"
+                                    "2. Do NOT ask back 'what is it for'.\n"
+                                    "3. Do NOT call the read_file tool to read .orion/ or any documentation file.\n"
+                                    "4. Focus 100% on what the user chose and execute immediately.\n"
+                                    "[END OF REMINDER]"
                                 )
                                 api_messages[last_user_idx]["content"] = (
                                     user_content + reminder
@@ -974,7 +974,7 @@ async def chat_with_orion(request: ChatRequest):
                         compressed_msg = msg.copy()
                         compressed_msg["content"] = (
                             str(compressed_msg["content"])[:500]
-                            + "\n\n[...DIPOTONG KARENA SUDAH LAMA, LIHAT KESIMPULAN ASSISTEN...]"
+                            + "\n\n[...TRUNCATED BECAUSE IT IS OLD; SEE THE ASSISTANT'S CONCLUSION...]"
                         )
                         compressed_messages.append(compressed_msg)
 
@@ -983,7 +983,7 @@ async def chat_with_orion(request: ChatRequest):
                         if i < total_msgs - 2:
                             compressed_msg = msg.copy()
                             compressed_msg["content"] = (
-                                "[OUTPUT PANJANG SEBELUMNYA TELAH DIPROSES OLEH ASISTEN. Lihat pesan 'assistant' setelah ini untuk kesimpulannya. Jangan baca ulang.]"
+                                "[THE PREVIOUS LONG OUTPUT HAS ALREADY BEEN PROCESSED BY THE ASSISTANT. See the following 'assistant' message for its conclusion. Do not re-read it.]"
                             )
                             compressed_messages.append(compressed_msg)
                         else:
@@ -1016,9 +1016,9 @@ async def chat_with_orion(request: ChatRequest):
                             context_manager,
                             keep_last_n=16,
                             notice=(
-                                "[SYSTEM NOTICE]: Sebagian riwayat lama dipangkas otomatis "
-                                "karena mendekati batas token. Kesimpulan penting (file yang "
-                                "diubah, error yang ditemukan) tetap ada di pesan-pesan terakhir."
+                                "[SYSTEM NOTICE]: Part of the old history was automatically pruned "
+                                "because it approached the token limit. Important conclusions (files "
+                                "changed, errors found) remain in the most recent messages."
                             ),
                         )
                         if pruned:
@@ -1189,7 +1189,7 @@ async def chat_with_orion(request: ChatRequest):
                     if not is_400_error:
                         context_manager.add_message(
                             "user",
-                            "[SYSTEM RECOVERY]: Koneksi terputus. Lanjutkan dengan model alternatif.",
+                            "[SYSTEM RECOVERY]: Connection lost. Continue with an alternative model.",
                         )
 
                     continue  # Continue to the next iteration (the fallback will be tried by llm_router)
@@ -1670,7 +1670,7 @@ async def chat_with_orion(request: ChatRequest):
                                 # tool_results are stored, so the message order stays
                                 # valid. <<<
                                 pending_system_notices.append(
-                                    f"[SYSTEM EMERGENCY STOP]: Perintah '{func_name}' telah gagal 3 kali berturut-turut. STOP mencoba variasi yang sama. Baca baik-baik pesan error di output sebelumnya, laporkan inti masalahnya ke user, dan minta instruksi baru. JANGAN mencoba menjalankan perintah ini lagi."
+                                    f"[SYSTEM EMERGENCY STOP]: The command '{func_name}' has failed 3 times in a row. STOP trying variations of the same thing. Read the error message in the previous output carefully, report the core problem to the user, and ask for new instructions. Do NOT try running this command again."
                                 )
                                 # >>> PATCH ORION-35: AUTOMATIC RESEARCH WHEN STUCK ====
                                 # This anti-loop moment used to mean "give up and report
@@ -1690,14 +1690,14 @@ async def chat_with_orion(request: ChatRequest):
                                         _kueri_riset, max_results=3)
                                     logger.info("[AUTO RESEARCH] query=%s", _kueri_riset)
                                 except Exception as _err_riset:  # noqa: BLE001
-                                    _temuan_riset = f"(riset otomatis gagal: {_err_riset})"
+                                    _temuan_riset = f"(automatic research failed: {_err_riset})"
                                 pending_system_notices.append(
-                                    "[SYSTEM - RISET OTOMATIS]: Sebelum menyerah dan lapor "
-                                    "user, bacalah temuan web berikut lalu coba SATU pendekatan "
-                                    "yang BERBEDA dari yang sudah gagal, berbasis temuan ini:\n"
+                                    "[SYSTEM - AUTOMATIC RESEARCH]: Before giving up and reporting to the "
+                                    "user, read the following web findings, then try ONE approach "
+                                    "that is DIFFERENT from what already failed, based on these findings:\n"
                                     + str(_temuan_riset)[:2500]
-                                    + "\n\nKalau temuan ini tidak memadai, BARU laporkan ke user: "
-                                    "apa yang sudah dicoba, apa temuannya, dan apa rekomendasimu."
+                                    + "\n\nOnly if these findings are inadequate, THEN report to the user: "
+                                    "what was tried, what was found, and what you recommend."
                                 )
                                 # >>> END OF PATCH ORION-35 =========================
                                 last_tool_calls = []  # Reset after the warning
@@ -1739,7 +1739,7 @@ async def chat_with_orion(request: ChatRequest):
                     if has_terminal_error:
                         context_manager.add_message(
                             "user",
-                            f"[SYSTEM AUTO-CORRECTION MODE]: Perintah terminal gagal.\nError Snippet: {error_snippet}\n\nTUGAS: JANGAN bertanya ke user. Analisis error ini. JANGAN gunakan read_file penuh. Gunakan read_file_range jika perlu melihat konteks, lalu gunakan edit_file untuk memperbaikinya SEKARANG JUGA. Lakukan maksimal 2 iterasi perbaikan otomatis.",
+                            f"[SYSTEM AUTO-CORRECTION MODE]: A terminal command failed.\nError Snippet: {error_snippet}\n\nTASK: do NOT ask the user. Analyze this error. Do NOT use full read_file. Use read_file_range if you need to see context, then use edit_file to fix it RIGHT NOW. Perform at most 2 automatic fix iterations.",
                         )
                         print(
                             "[ORION SELF-CORRECT] Error detected. Forcing auto-fix mode (token-efficient)."
@@ -1824,13 +1824,13 @@ async def chat_with_orion(request: ChatRequest):
                                 )
                                 context_manager.add_message(
                                     "user",
-                                    "[SYSTEM - LANJUTKAN]: Bagian pertama sudah dikerjakan, tapi "
-                                    f"task user BELUM selesai. Masih ada {_sisa} item di todo list.\n"
-                                    f"Item berikutnya: `[{_next_id}]` {_next_text}\n\n"
-                                    "INSTRUKSI: JANGAN menyimpulkan task selesai dan JANGAN bertanya "
-                                    f"ke user. Kerjakan item `[{_next_id}]` SEKARANG. Setelah benar-benar "
-                                    "selesai, panggil tool `update_todos` untuk menandainya 'completed', "
-                                    "lalu lanjut ke item berikutnya.",
+                                    "[SYSTEM - CONTINUE]: The first part has been done, but "
+                                    f"the user's task is NOT finished. There are still {_sisa} items on the todo list.\n"
+                                    f"Next item: `[{_next_id}]` {_next_text}\n\n"
+                                    "INSTRUCTION: do NOT conclude the task is complete and do NOT ask "
+                                    f"the user anything. Work on item `[{_next_id}]` NOW. Once it is truly "
+                                    "done, call the `update_todos` tool to mark it 'completed', "
+                                    "then continue to the next item.",
                                 )
                                 yield sse.ev('status', text=f'Continuing with todo [{_next_id}]...')
                                 yield sse.ev('todo_update', markdown=todo_manager.render_markdown(), todos=todo_manager.get_todos())
@@ -1947,21 +1947,21 @@ async def chat_with_orion(request: ChatRequest):
                             )
                             context_manager.add_message(
                                 "user",
-                                "[SYSTEM - KLAIM ANDA DITOLAK]: Anda melaporkan pekerjaan selesai, "
-                                "tapi pada giliran ini TIDAK ADA satu pun file yang berhasil Anda "
-                                "ubah atau buat. Laporan Anda tidak bisa diterima sebagai kebenaran.\n\n"
-                                "WAJIB lakukan sekarang, berurutan:\n"
-                                "0. Kalau klaim Anda menyangkut file .html/.js, JALANKAN tool `verify_html` "
-                                "pada file itu SEKARANG dan kutip hasilnya apa adanya, termasuk kalau "
-                                "hasilnya berisi error. Jangan menyebut 'tervalidasi' tanpa output tool ini.\n"
-                                "1. Sebutkan nama file + nomor baris yang Anda klaim sudah berisi fitur itu.\n"
-                                "2. Buktikan dengan `search_code` atau `read_file_range` pada file tersebut.\n"
-                                "3. Kalau buktinya ADA: kutip barisnya, lalu laporkan bahwa pekerjaan "
-                                "ini ternyata sudah dikerjakan sebelumnya (bukan oleh Anda sekarang).\n"
-                                "4. Kalau buktinya TIDAK ADA: katakan terus terang 'fitur ini belum ada', "
-                                "lalu BUAT sekarang dengan `edit_file`/`write_file`.\n\n"
-                                "JANGAN mengulang klaim tanpa bukti. JANGAN meng-audit ulang untuk "
-                                "membenarkan diri. Jangan bertanya ke user sebelum langkah 1-2 selesai.",
+                                "[SYSTEM - YOUR CLAIM IS REJECTED]: You reported the work as complete, "
+                                "but on this turn NOT A SINGLE file was successfully "
+                                "changed or created by you. Your report cannot be accepted as truth.\n\n"
+                                "You MUST do the following now, in order:\n"
+                                "0. If your claim concerns .html/.js files, RUN the `verify_html` tool "
+                                "on that file NOW and quote its results verbatim, including when "
+                                "the results contain errors. Do not say 'validated' without this tool's output.\n"
+                                "1. State the file name + line number you claim already contains that feature.\n"
+                                "2. Prove it with `search_code` or `read_file_range` on that file.\n"
+                                "3. If the evidence EXISTS: quote the lines, then report that this work "
+                                "turns out to have been done previously (not by you just now).\n"
+                                "4. If the evidence DOES NOT exist: say plainly 'this feature does not exist yet', "
+                                "then CREATE it now with `edit_file`/`write_file`.\n\n"
+                                "Do NOT repeat the claim without evidence. Do NOT re-audit to "
+                                "justify yourself. Do not ask the user anything before steps 1-2 are done.",
                             )
                             yield sse.ev('status', text='🔍 Verifying completion claim (0 files changed)...')
                             continue
