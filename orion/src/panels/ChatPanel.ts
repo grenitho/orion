@@ -135,9 +135,9 @@ export class ChatPanel {
                 <div id="input-area">
                     <!-- ORION-22: layout dikembalikan sederhana. Kotak ketik memakai
                          flex:1 dari CSS #input-area sehingga lebarnya penuh. -->
-                    <textarea id="msg-input" placeholder="Ketik perintah... (Shift+Enter untuk baris baru)" rows="3"
+                    <textarea id="msg-input" placeholder="Type a command... (Shift+Enter for a new line)" rows="3"
                               style="flex:1 1 auto;min-width:0;min-height:62px;"></textarea>
-                    <button id="send-btn">Kirim</button>
+                    <button id="send-btn">Send</button>
                     <button id="cancel-btn">Cancel</button>
                 </div>
                 </div>
@@ -201,7 +201,7 @@ export class ChatPanel {
                         input.value = '';
                         isProcessing = true;
                         btn.disabled = true;
-                        btn.innerText = 'Memproses...';
+                        btn.innerText = 'Processing...';
                         cancelBtn.classList.add('visible');
 
                         vscode.postMessage({ command: 'chat', text: text });
@@ -229,10 +229,10 @@ export class ChatPanel {
                         const baris = (todos || []).map(t =>
                             '<div>' + (ikon[t.status] || '\u2b1c') + ' <code>[' + t.id + ']</code> ' +
                             String(t.text).replace(/</g, '&lt;') +
-                            (t.status === 'completed' ? ' <span style=\"opacity:.6\">\u2014 selesai</span>' : '') +
+                            (t.status === 'completed' ? ' <span style=\"opacity:.6\">\u2014 done</span>' : '') +
                             '</div>'
                         ).join('');
-                        box.innerHTML = '<div style=\"font-weight:600;margin-bottom:4px\">Daftar Tugas (' +
+                        box.innerHTML = '<div style=\"font-weight:600;margin-bottom:4px\">Task List (' +
                             selesai + '/' + total + ')</div>' + baris;
                         box.scrollIntoView({ block: 'end', behavior: 'smooth' });
                     }
@@ -242,25 +242,25 @@ export class ChatPanel {
                         if (msg.command === 'stream_done') {
                             isProcessing = false;
                             btn.disabled = false;
-                            btn.innerText = 'Kirim';
+                            btn.innerText = 'Send';
                             cancelBtn.classList.remove('visible'); // >>> BARU
                         } else if (msg.command === 'stream_error') {
                             isProcessing = false;
                             btn.disabled = false;
-                            btn.innerText = 'Kirim';
+                            btn.innerText = 'Send';
                             cancelBtn.classList.remove('visible'); // >>> BARU
                             appendMsg('⚠️ **Error:** ' + msg.text, 'ai');
                         } else if (msg.command === 'stream_cancelled') {
                             // >>> BARU: dibatalkan user, bukan error sungguhan
                             isProcessing = false;
                             btn.disabled = false;
-                            btn.innerText = 'Kirim';
+                            btn.innerText = 'Send';
                             cancelBtn.classList.remove('visible');
-                            appendMsg('🛑 Dibatalkan oleh pengguna.', 'ai');
+                            appendMsg('🛑 Cancelled by the user.', 'ai');
                         } else if (msg.command === 'ask_user') {
                             isProcessing = false;
                             btn.disabled = false;
-                            btn.innerText = 'Kirim';
+                            btn.innerText = 'Send';
                             cancelBtn.classList.remove('visible'); // >>> BARU
                             appendMsg('❓ ' + msg.question, 'ai');
                         } else if (msg.command === 'append_token') {
@@ -316,7 +316,7 @@ export class ChatPanel {
                 if (!editor.selection.isEmpty) {
                     selection = editor.document.getText(editor.selection);
                     if (selection.length > 4000) {
-                        selection = selection.slice(0, 4000) + '\n...[sorotan dipotong]';
+                        selection = selection.slice(0, 4000) + '\n...[selection truncated]';
                     }
                 }
             } catch (e) {
@@ -353,7 +353,7 @@ export class ChatPanel {
         // >>> BARU: handler untuk tombol Cancel
         if (message.command === 'cancel') {
             if (this._currentAbortController) {
-                this._activity.addActivity('Membatalkan proses...', '');
+                this._activity.addActivity('Cancelling process...', '');
                 this._currentAbortController.abort();
                 this._currentAbortController = undefined;
             }
@@ -361,7 +361,7 @@ export class ChatPanel {
         }
 
         if (message.command === 'chat') {
-            this._activity.addActivity('Mengirim pesan...', message.text);
+            this._activity.addActivity('Sending message...', message.text);
             // >>> BARU: buat controller baru untuk request ini, simpan supaya bisa di-abort
             const controller = new AbortController();
             this._currentAbortController = controller;
@@ -428,19 +428,19 @@ export class ChatPanel {
                 // "Sukses" padahal pekerjaan berhenti separuh. Sekarang dibedakan:
                 // hanya dianggap sukses kalau backend benar-benar mengirim sinyal selesai.
                 if (this._sawTerminalEvent) {
-                    this._activity.addActivity('Selesai', 'Sukses');
+                    this._activity.addActivity('Finished', 'Success');
                     this._panel.webview.postMessage({ command: 'stream_done' });
                 } else {
-                    const msg = 'Koneksi ke backend terputus sebelum pekerjaan selesai. ' +
-                        'Periksa .orion/logs/backend.log untuk detailnya.';
-                    this._activity.addActivity('Terputus', msg);
+                    const msg = 'Connection to the backend was lost before the work finished. ' +
+                        'Check .orion/logs/backend.log for details.';
+                    this._activity.addActivity('Disconnected', msg);
                     this._panel.webview.postMessage({ command: 'stream_error', text: msg });
                 }
 
             } catch (e: any) {
                 // >>> BARU: bedakan pembatalan manual (AbortError) dari error sungguhan
                 if (e.name === 'AbortError') {
-                    this._activity.addActivity('Dibatalkan', 'User membatalkan proses');
+                    this._activity.addActivity('Cancelled', 'User cancelled the process');
                     this._panel.webview.postMessage({ command: 'stream_cancelled' });
                 } else {
                     this._activity.addActivity('Error', e.message);
@@ -499,7 +499,7 @@ export class ChatPanel {
     private async _handleTerminalConfirmation(command: string) {
         // 1. Munculkan Pop-up Modal di VS Code
         const choice = await vscode.window.showWarningMessage(
-            `Orion ingin menjalankan perintah berisiko:\n\n${command}\n\nApakah Anda mengizinkannya?`,
+            `Orion wants to run a risky command:\n\n${command}\n\nDo you allow it?`,
             { modal: true },
             'Approve', 'Reject'
         );
@@ -531,15 +531,15 @@ export class ChatPanel {
         }
 
         // 3. Tampilkan status di Chat Panel agar user tahu apa yang terjadi
-        const statusText = choice === 'Approve' ? 'Perintah disetujui dan dieksekusi.' : 'Perintah ditolak oleh user.';
-        this._panel.webview.postMessage({ command: 'append_token', text: `\n\n**[Sistem: ${statusText}]**\n\n` });
+        const statusText = choice === 'Approve' ? 'Command approved and executed.' : 'Command rejected by the user.';
+        this._panel.webview.postMessage({ command: 'append_token', text: `\n\n**[System: ${statusText}]**\n\n` });
 
         // 4. Kirim feedback kembali ke backend agar Orion bisa melanjutkan agentic loop
         await this._sendFeedbackToOrion(feedbackMessage);
     }
 
     private async _sendFeedbackToOrion(message: string) {
-        this._activity.addActivity('Melanjutkan setelah konfirmasi terminal...', message);
+        this._activity.addActivity('Resuming after terminal confirmation...', message);
 
         // >>> BARU: pasang AbortController juga di jalur ini, supaya tombol Cancel
         // tetap berfungsi walau sedang di tengah proses lanjutan pasca-konfirmasi terminal.
@@ -556,7 +556,7 @@ export class ChatPanel {
             });
 
             if (!response.ok || !response.body) {
-                throw new Error("Gagal mengirim feedback ke backend");
+                throw new Error("Failed to send feedback to the backend");
             }
 
             // Baca stream response dari backend (sama persis seperti di _handleMessage)

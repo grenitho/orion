@@ -102,7 +102,7 @@ export class PerformancePanel {
             <body>
                 <h1>📊 Orion Performance Dashboard</h1>
                 <div id="dashboard-content">
-                    <div class="loading">Memuat data statistik...</div>
+                    <div class="loading">Loading statistics...</div>
                 </div>
 
                 <script>
@@ -125,14 +125,14 @@ export class PerformancePanel {
                             html += '<div class="card"><h3>Total Requests</h3><div class="value">' + s.total_requests + '</div></div>';
                             html += '<div class="card"><h3>Total Input Tokens</h3><div class="value" style="color: #4caf50;">' + s.total_input_tokens.toLocaleString() + '</div></div>';
                             html += '<div class="card"><h3>Total Output Tokens</h3><div class="value" style="color: #2196f3;">' + s.total_output_tokens.toLocaleString() + '</div></div>';
-                            html += '<div class="card"><h3>Estimasi Biaya (USD)</h3><div class="value">$' + s.total_cost_usd.toFixed(6) + '</div></div>';
-                            html += '<div class="card"><h3>Rata-rata Waktu (ms)</h3><div class="value">' + s.avg_response_time_ms + ' ms</div></div>';
-                            html += '<div class="card"><h3>Berhasil / Gagal</h3><div class="value"><span class="status-success">' + s.success_count + '</span> / <span class="status-error">' + s.error_count + '</span></div></div>';
+                            html += '<div class="card"><h3>Estimated Cost (USD)</h3><div class="value">$' + s.total_cost_usd.toFixed(6) + '</div></div>';
+                            html += '<div class="card"><h3>Average Time (ms)</h3><div class="value">' + s.avg_response_time_ms + ' ms</div></div>';
+                            html += '<div class="card"><h3>Success / Failed</h3><div class="value"><span class="status-success">' + s.success_count + '</span> / <span class="status-error">' + s.error_count + '</span></div></div>';
                             html += '</div>';
 
                             if (logs.length > 0) {
-                                html += '<h3>Riwayat 10 Request Terakhir</h3>';
-                                html += '<table><thead><tr><th>Waktu</th><th>Model</th><th>Input/Output (chars)</th><th>Waktu (ms)</th><th>Status</th></tr></thead><tbody>';
+                                html += '<h3>Last 10 Requests</h3>';
+                                html += '<table><thead><tr><th>Time</th><th>Model</th><th>Input/Output (chars)</th><th>Time (ms)</th><th>Status</th></tr></thead><tbody>';
                                 logs.reverse().forEach(log => {
                                     const time = new Date(log.timestamp).toLocaleTimeString();
                                     const statusClass = log.status === 'success' ? 'status-success' : 'status-error';
@@ -146,12 +146,12 @@ export class PerformancePanel {
                                 });
                                 html += '</tbody></table>';
                             } else {
-                                html += '<div class="loading">Belum ada data log. Coba chat dengan Orion terlebih dahulu.</div>';
+                                html += '<div class="loading">No log data yet. Try chatting with Orion first.</div>';
                             }
 
                             document.getElementById('dashboard-content').innerHTML = html;
                         } catch (e) {
-                            document.getElementById('dashboard-content').innerHTML = '<div class="loading">Gagal terhubung ke backend. Pastikan backend Orion berjalan.</div>';
+                            document.getElementById('dashboard-content').innerHTML = '<div class="loading">Failed to connect to the backend. Make sure the Orion backend is running.</div>';
                         }
                     }
 

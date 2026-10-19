@@ -23,12 +23,12 @@ export class ActivityProvider implements vscode.TreeDataProvider<ActivityItem> {
     constructor() {
         this.items = [
             new ActivityItem(
-                'Klik untuk buka Chat Panel',
+                'Click to open the Chat Panel',
                 undefined,
                 new vscode.ThemeIcon('comment-discussion'),
                 { command: 'orion.openChat', title: 'Open Chat' }
             ),
-            new ActivityItem('Menunggu perintah...', 'Siap', new vscode.ThemeIcon('circle-outline'))
+            new ActivityItem('Waiting for commands...', 'Ready', new vscode.ThemeIcon('circle-outline'))
         ];
     }
 
@@ -44,7 +44,7 @@ export class ActivityProvider implements vscode.TreeDataProvider<ActivityItem> {
     clearActivities() {
         this.items = [
             new ActivityItem(
-                'Klik untuk buka Chat Panel',
+                'Click to open the Chat Panel',
                 undefined,
                 new vscode.ThemeIcon('comment-discussion'),
                 { command: 'orion.openChat', title: 'Open Chat' }
