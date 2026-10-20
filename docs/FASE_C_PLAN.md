@@ -183,20 +183,22 @@ touching later work. The pre-Phase-C tag is recommended before step 1:
 
 ## Backlog (temptations deferred during Phase C)
 
-- **`edit_file` success is never recorded in `files_changed_this_turn`.** main.py
-  gates the recording on `result.lower().startswith("success")` (pre-i18n:
-  `"sukses"`), but `ToolExecutor.edit_file` returns a message starting with
-  "Edited file ..." (pre-i18n: "Berhasil mengedit ..."), so only `write_file`
-  ever trips the gate. Pre-existing behaviour; Phase D preserved it exactly
-  (the translated edit result deliberately does NOT start with "Success").
-  Fixing it is a behaviour change (the claim-verification gate would see
-  evidence after pure-edit turns) and belongs in its own commit with its own
-  test, after Phase C.
-- **System prompt tells the model to `git push` via run_terminal**, while the
-  code-level guard blocks `git push` there (by design; the prompt's own git
-  section also says pushes are the user's manual action). The instructions
-  contradict each other; reconciling them is a prompt-behaviour change, not
-  i18n. Left verbatim during Phase D.
+Both items below were fixed in UPDATE-004, after Phase C completed, each in
+its own commit with its own test — exactly as this section prescribed.
+
+- **FIXED (`c0fd24b`): `edit_file` success is never recorded in
+  `files_changed_this_turn`.** The loop gates evidence and post-edit
+  verification on results starting with "success"; edit_file now returns
+  "Success: edited file ...", so pure-edit turns produce evidence and the
+  post-edit verifier runs. Covered by a contract test in test_tool_dispatch
+  and by SSE baseline scenarios f (write+edit+claim) and g (edit-only+claim,
+  which now reaches the checkpoint instead of being challenged twice).
+- **FIXED (`4f3908c`): system prompt told the model to `git push` via
+  run_terminal** while the code guard blocks it there. The prompt's git
+  section now routes checkpoints through the `git_commit` tool, names push
+  as the user's manual action, and falls back to `.orion/backups` for
+  non-repo projects — consistent with GIT_DIBLOKIR and the anti-hallucination
+  rules.
 
 ---
 

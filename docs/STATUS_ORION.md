@@ -212,9 +212,9 @@ Pencatatan di log startup kini berbunyi `[TOOLS] Consistent: 22 tools
 declared & dispatched.` (sebelum Fase D: `[TOOLS] Konsisten: 22 tool ...`).
 Baseline SSE untuk verifikasi refactoring bisa direkam tanpa API key lewat
 mock LLM deterministik — prosedurnya tercantum di FASE_C_PLAN.md bagian 5.
-Backlog Fase C berisi dua godaan yang sengaja TIDAK diperbaiki saat
-memindah/menerjemahkan kode (matcher `startswith("success")` yang tidak
-pernah cocok untuk `edit_file`, dan kontradiksi instruksi `git push` di
-system prompt) — perbaiki di commit terpisah, jangan dicuri start dari
-langkah refactoring. Skenario manual VS Code c/d (file rusak → `verify_code`;
+Dua godaan yang dulu dicatat di backlog Fase C (matcher
+`startswith("success")` yang tidak pernah cocok untuk `edit_file`, dan
+kontradiksi instruksi `git push` di system prompt) **sudah diperbaiki** di
+UPDATE-004 (`c0fd24b`, `4f3908c`) — masing-masing commit terpisah dengan
+test sendiri, setelah Fase C selesai, persis seperti aturan backlog. Skenario manual VS Code c/d (file rusak → `verify_code`;
 Cancel di tengah generasi) masih perlu dicoba sekali sebelum rilis.
