@@ -8,6 +8,8 @@ is spawned.
 
 These tests ensure:
   - every family of forbidden commands is really rejected
+  - wrapped / chained forms (cmd /c, powershell -Command, &&, sh -c) are
+    rejected too (UPDATE-008 hardening: patterns are unanchored now)
   - rejection happens WITHOUT side effects (no .git is created)
   - safe commands still run (no over-blocking)
 """
@@ -36,6 +38,14 @@ DIBLOKIR = [
     "git branch -D fitur",
     "git rebase main",
     "git merge fitur",
+    # UPDATE-008: wrapped / chained forms that the old "^git ..." anchor missed
+    "cmd /c git push origin main",
+    "cmd.exe /k git init",
+    'powershell -Command "git push origin main"',
+    "pwsh -c 'git fetch --all'",
+    "cd repo && git push",
+    "echo siap && git pull --rebase",
+    "sh -c 'git clone https://contoh.dev/x.git'",
 ]
 
 AMAN = [
@@ -43,6 +53,10 @@ AMAN = [
     "git diff",
     "git log --oneline -3",
     "echo halo",
+    # UPDATE-008: mentions of the words without the literal "git <verb>" pair
+    "git log --grep push",
+    "npm run deploy",
+    "echo git-push-sama-git-clone",
 ]
 
 

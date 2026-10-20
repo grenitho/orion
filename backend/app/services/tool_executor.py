@@ -11,15 +11,27 @@ import sys
 
 class ToolExecutor:
     # >>> PATCH ORION-27b: list of git operations forbidden through run_terminal.
+    # >>> UPDATE-008 hardening: the four network/hang patterns below are
+    # deliberately UNANCHORED. The old "^git ..." anchor only caught a bare
+    # command, so wrapped or chained forms slipped past this list:
+    #   cmd /c git push ..., powershell -Command "git push ...",
+    #   cd repo && git push, sh -c 'git clone ...'
+    # (those forms still hit the extension's DANGEROUS_PATTERNS approval
+    # modal, but the backend rejection is the layer that must stay
+    # authoritative — a modal can be clicked away, this cannot.)
+    # Accepted trade-off: a harmless command that merely CONTAINS the literal
+    # text e.g. "git push" (echoing it into a notes file) is rejected too;
+    # the rejection message then tells the agent to leave the action to the
+    # user, which is always the safe direction.
     GIT_DIBLOKIR = [
-        (r"^git\s+init\b", "restructures folders and is proven to hang",
+        (r"git\s+init\b", "restructures folders and is proven to hang",
          "No git repo is needed to work. Safe points are available via .orion/backups "
          "and the git_commit tool (when a repo already exists)."),
-        (r"^git\s+push\b", "sends code to an external server without review first",
+        (r"git\s+push\b", "sends code to an external server without review first",
          "Ask the user to run push themselves after reviewing the changes."),
-        (r"^git\s+(pull|fetch)\b", "pulls remote changes that may auto-merge",
+        (r"git\s+(pull|fetch)\b", "pulls remote changes that may auto-merge",
          "Ask the user to run pull/fetch themselves."),
-        (r"^git\s+clone\b", "downloads large repos and can hang past the timeout",
+        (r"git\s+clone\b", "downloads large repos and can hang past the timeout",
          "Ask the user to clone it themselves, then point the project at the resulting folder."),
         (r"git\s+reset\s+--hard|git\s+clean\s+-f|git\s+checkout\s+\.\s*$|"
          r"git\s+restore\s+\.\s*$|git\s+branch\s+-[dD]\b",
