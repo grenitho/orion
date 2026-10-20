@@ -162,6 +162,10 @@ Keep `baseline_sse.txt` outside the repo. After each step, re-record and diff th
 
 ## 6. Manual acceptance scenarios (after step 4)
 
+Scenarios c and d have a checked-in runbook with server-side evidence:
+`docs/RELEASE_GATES_MANUAL.md`. Scenarios a and b are covered end-to-end
+by the mock harness recordings.
+
 a) multi-item task ("add X, test X, update README") → todo list appears, all items done
 b) a task that triggers a dangerous command → approval modal, then continuation
 c) a deliberately broken file + "fix it" → `verify_code` cited with line number
