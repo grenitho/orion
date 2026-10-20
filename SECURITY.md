@@ -1,40 +1,44 @@
-# KEAMANAN ORION
+# ORION SECURITY
 
-Dokumen ini untuk Anda yang menjalankan Orion di mesin sendiri, dan untuk
-kontributor yang membaca kode ini.
+For those who run Orion on their own machine, and for contributors reading
+the code.
 
-## Model ancaman yang kami akui secara terbuka
+## The threat model we acknowledge openly
 
-Orion adalah agent yang **menjalankan perintah shell dan menulis file** di mesin
-tempat ia dipasang. Itu sumber kekuatannya dan sumber risikonya. Berikut batasannya:
+Orion is an agent that **runs shell commands and writes files** on the machine
+it is installed on. That is the source of its power and of its risk. These are
+the boundaries:
 
-| Lapisan | Keadaan |
+| Layer | State |
 |---|---|
-| Bind jaringan | Backend bind **eksplisit** ke `127.0.0.1:8000`. Tidak terjangkau dari mesin lain |
-| CORS | **Tertutup** (`allow_origins=[]`, hanya regex `vscode-webview://`). Halaman web jahat tidak bisa memanggil backend dari browser |
-| Perintah shell | `run_terminal` memfilter pola berbahaya + modal konfirmasi di VS Code; `git init/push/pull/clone/reset/rebase` **diblokir di level kode** |
-| Path | Semua operasi file dijaga agar tidak keluar dari folder project (path traversal ditolak) |
-| Web fetch | Proteksi SSRF: localhost, IP privat, loopback, link-local, dan alamat metadata ditolak |
-| Backup | Setiap penimpaan/hapus file meninggalkan salinan di `.orion/backups/` |
+| Network bind | Backend binds **explicitly** to `127.0.0.1:8000`. Unreachable from other machines |
+| CORS | **Closed** (`allow_origins=[]`, only the `vscode-webview://` regex). A malicious web page cannot call the backend from a browser |
+| Extension ↔ backend auth | **Shared-secret token** (`X-Orion-Token` header). Minted once into `~/.orion_shared_secret` (or `ORION_SHARED_TOKEN` env override on both sides); every route except the health probe `GET /` returns 401 without it. The extension attaches it automatically |
+| Shell commands | `run_terminal` filters dangerous patterns + a VS Code confirmation modal; `git init/push/pull/clone/reset/rebase` are **blocked at code level** |
+| Paths | All file operations are guarded to stay inside the project folder (path traversal rejected) |
+| Web fetch | SSRF protection: localhost, private IPs, loopback, link-local and metadata addresses are rejected |
+| Backups | Every overwrite/delete leaves a copy in `.orion/backups/` |
 
-## Yang TIDAK kami klaim
+## What we do NOT claim
 
-- **Tidak ada sandbox proses.** Perintah yang disetujui berjalan dengan hak user
-  yang menjalankan Orion. Jangan menjalankan Orion sebagai administrator/root.
-- **Tidak ada auth antara extension dan backend** selain CORS + loopback. Proses
-  lokal lain di mesin yang sama secara teori bisa memanggil endpoint. Token
-  bersama (shared secret) adalah penguatan yang direncanakan berikutnya.
-- **Model LLM bisa dibujuk** (prompt injection) lewat isi file atau halaman web
-  yang ia baca. Modal konfirmasi adalah pertahanan utama: **jangan matikan**.
+- **No process sandbox.** Approved commands run with the rights of the user
+  running Orion. Never run Orion as administrator/root.
+- **The shared token is a same-user boundary, not a fortress.** A malicious
+  process running under the same user account can read the token file. The
+  token closes the "any local process can call the endpoints" hole; the
+  confirmation modal remains the primary defense against a manipulated model.
+- **The LLM can be persuaded** (prompt injection) through file or web content
+  it reads. The confirmation modal is the main defense: **do not disable it**.
 
-## Data yang tidak boleh ikut ke repo / VSIX
+## Data that must never enter the repo / VSIX
 
-`.orion/` (riwayat percakapan, log performa, todo), `*.vsix` lama, `.env`,
-`__pycache__/`, `node_modules/`, `dist/`. Semuanya sudah ada di `.gitignore`
-dan `.vscodeignore`, dan ada test (`test_security_posture.py`) yang menolak
-regresi konfigurasi ini.
+`.orion/` (conversation history, performance logs, todos), old `*.vsix`
+files, `.env`, `__pycache__/`, `node_modules/`, `dist/`. All are in
+`.gitignore` and `.vscodeignore`, and `test_security_posture.py` rejects
+configuration regressions. The shared secret itself lives outside the repo,
+in the user's home directory.
 
-## Kalau Anda menemukan lubang
+## If you find a hole
 
-Laporkan lewat issue tanpa menyertakan payload aktif, atau hubungi maintainer
-secara privat bila itu lubang yang bisa langsung dipakai menyerang.
+Report it via an issue without including an active payload, or contact the
+maintainer privately when the hole is directly exploitable.

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ActivityProvider } from './ActivityProvider';
+import { orionHeaders } from '../services/authToken';
 
 export class ChatPanel {
     public static currentPanel: ChatPanel | undefined;
@@ -370,14 +371,14 @@ export class ChatPanel {
                 if (folders) {
                     await fetch('http://127.0.0.1:8000/set-project', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: orionHeaders(),
                         body: JSON.stringify({ path: folders[0].uri.fsPath })
                     });
                 }
 
                 const response = await fetch('http://127.0.0.1:8000/chat', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: orionHeaders(),
                     // >>> ATTACHMENT FEATURE: forward attachments from the webview to the backend
                     body: JSON.stringify({
                         message: message.text,
@@ -512,7 +513,7 @@ export class ChatPanel {
                 // Call the new backend endpoint for execution
                 const res = await fetch('http://127.0.0.1:8000/execute-terminal', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: orionHeaders(),
                     body: JSON.stringify({ command: command })
                 });
                 const result: any = await res.json();
@@ -550,7 +551,7 @@ export class ChatPanel {
             // Send the feedback message to the /chat endpoint
             const response = await fetch('http://127.0.0.1:8000/chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: orionHeaders(),
                 body: JSON.stringify({ message: message }),
                 signal: controller.signal
             });

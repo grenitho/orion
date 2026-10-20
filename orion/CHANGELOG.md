@@ -3,6 +3,15 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.6] - Unreleased
+
+### Added
+- Shared-secret token between extension and backend: minted once into
+  `~/.orion_shared_secret` (override: `ORION_SHARED_TOKEN` on both sides),
+  attached by the extension as `X-Orion-Token`; every backend route except
+  the health probe now answers 401 without it. Closes the last outstanding
+  SECURITY.md hardening promise.
+
 ## [0.0.5] - 2026-10-19
 
 ### Added

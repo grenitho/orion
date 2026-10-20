@@ -51,10 +51,10 @@ def validate_project_structure(project_path: str) -> list:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app.services import sse, stream_utils
+from app.services import auth, sse, stream_utils
 from app.services import tool_dispatch
 from app.services.agent_loop import Deps, aliran_agent
 from app.services.session_state import SessionState
@@ -129,6 +129,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# >>> SECURITY (UPDATE-003): SHARED-SECRET TOKEN ==========================
+# Loopback bind + closed CORS stop browsers and remote hosts, but any local
+# process could still call these endpoints. The middleware below demands the
+# X-Orion-Token header (see app/services/auth.py) on every route except the
+# bare health probe GET / and CORS preflight. The extension reads the same
+# token file, so normal installs need no configuration.
+@app.middleware("http")
+async def shared_secret_guard(request, call_next):
+    if request.method == "OPTIONS" or request.url.path == "/":
+        return await call_next(request)
+    if auth.request_is_authorized(request.headers):
+        return await call_next(request)
+    return JSONResponse(
+        {"error": "unauthorized: missing or wrong Orion shared token (X-Orion-Token)"},
+        status_code=401,
+    )
+# >>> END OF SHARED-SECRET TOKEN =========================================
 context_manager = ContextManager()
 tool_executor = None
 todo_manager = (
@@ -328,6 +347,11 @@ async def set_project(request: ProjectPathRequest):
 @app.on_event("startup")
 async def auto_restore_project():
     """Auto-restore the last project when the backend starts up."""
+    auth.get_shared_token()  # mint at startup so clients can read it immediately
+    print(
+        f"[ORION AUTH] Shared token file: {auth.token_file_path()} — "
+        "X-Orion-Token required on all routes except GET /"
+    )
     global tool_executor
     last_path = load_last_project()
     if last_path and os.path.isdir(last_path):

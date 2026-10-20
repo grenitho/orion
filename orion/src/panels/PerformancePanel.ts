@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { orionHeaders } from '../services/authToken';
 
 export class PerformancePanel {
     public static currentPanel: PerformancePanel | undefined;
@@ -110,7 +111,7 @@ export class PerformancePanel {
                     
                     async function loadData() {
                         try {
-                            const res = await fetch('http://127.0.0.1:8000/performance');
+                            const res = await fetch('http://127.0.0.1:8000/performance', { headers: orionHeaders() });
                             const data = await res.json();
                             
                             if (data.error) {

@@ -193,6 +193,7 @@ SECURITY.md              threat model and honest limitations
 | Backend silent / chat reports a lost connection | Read `<project>\.orion\logs\backend.log` (fallback: `backend\logs\backend.log`) and `~/orion_stdout.log`; make sure port 8000 is free |
 | `No module named 'mcp'` on the first chat | `pip install mcp` inside the backend venv (newer litellm needs it for tool calls) |
 | Extension shows a stale UI after updating | Fully restart VS Code and close old chat tabs |
+| `401 unauthorized` from chat or dashboard | Shared-token mismatch: restart the backend once, then reload the VS Code window; both re-read `~/.orion_shared_secret` |
 | Two Orion extensions installed at once | Keep exactly one (`code --list-extensions`); duplicate copies split the activity log and the chat panel |
 
 The extension auto-starts the backend when the opened workspace contains (or

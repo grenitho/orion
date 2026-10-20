@@ -99,6 +99,7 @@ that project without touching your code.
 | `No module named 'mcp'` on first chat | Newer `litellm` needs it for tool calls: `pip install mcp` inside the backend venv |
 | Port 8000 already in use | Kill the stale backend (close other VS Code windows running Orion, or stop the old uvicorn process) |
 | Extension shows old UI after an update | Fully restart VS Code and close old chat tabs |
+| `401 unauthorized` from chat or dashboard | Restart the backend once and reload the VS Code window; both re-read `~/.orion_shared_secret` |
 | Backend never auto-starts | Ensure the opened workspace contains or is near this repo's `backend/` folder, or start it manually (see Install §2) |
 
 ## Security & privacy

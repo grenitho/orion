@@ -12,7 +12,7 @@
     "theme": "dark"
   },
   "description": "Autonomous AI software engineer: plans with todo lists, edits code, runs tests and terminal commands with your approval, verifies its own work, and reports honestly — in your language.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "engines": {
     "vscode": "^1.125.0"
   },

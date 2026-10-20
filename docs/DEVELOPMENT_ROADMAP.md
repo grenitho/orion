@@ -20,18 +20,19 @@ For the agent-facing context document (the one Orion itself reads from
 | Safety | path-traversal guard, confirmation modals, destructive/remote git blocked at code level, automatic `.bak` before overwrite, reversible restores, SSRF-guarded `web_fetch`, closed CORS, loopback bind |
 | Reliability | every run ends with exactly one terminal event; a wrapper guarantees `done`; 97 automated tests, several born from real production incidents |
 | Structure | Phase C complete: `main.py` reduced 2,769 → 569 lines (HTTP routing + composition only); the agent loop (`agent_loop.py`), per-turn state (`session_state.py`), end-of-iteration gates (`loop_guards.py`), SSE builders (`sse.py`), schema, prompts and pure-tool dispatch each live in their own tested module |
+| Auth | shared-secret token (`X-Orion-Token`) between extension and backend; every route except the health probe requires it |
 | Language | entire code surface in English — UI/status strings, tool results, logs, comments, system prompt (Phase D); chat replies still follow the user's language by design, and claim-detection keywords stay bilingual on purpose |
 
 ## Next, in order
 
-1. **Shared-secret token** between extension and backend (last item promised in
-   `SECURITY.md`).
-2. **Semantic search** (embeddings) for large codebases — grep stops being enough
+1. **Semantic search** (embeddings) for large codebases — grep stops being enough
    past a certain size.
-3. **MCP tool servers**, then **parallel sub-agents** (the pattern Google recommends
+2. **MCP tool servers**, then **parallel sub-agents** (the pattern Google recommends
    for Flash-Lite class models).
-4. Manual VS Code pass of FASE_C_PLAN section 6 scenarios c/d (broken file →
+3. Manual VS Code pass of FASE_C_PLAN section 6 scenarios c/d (broken file →
    `verify_code` cited; Cancel mid-generation) before the next release.
+4. Marketplace submission prep: PNG icon (≥128px), publisher account, first
+   GitHub Release with the VSIX attached.
 
 **Phase C — extract the agent loop: shipped** (four commits, `d8af462` →
 `4ee5f46`, one per step per `docs/FASE_C_PLAN.md`; SSE baselines byte-identical
