@@ -1,0 +1,20 @@
+# ============================================================================
+# ORION backend — dependensi pengembangan & test
+# Dipasang SETELAH backend/requirements.txt:
+#     pip install -r backend/requirements.txt
+#     pip install -r backend/requirements-dev.txt
+#
+# pytest : runner untuk backend/app/services/test_*.py (116 test).
+# httpx2 : starlette >= 1.9 melayani starlette.testclient (dipakai oleh
+#          TestClient bawaan FastAPI di suite pytest) dengan httpx2; tanpa
+#          paket ini starlette jatuh ke httpx legacy dan mencetak
+#          StarletteDeprecationWarning pada setiap run pytest.
+#          Murni test-only — tidak memengaruhi runtime backend.
+# ruff   : lint gate rilis (rule F, E9, B) — lihat docs/RELEASE_GATES_MANUAL.md.
+#
+# Batas bawah (>=) dipakai agar pip bebas memilih versi yang saling cocok.
+# ============================================================================
+
+pytest>=8.0.0
+httpx2>=2.0.0
+ruff>=0.14.0
