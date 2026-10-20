@@ -107,8 +107,8 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 cd ../orion
 npm install
 npm run package                     # type-check + lint + production build
-npx vsce package                    # produces orion-<version>.vsix
-code --install-extension orion-<version>.vsix --force
+npx vsce package                    # produces orion-ai-<version>.vsix
+code --install-extension orion-ai-<version>.vsix --force
 ```
 
 For development, open the `orion/` folder in VS Code and press **F5** to launch an

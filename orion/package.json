@@ -1,5 +1,5 @@
 {
-  "name": "orion",
+  "name": "orion-ai",
   "displayName": "Orion — AI Software Engineer",
   "publisher": "grenitho",
   "license": "MIT",
@@ -13,7 +13,7 @@
   },
   "icon": "resources/orion-icon.png",
   "description": "Autonomous AI software engineer: plans with todo lists, edits code, runs tests and terminal commands with your approval, verifies its own work, and reports honestly — in your language.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "engines": {
     "vscode": "^1.125.0"
   },

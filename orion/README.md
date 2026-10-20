@@ -43,7 +43,7 @@ changed and what did not. Orion replies in the language you write in.
 From a release build (recommended once published):
 
 ```bash
-code --install-extension orion-<version>.vsix --force
+code --install-extension orion-ai-<version>.vsix --force
 ```
 
 From source:
@@ -52,8 +52,8 @@ From source:
 cd orion
 npm install
 npm run package                    # type-check + lint + production bundle
-npx vsce package                   # produces orion-<version>.vsix
-code --install-extension orion-<version>.vsix --force
+npx vsce package                   # produces orion-ai-<version>.vsix
+code --install-extension orion-ai-<version>.vsix --force
 ```
 
 ### 2. Backend

@@ -29,6 +29,11 @@ Key facts that trip people up (all verified Oct 2026):
 - **Global PATs are decommissioned on December 1, 2026** (creation is still
   allowed until then). After that date, use Route 1, Route 3, or
   `vsce publish --azure-credential` (Microsoft Entra ID).
+- **Extension names are globally unique across publishers.** Uploading a
+  `name` another publisher already took fails with “The extension '<name>'
+  already exists in the Marketplace”. Plain `orion` is taken
+  (`schulke-214.orion`), so this extension ships as **`orion-ai`** — full ID
+  `grenitho.orion-ai`; the display name stays “Orion — AI Software Engineer”.
 
 ## Route 1 — Web upload (MANUAL, no Azure org, no PAT)
 
@@ -36,9 +41,9 @@ Key facts that trip people up (all verified Oct 2026):
    ```bash
    cd orion
    npm run package          # webpack/tsc build
-   npx @vscode/vsce package # -> orion-<version>.vsix (Node >= 22 for current vsce)
+   npx @vscode/vsce package # -> orion-ai-<version>.vsix (Node >= 22 for current vsce)
    ```
-2. Smoke-test that VSIX locally first (`code --install-extension orion-<version>.vsix --force`,
+2. Smoke-test that VSIX locally first (`code --install-extension orion-ai-<version>.vsix --force`,
    one full chat round-trip). Marketplace versions are **immutable** — a bad
    upload can only be hidden or superseded, never overwritten.
 3. Go to https://marketplace.visualstudio.com/manage and sign in with a
@@ -51,7 +56,7 @@ Key facts that trip people up (all verified Oct 2026):
    `.vsix` in → wait for validation → details are pre-filled from
    `package.json` → publish.
 6. Propagation takes a few minutes. Verify:
-   `https://marketplace.visualstudio.com/items?itemName=grenitho.orion`
+   `https://marketplace.visualstudio.com/items?itemName=grenitho.orion-ai`
    and install from the Marketplace in a clean VS Code profile.
 
 Later releases: bump version + CHANGELOG, `vsce package`, upload the new VSIX
@@ -122,6 +127,7 @@ release cadence justifies CI; until then Route 1 is enough.
 - [ ] VSIX built from this exact tree; installed locally; one chat round-trip smoke-tested
 - [ ] `npx @vscode/vsce ls` shows no secrets (`.vscodeignore` keeps `.env`, `.orion/`,
       `src/`, `node_modules/`, `tools/` out — re-verify when adding files)
+- [ ] `name` in `package.json` is `orion-ai` — plain `orion` is globally taken
 - [ ] icon present: `resources/orion-icon.png` (256 px, dark background); the
       `icon` field in `package.json` must point to a **PNG** — vsce refuses SVG icons
 
@@ -131,7 +137,7 @@ release cadence justifies CI; until then Route 1 is enough.
 git tag v<version> && git push origin v<version>
 ```
 Then GitHub → Releases → *Draft a release from tag* → attach
-`orion-<version>.vsix` → paste the CHANGELOG entry as release notes.
+`orion-ai-<version>.vsix` → paste the CHANGELOG entry as release notes.
 
 ## Rollback / republish
 

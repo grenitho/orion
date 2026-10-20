@@ -3,7 +3,16 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.0.6] - Unreleased
+## [0.0.7] - 2026-10-19
+
+### Changed
+- Extension renamed from `orion` to `orion-ai` (ID `grenitho.orion-ai`):
+  VS Code Marketplace extension names are globally unique and `orion` was
+  already taken by another publisher. Display name, icon and behaviour are
+  unchanged. Uninstall the old `grenitho.orion` before installing this
+  version so two copies never run backends side by side.
+
+## [0.0.6] - 2026-10-19
 
 ### Added
 - Shared-secret token between extension and backend: minted once into
