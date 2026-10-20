@@ -65,6 +65,25 @@ def test_label_tidak_kosong_dan_tahan_args_kosong():
         assert selesai is None or (isinstance(selesai, str) and selesai.strip())
 
 
+def test_kontrak_prefix_success_untuk_bukti_kerja():
+    """The agent loop records files_changed_this_turn and triggers post-edit
+    verification only for tool results starting with 'success' (case
+    insensitive). Both writers must honour that contract — the edit_file
+    variant regressed silently before UPDATE-004 (backlog item)."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        ex = ToolExecutor(d)
+        tulis = ex.write_file("a.txt", "hello\nworld\n")
+        assert tulis.lower().startswith("success"), tulis
+        diff = "<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE"
+        edit = ex.edit_file("a.txt", diff)
+        assert edit.lower().startswith("success"), edit
+        # a failed edit must NOT wear the success prefix
+        gagal = ex.edit_file("a.txt", "<<<<<<< SEARCH\ntidak-ada\n=======\nx\n>>>>>>> REPLACE")
+        assert not gagal.lower().startswith("success"), gagal
+
+
 def test_jalankan_memanggil_method_yang_benar():
     """Call one real read-only tool through the table, without side effects."""
     import tempfile

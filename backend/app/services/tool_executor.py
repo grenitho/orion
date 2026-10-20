@@ -262,7 +262,12 @@ class ToolExecutor:
         except Exception as e:
             return f"Error writing file: {e!s}"
 
-        return f"Edited file '{file_path}'. {success_count} block(s) replaced.{backup_warning}"
+        # The success prefix is a CONTRACT: the agent loop records evidence of
+        # real work (files_changed_this_turn) and runs the post-edit
+        # verification ONLY for results starting with it. Before UPDATE-004
+        # this message started with "Edited file", so pure-edit turns never
+        # produced evidence and the post-edit verifier never ran at all.
+        return f"Success: edited file '{file_path}'. {success_count} block(s) replaced.{backup_warning}"
 
     def search_code(self, query: str, file_pattern: str = "*") -> str:
         import fnmatch
