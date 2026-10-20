@@ -32,3 +32,6 @@ gen-package.js
 .vscode/**
 .gitignore
 .git/**
+
+# ---- repo tooling (not runtime) ----
+tools/**
