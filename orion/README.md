@@ -101,6 +101,8 @@ that project without touching your code.
 | Extension shows old UI after an update | Fully restart VS Code and close old chat tabs |
 | `401 unauthorized` from chat or dashboard | Restart the backend once and reload the VS Code window; both re-read `~/.orion_shared_secret` |
 | Backend never auto-starts | Ensure the opened workspace contains or is near this repo's `backend/` folder, or start it manually (see Install §2) |
+| `StarletteDeprecationWarning: ... install httpx2 instead` during pytest | starlette ≥ 1.9 serves `starlette.testclient` with httpx2; without it the suite still passes but prints one deprecation warning. Fix: `pip install -r backend/requirements-dev.txt`. Test-only — backend runtime is unaffected |
+| `npm warn allow-scripts esbuild ...` during `npm install` | Benign: esbuild's official postinstall only selects a prebuilt platform binary. Safe to ignore; optionally silence via `npm approve-scripts esbuild` |
 
 ## Security & privacy
 
@@ -112,7 +114,8 @@ model and honest limitations: see `SECURITY.md`.
 ## Development
 
 Open `orion/` in VS Code and press **F5** for an Extension Development Host.
-Backend tests: `python -m pytest backend/app/services/ -q` (97 tests).
+Backend tests: `pip install -r backend/requirements-dev.txt` once, then
+`python -m pytest backend -q` (116 tests, zero warnings).
 Architecture and roadmap: `docs/DEVELOPMENT_ROADMAP.md`; refactor history and
 rules: `docs/FASE_C_PLAN.md`.
 

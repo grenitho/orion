@@ -7,6 +7,7 @@
   - `main.py`: Entry point server & endpoint dasar
 - `backend/.env`: Environment variables (API Keys, Model config)
 - `backend/requirements.txt`: Dependensi Python
+- `backend/requirements-dev.txt`: Dependensi test & lint (pytest, httpx2, ruff)
 
 ## 2. Dependensi Utama
 - FastAPI 0.110.0: Web framework
@@ -22,5 +23,7 @@
 ## 4. Cara Menjalankan
 1. Aktifkan venv: `.\venv\Scripts\activate`
 2. Install deps: `pip install -r requirements.txt`
-3. Jalankan server: `uvicorn app.main:app --reload --port 8000`
-4. Akses docs: http://127.0.0.1:8000/docs
+3. Install deps test & lint (diperlukan untuk pytest tanpa warning):
+   `pip install -r requirements-dev.txt`
+4. Jalankan server: `uvicorn app.main:app --reload --port 8000`
+5. Akses docs: http://127.0.0.1:8000/docs
