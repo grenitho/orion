@@ -241,3 +241,18 @@ dan kepatuhan bahasa yang lebih kuat. Tidak ada bump versi extension (tidak ada
 perubahan kode/metadata runtime extension) sehingga tidak ada VSIX atau upload
 Marketplace baru; biaya prompt ±90 token cl100k per request diterima demi
 kepatuhan LANGUAGE RULE.
+
+### UPDATE-009 — housekeeping: dependensi test & catatan lingkungan
+
+| Patch | Isi |
+|---|---|
+| 0001 | `backend/requirements-dev.txt` baru: pytest, httpx2, ruff akhirnya dideklarasikan (kelas celah yang sama dengan tiktoken/ddgs sebelum UPDATE-008: dipakai tapi tak pernah tertulis). httpx2 menghilangkan satu-satunya warning pytest yang tersisa pada venv ber-starlette >= 1.9 (`StarletteDeprecationWarning` akibat fallback ke httpx legacy di `starlette.testclient`); sebab-akibat dibuktikan di sandbox: uninstall httpx2 → `116 passed, 1 warning`, install → `116 passed` tanpa warning |
+| 0002 | docs: `docs/04_Backend_Initial_Setup.md` menyebut requirements-dev.txt; README extension menambah dua baris troubleshooting (warning starlette/httpx2 dan `npm warn allow-scripts esbuild` = benign) serta membetulkan angka test basi "97 tests" → 116 |
+| 0003 | rekor dokumen ini |
+
+(Penomoran patch, bukan hash — alasan dan caranya sama dengan catatan di
+bagian UPDATE-008.)
+
+Tidak ada perubahan kode runtime backend maupun extension: tidak ada bump
+versi, tidak ada VSIX atau upload Marketplace baru. Tag `v0.0.7` dan GitHub
+Release v0.0.7 tetap menunjuk `c1ce2c6`.
