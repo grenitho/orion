@@ -190,7 +190,7 @@ Diurutkan dari dampak ÷ usaha. **Jangan memulai ini tanpa diminta.**
 | D | i18n: string user-facing, log, komentar, dan system prompt ke bahasa Inggris | ✅ selesai (6 commit, diakhiri `0da6394`) |
 
 Ukuran `main.py`: 2.769 → 2.119 → **569 baris** (hanya routing HTTP + komposisi;
-target rencana <700). Test: 70 → 77 → 82 → **97**.
+target rencana <700). Test: 70 → 77 → 82 → 97 → 103 → **116**.
 `docs/FASE_C_PLAN.md` merekam kriteria penerimaan per langkah beserta hasilnya.
 
 ### Peta modul backend (setelah Fase C)
@@ -216,5 +216,28 @@ Dua godaan yang dulu dicatat di backlog Fase C (matcher
 `startswith("success")` yang tidak pernah cocok untuk `edit_file`, dan
 kontradiksi instruksi `git push` di system prompt) **sudah diperbaiki** di
 UPDATE-004 (`c0fd24b`, `4f3908c`) — masing-masing commit terpisah dengan
-test sendiri, setelah Fase C selesai, persis seperti aturan backlog. Skenario manual VS Code c/d (file rusak → `verify_code`;
-Cancel di tengah generasi) masih perlu dicoba sekali sebelum rilis.
+test sendiri, setelah Fase C selesai, persis seperti aturan backlog. Skenario
+manual VS Code c/d (file rusak → `verify_code`; Cancel di tengah generasi)
+sudah dijalani dan PASSED (UPDATE-005, `docs/RELEASE_GATES_MANUAL.md`);
+rilis 0.0.7 tertutup penuh: tag `v0.0.7` di `c1ce2c6`, push ke origin, dan
+Marketplace public sebagai `grenitho.orion-ai` 0.0.7.
+
+### UPDATE-008 — hardening & cleanup setelah rilis 0.0.7
+
+| Patch | Isi |
+|---|---|
+| 0001 | startup `@app.on_event("startup")` → handler `lifespan` (menghilangkan 2 DeprecationWarning per run pytest; perilaku startup identik, baseline SSE a–h byte-identik) |
+| 0002 | `GIT_DIBLOKIR` tanpa anchor: bentuk terbungkus/berantai (`cmd /c git push`, `powershell -Command "git push ..."`, `cd repo && git push`, `sh -c 'git clone ...'`) kini ikut ditolak di backend; +7 kasus uji penolakan, +3 kasus non-overblocking |
+| 0003 | LANGUAGE RULE diperkuat melawan drift bahasa Inggris: blok wajib multi-baris di atas + baris FINAL REMINDER di akhir prompt; `test_prompts.py` baru mengunci wording dan menjaga prompts.py bebas kurung |
+| 0004 | `npm audit fix`: 0 vulnerabilitas (brace-expansion, js-yaml, shell-quote — semuanya rantai dev-only); lock re-sync 502→398 paket karena entri extraneous `@vscode/vsce` + rantai `@azure/identity` ikut terpangkas (tooling tetap via `npx @vscode/vsce`, sesuai `docs/PUBLISHING.md`) |
+| 0005 | rekor dokumen ini |
+
+(Catatan: `git am` membuat hash commit baru di repo Anda, jadi tabel sengaja
+menomori patch, bukan hash; temukan commitnya via `git log --oneline
+c1ce2c6..HEAD` — lima commit baru sesuai urutan di atas.)
+
+Tidak ada perubahan perilaku runtime selain penolakan guard yang kini konsisten
+dan kepatuhan bahasa yang lebih kuat. Tidak ada bump versi extension (tidak ada
+perubahan kode/metadata runtime extension) sehingga tidak ada VSIX atau upload
+Marketplace baru; biaya prompt ±90 token cl100k per request diterima demi
+kepatuhan LANGUAGE RULE.
