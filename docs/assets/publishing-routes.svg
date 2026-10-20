@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1250 640" font-family="Segoe UI, Ubuntu, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+  <rect width="1250" height="640" fill="#0d1117"/>
+  <text x="30" y="42" fill="#e6edf3" font-size="21" font-weight="600">Publishing Orion to the VS Code Marketplace — three routes</text>
+  <text x="30" y="64" fill="#8b949e" font-size="12">UI paths verified against official docs, October 2026 · see docs/PUBLISHING.md</text>
+
+  <!-- ROUTE 1 -->
+  <text x="30" y="112" fill="#3fb950" font-size="15" font-weight="600">ROUTE 1 — Web upload</text>
+  <text x="30" y="130" fill="#8b949e" font-size="11">no Azure DevOps org,</text>
+  <text x="30" y="144" fill="#8b949e" font-size="11">no PAT — fastest</text>
+  <g font-size="12" fill="#e6edf3" text-anchor="middle">
+    <rect x="200" y="96" width="170" height="66" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+    <text x="285" y="122">Sign in with a</text><text x="285" y="138">Microsoft account</text>
+    <rect x="415" y="96" width="170" height="66" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+    <text x="500" y="114" font-size="11">marketplace.visualstudio</text><text x="500" y="128" font-size="11">.com/manage</text><text x="500" y="146" font-size="10" fill="#8b949e">(publisher portal)</text>
+    <rect x="630" y="96" width="170" height="66" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+    <text x="715" y="118">Create publisher</text><text x="715" y="134">ID = grenitho</text><text x="715" y="150" font-size="10" fill="#8b949e">immutable — must match package.json</text>
+    <rect x="845" y="96" width="170" height="66" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+    <text x="930" y="122">New Extension →</text><text x="930" y="138">drag orion-x.y.z.vsix</text>
+    <rect x="1060" y="96" width="170" height="66" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+    <text x="1145" y="114" font-size="11">Live at items?itemName=</text><text x="1145" y="128" font-size="11">grenitho.orion</text><text x="1145" y="146" font-size="10" fill="#8b949e">smoke-test VSIX first!</text>
+  </g>
+  <g stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)">
+    <line x1="370" y1="129" x2="410" y2="129"/><line x1="585" y1="129" x2="625" y2="129"/>
+    <line x1="800" y1="129" x2="840" y2="129"/><line x1="1015" y1="129" x2="1055" y2="129"/>
+  </g>
+
+  <!-- ROUTE 2 -->
+  <text x="30" y="242" fill="#d29922" font-size="15" font-weight="600">ROUTE 2 — CLI + PAT</text>
+  <text x="30" y="260" fill="#8b949e" font-size="11">classic vsce login flow</text>
+  <text x="30" y="274" fill="#d29922" font-size="11" font-weight="600">⚠ global PATs retired</text>
+  <text x="30" y="288" fill="#d29922" font-size="11" font-weight="600">on 2026-12-01</text>
+  <g font-size="12" fill="#e6edf3" text-anchor="middle">
+    <rect x="200" y="226" width="170" height="82" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+    <text x="285" y="248">dev.azure.com</text><text x="285" y="264">New organization</text><text x="285" y="282" font-size="10" fill="#8b949e">now needs an Azure subscription</text><text x="285" y="295" font-size="10" fill="#8b949e">(free tier OK)</text>
+    <rect x="415" y="226" width="170" height="82" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+    <text x="500" y="252">User settings gear</text><text x="500" y="268">(top right) →</text><text x="500" y="284">Personal access tokens</text><text x="500" y="300" font-size="10" fill="#8b949e">no "Security" submenu</text>
+    <rect x="630" y="226" width="170" height="82" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+    <text x="715" y="244" font-size="11">+ New Token — Org:</text><text x="715" y="258" font-size="11">All accessible orgs (global!)</text><text x="715" y="274" font-size="11">Scopes: Custom defined →</text><text x="715" y="288" font-size="11">Show all scopes →</text><text x="715" y="302" font-size="11">Marketplace: Manage</text>
+    <rect x="845" y="226" width="170" height="82" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+    <text x="930" y="252">Copy token (once)</text><text x="930" y="270" font-size="11">npx @vscode/vsce</text><text x="930" y="284" font-size="11">login grenitho</text>
+    <rect x="1060" y="226" width="170" height="82" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+    <text x="1145" y="256" font-size="11">npx @vscode/vsce</text><text x="1145" y="272" font-size="11">publish</text><text x="1145" y="292" font-size="10" fill="#8b949e">org-scoped PATs: 401 (issue #2121)</text>
+  </g>
+  <g stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)">
+    <line x1="370" y1="267" x2="410" y2="267"/><line x1="585" y1="267" x2="625" y2="267"/>
+    <line x1="800" y1="267" x2="840" y2="267"/><line x1="1015" y1="267" x2="1055" y2="267"/>
+  </g>
+
+  <!-- ROUTE 3 -->
+  <text x="30" y="402" fill="#58a6ff" font-size="15" font-weight="600">ROUTE 3 — CI / OIDC</text>
+  <text x="30" y="420" fill="#8b949e" font-size="11">GitHub Actions trusted</text>
+  <text x="30" y="434" fill="#8b949e" font-size="11">publishing — no stored</text>
+  <text x="30" y="448" fill="#8b949e" font-size="11">secrets (long-term)</text>
+  <g font-size="12" fill="#e6edf3" text-anchor="middle">
+    <rect x="200" y="386" width="230" height="66" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="315" y="412">Trusted-publishing policy for the</text><text x="315" y="428">repo + workflow (Marketplace settings)</text>
+    <rect x="475" y="386" width="230" height="66" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="590" y="412">Actions workflow with</text><text x="590" y="428">permissions: id-token: write</text>
+    <rect x="750" y="386" width="230" height="66" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="865" y="412">npx @vscode/vsce publish --oidc</text><text x="865" y="430" font-size="10" fill="#8b949e">Node ≥ 22 · vsce ≥ 2.26.1</text>
+    <rect x="1025" y="386" width="205" height="66" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="1127" y="412">Session token ≤ 15 min —</text><text x="1127" y="428">nothing to rotate or leak</text>
+  </g>
+  <g stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)">
+    <line x1="430" y1="419" x2="470" y2="419"/><line x1="705" y1="419" x2="745" y2="419"/>
+    <line x1="980" y1="419" x2="1020" y2="419"/>
+  </g>
+
+  <!-- FOOTER -->
+  <rect x="200" y="500" width="1030" height="110" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text x="220" y="528" fill="#e6edf3" font-size="13" font-weight="600">Where the PAT is NOT (common traps)</text>
+  <g fill="#8b949e" font-size="12">
+    <text x="220" y="550">✗ portal.azure.com (Azure Portal) — has no Azure DevOps PATs at all.</text>
+    <text x="220" y="568">✗ marketplace.visualstudio.com/manage — publisher portal only; tokens are not managed there.</text>
+    <text x="220" y="586">✗ dev.azure.com before an organization exists — the gear menu / PAT page appears only inside an org.</text>
+    <text x="220" y="604">✓ PATs live at: dev.azure.com/{org} → gear (User settings, top right) → Personal access tokens → + New Token.</text>
+  </g>
+</svg>
