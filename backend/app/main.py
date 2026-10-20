@@ -49,6 +49,8 @@ def validate_project_structure(project_path: str) -> list:
     return warnings
 
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -113,7 +115,17 @@ except ImportError:  # pragma: no cover
 setup_logging()
 logger = get_logger("orion.main")
 
-app = FastAPI(title="Project Orion Backend", version="0.4.1")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup hook via lifespan (UPDATE-008: replaces the deprecated
+    ``@app.on_event("startup")`` which modern FastAPI flags and will remove).
+    ``auto_restore_project`` is defined further down in this module; the name
+    is resolved at startup time, not at import time."""
+    await auto_restore_project()
+    yield
+
+
+app = FastAPI(title="Project Orion Backend", version="0.4.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     # >>> PATCH ORION-37 (SECURITY): allow_origins=["*"] + /execute-terminal
@@ -344,9 +356,9 @@ async def set_project(request: ProjectPathRequest):
     }
 
 
-@app.on_event("startup")
 async def auto_restore_project():
-    """Auto-restore the last project when the backend starts up."""
+    """Auto-restore the last project when the backend starts up.
+    Invoked by the ``lifespan`` handler above (UPDATE-008)."""
     auth.get_shared_token()  # mint at startup so clients can read it immediately
     print(
         f"[ORION AUTH] Shared token file: {auth.token_file_path()} — "
