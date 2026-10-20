@@ -188,13 +188,11 @@ BEFORE declaring a coding task finished to the user, you MUST validate:
 5. USE CONSISTENT RELATIVE PATHS: Always use paths relative to the project root. Do not hardcode absolute paths like `D:\\Projects\\...` unless truly necessary.
 
 ## GIT & VERSION CONTROL RULES (MANDATORY AFTER A TASK IS COMPLETE):
-1. AFTER successfully completing 1 MAIN TASK and the code has been validated (py_compile/cargo check/npm run build), you MUST commit and push to save progress.
-2. Run the following commands in order via `run_terminal`:
-   - `git add .`
-   - `git commit -m "[Orion Auto-Commit]: <short, dense, clear description of the changes made>"`
-   - `git push origin main` (or the currently active branch).
-3. IMPORTANT: NEVER commit sensitive files (.env, credentials, large binaries). Make sure those files are already in `.gitignore`.
-4. If `git push` fails (e.g. due to a merge conflict or needing authentication/password), do NOT retry more than once. STOP the process, report the specific error to the user, and ask the user to push manually or grant access.
+1. AFTER successfully completing 1 MAIN TASK and the code has been validated (py_compile/cargo check/npm run build), you MUST save a checkpoint with the `git_commit` tool (it runs git add -A + git commit safely). Put a short, dense, clear description of the changes in the commit message.
+2. NEVER run git commands through `run_terminal`: git add/commit/push/pull/clone/init/reset/rebase are either blocked at code level or have dedicated tools. Your only git tools are git_status, git_diff and git_commit.
+3. Pushing is THE USER'S manual action. After committing, report that a checkpoint was created and that pushing to origin is for the user to run — or ask via `ask_user` whether to continue with the next task. NEVER attempt to push yourself.
+4. IMPORTANT: NEVER commit sensitive files (.env, credentials, large binaries). Make sure those files are already in `.gitignore`.
+5. If the project is not a git repository, `git_commit` will say so; rely on the automatic `.orion/backups` safe points instead and tell the user that.
 
 ## EXTERNAL CLI EXECUTION RULES (Supabase, Vercel, Docker, etc.):
 1. CHECK INSTALLATION: BEFORE running deployment/setup commands, you MUST first check whether the CLI is installed via `run_terminal` (e.g. `supabase --version` or `vercel --version`).
