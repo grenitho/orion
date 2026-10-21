@@ -3,6 +3,30 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.9] - 2026-10-21
+
+### Added
+- **Setup Wizard** (`Ctrl+Shift+P` → *Orion: Setup Wizard (Install Backend)*):
+  a five-step installer inside VS Code, without a terminal — Python
+  detection (one-click winget install on Windows), backend download from
+  GitHub (zip, no git needed, an existing `.env` is always preserved,
+  `orion.backendPath` set automatically), `.venv` creation + dependency
+  install with live progress and an import smoke test, an API-key form
+  (multiple Gemini keys + optional provider groups for
+  OpenRouter/OpenAI/Anthropic/DeepSeek/Qwen/Groq; stored keys are shown
+  masked and kept when a field is left empty), backend restart and
+  one-click chat. Every backend setup-error dialog now offers
+  **Run Setup Wizard** as its first button.
+
+### Changed
+- The companion backend writes its stdout log to
+  `<project>/.orion/logs/orion_stdout.log` instead of `~/orion_stdout.log`,
+  so both logs live side by side inside the project and several projects
+  no longer share one file (falls back to the old home location when the
+  project folder is not writable; `ORION_STDOUT_LOG` overrides).
+- Walkthrough step 1 now points at the Setup Wizard first and the
+  one-line PowerShell installer second.
+
 ## [0.0.8] - 2026-10-20
 
 ### Added

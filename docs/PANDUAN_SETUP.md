@@ -1,8 +1,9 @@
 # Panduan Setup Orion (Lengkap)
 
 Panduan ini untuk **pengguna baru total** — tidak perlu pengalaman coding.
-Ikuti salah satu rute di bawah; **Rute 2 (satu baris perintah) paling
-disarankan untuk Windows**.
+Ikuti salah satu rute di bawah; **Rute 1 (Setup Wizard di dalam VS Code,
+extension 0.0.9+) paling mudah** — Rute 2 (satu baris PowerShell) hasilnya
+identik dan tetap disarankan bila Anda lebih suka terminal.
 
 ---
 
@@ -43,21 +44,42 @@ Kode proyek Anda dan API key Anda tetap di komputer Anda.
 
 ## Rute 1 — Setup Wizard di dalam VS Code
 
-> **Status: SEDANG DIKEMBANGKAN** — belum tersedia di versi 0.0.8.
-> Sementara ini gunakan **Rute 2** (hasil akhirnya identik). Bagian ini
-> didokumentasikan lebih dulu agar begitu wizard rilis, panduannya sudah
-> siap dan tidak ada yang berubah dari sisi Anda.
+> **Tersedia sejak extension versi 0.0.9** (perintah baru; hasil akhirnya
+> identik dengan Rute 2). Butuh extension Orion terpasang lebih dulu —
+> bila backend belum ada, dialog error Orion juga menawarkan tombol
+> **Run Setup Wizard**.
 
-Rencana alur wizard (satu panel di dalam VS Code, tanpa terminal):
+Cara membuka: `Ctrl+Shift+P` → **"Orion: Setup Wizard (Install Backend)"**,
+atau lewat walkthrough "Get Started with Orion" langkah 1 →
+**Run Setup Wizard**.
 
-1. **Deteksi Python** — bila belum ada, wizard menawarkan install otomatis
-   (winget) dengan satu klik.
-2. **Unduh backend** — dari GitHub, tanpa perlu `git`.
-3. **Install dependensi** — venv + `pip install` dengan progress bar.
-4. **Form API key** — tempel key Gemini; tombol **"+ Tambah Key"** untuk
-   banyak key; pilihan provider lain (OpenRouter/OpenAI/DeepSeek/Qwen).
-5. **Selesai** — wizard menulis `backend\.env`, me-restart backend, dan
-   langsung membuka chat.
+Alur wizard (satu panel di dalam VS Code, tanpa terminal):
+
+1. **Deteksi Python** — badge menunjukkan Python yang ditemukan (syarat
+   3.11+). Bila belum ada: tombol **Install Python automatically (winget)**
+   di Windows; di macOS/Linux install dulu dari
+   <https://www.python.org/downloads/> lalu klik **Re-check**.
+2. **Unduh backend** — pilih folder instalasi (default: `<home>\orion`),
+   klik **Download & install**. Kode diunduh dari GitHub (zip, tanpa
+   `git`), `.env` lama **selalu dipertahankan**, dan setting
+   `orion.backendPath` diisi otomatis. Tombol yang sama berubah menjadi
+   **Re-download** untuk update kode tanpa kehilangan key.
+3. **Install dependensi** — klik **Install dependencies**: `.venv` dibuat
+   (bila belum ada) dan `pip install -r requirements.txt` berjalan dengan
+   log langsung (±2–5 menit), ditutup uji asap impor backend.
+4. **Form API key** — tempel satu atau beberapa key Gemini **gratis**
+   (<https://aistudio.google.com/apikey>); **+ Add key** untuk menambah.
+   Key yang sudah tersimpan ditampilkan **disamarkan** — biarkan field
+   kosong untuk mempertahankan key lama, isi nilai baru untuk mengganti.
+   Bagian *Advanced* menambah provider lain sebagai grup
+   `PROVIDER_<N>_*` (OpenRouter/OpenAI/Anthropic/DeepSeek/Qwen/Groq).
+   **Save keys to backend/.env** menulis file tanpa menyentuh baris lain.
+5. **Selesai** — **Restart backend** agar key baru terbaca, lalu
+   **Open chat**. Selanjutnya backend hidup otomatis setiap VS Code
+   dibuka.
+
+Setiap langkah menampilkan lognya sendiri di dalam kartu, jadi bila ada
+yang gagal penyebabnya langsung terlihat tanpa membuka terminal.
 
 ---
 

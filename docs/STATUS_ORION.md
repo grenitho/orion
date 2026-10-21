@@ -73,7 +73,7 @@ cara tercepat memastikan proses yang berjalan memuat kode versi mana.
 | Batas iterasi | `.orion/orion_config.json` → `max_iterations` (default 20, maksimum keras 200) |
 | Rendering | Markdown + syntax highlighting di panel chat |
 | Lampiran | **Gambar (png/jpg/webp/heic/heif) + file teks** — lewat tombol 📎, drag-drop, atau paste screenshot |
-| Logging | `.orion/logs/backend.log` (rotasi 5 MB × 5) + `~/orion_stdout.log` |
+| Logging | `.orion/logs/backend.log` (rotasi 5 MB × 5) + `.orion/logs/orion_stdout.log` (UPDATE-012; sebelumnya `~/orion_stdout.log`) |
 | Performa | `.orion/performance_log.jsonl` + endpoint `/performance` + panel dashboard |
 
 ---
@@ -299,3 +299,18 @@ Murni backend: router LLM + test + docs. Tidak ada perubahan kode/metadata
 extension → TANPA bump versi, TANPA VSIX/Marketplace baru. Test backend
 116 → 127 passed, 0 warnings; ruff F,E9,B bersih; baseline SSE mock a–h
 byte-identik dengan u010 (perilaku konfigurasi lama tidak berubah).
+
+### UPDATE-012 — Setup Wizard in-VS Code (Rute 1) + log stdout per-project, rilis 0.0.9
+
+| Patch | Isi |
+|---|---|
+| 0001 | `backend/app/main.py`: redirect stdout/stderr pindah dari `~/orion_stdout.log` ke `<project>/.orion/logs/orion_stdout.log` — deterministik via `__file__` (parents[2] = akar proyek), override `ORION_STDOUT_LOG`, fallback ke lokasi home lama bila folder proyek tidak bisa dibuat/ditulis. Kedua log kini berdampingan; beberapa proyek tidak lagi bercampur di satu file. Komentar PATCH ORION-5 disesuaikan |
+| 0002 | `test_stdout_log.py`: 4 uji kontrak resolusi path — override env menang, default = akar proyek dan tidak bergantung cwd, OSError saat mkdir → fallback home, hasil redirect tercatat selalu salah satu dari dua lokasi yang diizinkan |
+| 0003 | Docs path log: `README.md`, `orion/README.md`, tabel fitur dokumen ini — referensi stdout log menunjuk `.orion/logs/orion_stdout.log` (dengan catatan lokasi lama untuk pre-0.0.9) |
+| 0004 | Extension: `SetupWizardPanel.ts` — webview 5 langkah sesuai Rute 1 PANDUAN_SETUP: (1) deteksi Python `py -3`/`python`/`python3` + install winget satu klik (PATH disegarkan tanpa buka ulang VS Code); (2) unduh zip dari codeload (URL diturunkan dari metadata `repository` package.json — tanpa hardcode), ekstrak via bsdtar/Expand-Archive, `.env` lama dipertahankan, `orion.backendPath` di-set otomatis (Global); (3) `.venv` + `pip install` streaming log + smoke test `import app.main`; (4) form multi-key Gemini (tampilan masked, field kosong = pertahankan key lama) + grup `PROVIDER_<N>_*` + `DEFAULT_MODEL` → menulis blok terkelola di `backend/.env` tanpa menyentuh baris/komentar lain; (5) restart backend + buka chat. `backendManager.ts`: export `detectEnvironment`/`findVenvPython`/`findBackendFolderWithSource`/`getRepoZipUrl`, `killPort8000` (anak sendiri + sapu orphan via netstat/taskkill atau lsof) + `restartBackend`, tombol **Run Setup Wizard** di semua dialog error setup. `extension.ts`: semua command diregistrasi SEBELUM await backend (tombol dialog tidak gagal "command not found"); command baru `orion.openSetupWizard`. Walkthrough langkah 1 + `walkthrough-backend.md` menunjuk wizard lebih dulu |
+| 0005 | Rilis 0.0.9: version + CHANGELOG extension, PANDUAN_SETUP (Rute 1 berstatus tersedia, pengantar rute diperbarui), rekor dokumen ini |
+
+Test backend 127 → 131 passed, 0 warnings; ruff F,E9,B bersih;
+`npm run compile` (tsc + eslint + esbuild) bersih; baseline SSE mock a–h
+byte-identik dengan u011 (relokasi log tidak mengubah perilaku SSE).
+Extension berubah → bump 0.0.9 + VSIX + upload Marketplace + tag v0.0.9.
