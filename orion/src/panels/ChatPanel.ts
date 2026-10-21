@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ActivityProvider } from './ActivityProvider';
 import { orionHeaders } from '../services/authToken';
+import { getSetupGuideUrl } from '../services/backendManager';
 
 export class ChatPanel {
     public static currentPanel: ChatPanel | undefined;
@@ -369,11 +370,19 @@ export class ChatPanel {
             try {
                 const folders = vscode.workspace.workspaceFolders;
                 if (folders) {
-                    await fetch('http://127.0.0.1:8000/set-project', {
-                        method: 'POST',
-                        headers: orionHeaders(),
-                        body: JSON.stringify({ path: folders[0].uri.fsPath })
-                    });
+                    // >>> UPDATE-010: a failing set-project (backend still booting,
+                    // transient hiccup) must not kill the whole request before /chat
+                    // even runs — /chat will surface a proper error if the backend
+                    // really is down.
+                    try {
+                        await fetch('http://127.0.0.1:8000/set-project', {
+                            method: 'POST',
+                            headers: orionHeaders(),
+                            body: JSON.stringify({ path: folders[0].uri.fsPath })
+                        });
+                    } catch (spErr) {
+                        console.warn('[ORION] set-project failed (non-fatal):', spErr);
+                    }
                 }
 
                 const response = await fetch('http://127.0.0.1:8000/chat', {
@@ -444,8 +453,11 @@ export class ChatPanel {
                     this._activity.addActivity('Cancelled', 'User cancelled the process');
                     this._panel.webview.postMessage({ command: 'stream_cancelled' });
                 } else {
-                    this._activity.addActivity('Error', e.message);
-                    this._panel.webview.postMessage({ command: 'stream_error', text: e.message });
+                    // >>> UPDATE-010: raw driver errors ("fetch failed") are noise to
+                    // end users; translate backend-unreachable into concrete next steps.
+                    const text = this._describeError(e);
+                    this._activity.addActivity('Error', text);
+                    this._panel.webview.postMessage({ command: 'stream_error', text: text });
                 }
             } finally {
                 // >>> NEW: clear the controller reference after the request finishes/is cancelled/errors
@@ -458,6 +470,27 @@ export class ChatPanel {
     // >>> REPLACE THIS METHOD <<<
     // >>> PATCH ORION-12b: flag for whether the backend sent a legitimate completion signal
     private _sawTerminalEvent: boolean = false;
+
+    // >>> UPDATE-010: map low-level connection failures onto guidance.
+    // Node's fetch (undici) throws a TypeError with message "fetch failed"
+    // when the backend is down; the raw text tells a beginner nothing.
+    private _describeError(e: any): string {
+        const raw = String(e?.message || e);
+        const isConnectionError = e instanceof TypeError ||
+            /fetch failed|ECONNREFUSED|ECONNRESET|EPIPE|socket hang up/i.test(raw);
+        if (!isConnectionError) {
+            return raw;
+        }
+        const guide = getSetupGuideUrl() || 'docs/PANDUAN_SETUP.md in the Orion repository';
+        return [
+            '**Cannot reach the Orion backend** at `http://127.0.0.1:8000`.',
+            '',
+            'The chat needs Orion\'s local Python backend running. Quick fixes:',
+            '1. `Ctrl+Shift+P` → **Orion: Start Backend** — wait for the "Backend started automatically" notification, then send your message again.',
+            `2. First time on this machine? One-time setup guide (incl. one-line Windows installer): ${guide}`,
+            '3. Still failing? Check that Python 3.11+ is installed and that port 8000 is free.'
+        ].join('\n');
+    }
 
     private async _processStreamData(data: any) {
         if (data.type === 'token') {
@@ -592,7 +625,8 @@ export class ChatPanel {
             if (e.name === 'AbortError') {
                 this._panel.webview.postMessage({ command: 'stream_cancelled' });
             } else {
-                this._panel.webview.postMessage({ command: 'stream_error', text: e.message });
+                // >>> UPDATE-010: same friendly guidance as the main chat path
+                this._panel.webview.postMessage({ command: 'stream_error', text: this._describeError(e) });
             }
         } finally {
             this._currentAbortController = undefined;
