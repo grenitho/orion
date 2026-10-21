@@ -3,6 +3,44 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.8] - 2026-10-20
+
+### Added
+- **"Get Started with Orion" walkthrough** (Help → Welcome → walkthroughs):
+  four tracked steps from installing the backend to the first chat task,
+  with an optional step for extra API keys and smarter models.
+- New commands: **Orion: Start Backend** (manual retry of the auto-start)
+  and **Orion: Open Setup Guide**.
+- New setting: **`orion.backendPath`** — point the extension at a backend
+  folder anywhere on disk; no more editing extension source.
+- One-line Windows installer **`install.ps1`** (repo root) and the full
+  setup guide **`docs/PANDUAN_SETUP.md`**: Python check/install, backend
+  download without git, venv + dependencies, interactive multi-key
+  `.env` creation, smoke test, and the final VS Code steps.
+- `.env.example` now documents the zero-code multi-provider options:
+  OpenRouter (one key → OpenAI/Anthropic/DeepSeek/Qwen/…) or any direct
+  OpenAI-compatible endpoint, plus how to run a non-Gemini model as the
+  effective primary.
+
+### Changed
+- Marketplace readme rewritten for first-time users: free 3-step quick
+  start first, developer builds last, Node.js clarified as optional.
+- Setup errors are actionable: dialogs explain what to do and offer
+  **Open Setup Guide / Open Settings / Retry** buttons instead of naming
+  source files.
+- The chat panel translates backend-unreachable failures into concrete
+  next steps instead of showing the raw `fetch failed` driver error.
+
+### Fixed
+- Auto-start required a venv folder named exactly `venv` while the docs
+  said `.venv` — every doc-following install failed. Both names now work
+  (`backendManager` and `start-backend.bat`).
+- `mcp` (imported by newer litellm for tool calls) is now declared in
+  `backend/requirements.txt`; the first-chat `No module named 'mcp'`
+  trap is gone for new installs.
+- A failing pre-flight `/set-project` call no longer aborts the chat
+  request before `/chat` runs.
+
 ## [0.0.7] - 2026-10-19
 
 ### Changed
