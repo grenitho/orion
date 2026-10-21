@@ -140,7 +140,7 @@ that project without touching your code.
 | Port 8000 already in use | Kill the stale backend (close other VS Code windows running Orion, or stop the old uvicorn process) |
 | Extension shows old UI after an update | Fully restart VS Code and close old chat tabs |
 | `401 unauthorized` from chat or dashboard | Restart the backend once and reload the VS Code window; both re-read `~/.orion_shared_secret` |
-| Chat reports a lost connection mid-task | Read `<project>\.orion\logs\backend.log` and `%USERPROFILE%\orion_stdout.log` |
+| Chat reports a lost connection mid-task | Read `<project>\.orion\logs\backend.log` and `<project>\.orion\logs\orion_stdout.log` (pre-0.0.9: `%USERPROFILE%\orion_stdout.log`) |
 | `StarletteDeprecationWarning: ... install httpx2 instead` during pytest | Test-only: `pip install -r backend/requirements-dev.txt`; backend runtime is unaffected |
 | `npm warn allow-scripts esbuild ...` during `npm install` | Benign: esbuild's postinstall only selects a prebuilt platform binary |
 

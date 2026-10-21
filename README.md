@@ -208,7 +208,7 @@ SECURITY.md              threat model and honest limitations
 
 | Symptom | Fix |
 |---|---|
-| Backend silent / chat reports a lost connection | Read `<project>\.orion\logs\backend.log` (fallback: `backend\logs\backend.log`) and `~/orion_stdout.log`; make sure port 8000 is free |
+| Backend silent / chat reports a lost connection | Read `<project>\.orion\logs\backend.log` (fallback: `backend\logs\backend.log`) and `<project>\.orion\logs\orion_stdout.log` (pre-0.0.9: `~\orion_stdout.log`); make sure port 8000 is free |
 | `No module named 'mcp'` on the first chat | `pip install mcp` inside the backend venv (newer litellm needs it for tool calls) |
 | Extension shows a stale UI after updating | Fully restart VS Code and close old chat tabs |
 | `401 unauthorized` from chat or dashboard | Shared-token mismatch: restart the backend once, then reload the VS Code window; both re-read `~/.orion_shared_secret` |
