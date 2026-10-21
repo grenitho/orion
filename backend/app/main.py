@@ -1,12 +1,46 @@
 import os
 import sys
+from pathlib import Path
 
-sys.stdout = open(
-    os.path.join(os.path.expanduser("~"), "orion_stdout.log"),
-    "a",
-    encoding="utf-8",
-    buffering=1,
-)
+
+def _resolve_stdout_log() -> Path:
+    """Decide where every print()/stdout line of the backend goes.
+
+    >>> UPDATE-012: the file moved from ``~/orion_stdout.log`` into the
+    project so BOTH logs live side by side and several projects no longer
+    mix their output in one home-directory file.
+
+    Priority:
+      1. ``$ORION_STDOUT_LOG`` — explicit override (tests / debugging).
+      2. ``<project>/.orion/logs/orion_stdout.log`` — deterministic via
+         ``__file__``: this file is ``<project>/backend/app/main.py``, so
+         ``parents[2]`` is the project root. Same folder as ``backend.log``
+         (see ``logging_setup._cari_folder_log``).
+      3. ``~/orion_stdout.log`` — the historical location, used only when
+         the project folder cannot be created (read-only install, exotic
+         layout). Old copies are never deleted; the backend simply stops
+         writing to them.
+    """
+    env = os.getenv("ORION_STDOUT_LOG")
+    if env:
+        return Path(env).expanduser()
+    try:
+        target = (
+            Path(__file__).resolve().parents[2]
+            / ".orion" / "logs" / "orion_stdout.log"
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target
+    except OSError:
+        return Path.home() / "orion_stdout.log"
+
+
+_STDOUT_LOG_PATH = _resolve_stdout_log()
+try:
+    sys.stdout = open(_STDOUT_LOG_PATH, "a", encoding="utf-8", buffering=1)
+except OSError:  # pragma: no cover - last resort: historical home location
+    _STDOUT_LOG_PATH = Path.home() / "orion_stdout.log"
+    sys.stdout = open(_STDOUT_LOG_PATH, "a", encoding="utf-8", buffering=1)
 sys.stderr = sys.stdout
 
 # >>> CRITICAL FIX: load_dotenv() MUST be called HERE, FIRST, BEFORE any
@@ -96,17 +130,20 @@ logging.basicConfig(
 
 # >>> PATCH ORION-5: structured logging to a FILE.
 # CORRECTION NOTE: the initial suspicion that the 122 print() calls caused
-# stdout backpressure was NOT accurate -- lines 4-10 of this file already
-# redirect sys.stdout/stderr to ~/orion_stdout.log with buffering=1, so the
+# stdout backpressure was NOT accurate -- the top of this file already
+# redirects sys.stdout/stderr to a log file with buffering=1, so the
 # parent pipe is never flooded. That problem had already been solved.
 #
 # What is STILL true and fixed here:
-#   1. ~/orion_stdout.log is opened in "a" mode WITHOUT ROTATION -> grows forever.
-#      The RotatingFileHandler below caps it at 5 MB x 5 files.
+#   1. the stdout log is opened in "a" mode WITHOUT ROTATION -> grows
+#      forever. The RotatingFileHandler below caps backend.log at 5 MB x 5.
 #   2. print() has no level/timestamp/module name -> hard to filter.
-#   3. It lives in HOME, not per-project -> logs of several projects mix.
-# The old stdout redirect is DELIBERATELY kept so there is no unnecessary
+# The stdout redirect is DELIBERATELY kept so there is no unnecessary
 # behaviour change; the two can coexist.
+#
+# >>> UPDATE-012: the redirect target moved from ~/orion_stdout.log to
+# <project>/.orion/logs/orion_stdout.log (see _resolve_stdout_log at the
+# top), which also resolves old point 3 ("logs of several projects mix").
 try:
     from app.logging_setup import get_logger, setup_logging
 except ImportError:  # pragma: no cover
