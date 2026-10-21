@@ -48,7 +48,7 @@ covered by tests — not with prompt wording alone.
 | **Context** | persistent session history with orphaned tool-call validation, atomic writes and backups; automatic summarization when approaching token budget; safe history splitting that never separates an assistant call from its tool response |
 | **Safety** | path-traversal guard on every file operation; confirmation modals for dangerous commands; destructive/remote git operations blocked at code level; automatic `.bak` before overwrite; reversible restores; SSRF protection on fetched URLs |
 | **UX** | streaming status events (including a "still thinking… Ns" heartbeat), markdown + syntax highlighting in the chat panel, activity view, performance dashboard, cancel button with real abort |
-| **Quality** | 70 automated tests, including regression guards for every safety mechanism; startup consistency check between declared tools and dispatched tools |
+| **Quality** | 116 automated tests, including regression guards for every safety mechanism; startup consistency check between declared tools and dispatched tools |
 
 ---
 
@@ -80,28 +80,47 @@ deliberately does **not** protect against.
 
 ## Requirements
 
-- Python **3.11+**
-- Node.js **18+** (for the extension and for `verify_code` on JS/TS)
+- Python **3.11+** (the one-line installer checks/installs it for you)
+- Node.js **18+** — optional; only needed for `verify_code` on JS/TS projects
+  and to build the extension from source
 - VS Code **1.125+**
-- At least one LLM provider key (Gemini recommended; OpenRouter / Cloudflare optional
-  as fallbacks)
+- At least one LLM provider key (free Gemini keys are enough; OpenRouter /
+  Cloudflare / any OpenAI-compatible endpoint optional as fallback tiers)
 
 ---
 
 ## Quick start
 
-### 1. Backend
+### Fastest route (Windows, no experience needed)
+
+Install the **Orion — AI Software Engineer** extension (`grenitho.orion-ai`)
+from the VS Code Marketplace, then run one line in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/grenitho/orion/main/install.ps1 | iex"
+```
+
+It installs the backend, dependencies and your free Gemini keys, then tells
+you the last two clicks (`orion.backendPath` setting + reload). Full
+step-by-step guide, troubleshooting and multi-provider LLM recipes:
+[docs/PANDUAN_SETUP.md](docs/PANDUAN_SETUP.md).
+
+### Manual route (any OS)
+
+#### 1. Backend
 
 ```bash
 cd backend
-python -m venv .venv
+python -m venv .venv                # both .venv and venv are auto-detected
 # Windows: .venv\Scripts\activate   |   macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env                # then fill in your keys
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-### 2. Extension
+#### 2. Extension — only when building from source
+
+(Otherwise just install `grenitho.orion-ai` from the VS Code Marketplace.)
 
 ```bash
 cd ../orion
@@ -114,7 +133,7 @@ code --install-extension orion-ai-<version>.vsix --force
 For development, open the `orion/` folder in VS Code and press **F5** to launch an
 Extension Development Host that loads straight from source.
 
-### 3. Use
+### Your first task (both routes)
 
 Open the **Orion** activity bar icon, set your project folder, and talk to it:
 
@@ -134,7 +153,7 @@ All secrets and knobs live in `backend/.env` (never committed). The most relevan
 |---|---|
 | `GEMINI_API_KEY_1`, `_2`, … | any number of Gemini keys; rotated per request |
 | `DEFAULT_MODEL` | e.g. `gemini/gemini-3.5-flash-lite` |
-| `FALLBACK_API_KEY`, `FALLBACK_MODELS` | OpenRouter tier |
+| `FALLBACK_API_KEY`, `FALLBACK_BASE_URL`, `FALLBACK_MODELS` | any OpenAI-compatible endpoint: OpenRouter (one key → OpenAI/Anthropic/DeepSeek/Qwen/…), OpenAI, DeepSeek, Qwen/DashScope, Groq — recipes in [docs/PANDUAN_SETUP.md](docs/PANDUAN_SETUP.md) |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_MODELS` | Cloudflare tier |
 | `LLM_REASONING_EFFORT` | `minimal` / `low` / `medium` / `high` (default `high`) |
 | `LLM_TIMEOUT`, `LLM_MAX_RETRIES_PER_MODEL`, `LLM_BACKOFF_BASE` | resilience knobs |
@@ -148,11 +167,10 @@ Runtime behaviour per project lives in `.orion/orion_config.json`
 ## Testing
 
 ```bash
-cd backend
-python -m pytest app/services/ -q
+python -m pytest backend -q         # from the repo root
 ```
 
-70 tests cover the attachment pipeline, the claim-verification gate, the loop-counter
+116 tests cover the attachment pipeline, the claim-verification gate, the loop-counter
 guard, the git-operation blocklist, the stream-completion wrapper, the research-query
 builder and the security posture (CORS, loopback bind, absence of personal paths and
 private artifacts). Several of these tests exist because a real production incident
@@ -178,7 +196,7 @@ backend/
       research_rules.py  auto-research query building (pure, tested)
       stream_utils.py    terminal-event guarantee (tested)
       permission_manager.py, dependency_scanner.py, post_edit_verifier.py
-      test_*.py          70 tests
+      test_*.py          116 tests
 orion/                   VS Code extension (TypeScript, esbuild)
 docs/                    status, roadmap and feature notes
 SECURITY.md              threat model and honest limitations
@@ -197,10 +215,11 @@ SECURITY.md              threat model and honest limitations
 | Two Orion extensions installed at once | Keep exactly one (`code --list-extensions`); duplicate copies split the activity log and the chat panel |
 
 The extension auto-starts the backend when the opened workspace contains (or
-sits near) this repository's `backend/` folder; otherwise start it manually as
-in Quick start §1. Everything Orion remembers about a project lives in that
-project's `.orion/` folder — gitignored, never packaged, and safe to delete to
-reset its memory.
+sits near) this repository's `backend/` folder, or when the setting
+`orion.backendPath` points at it; otherwise start it manually as in Quick
+start §1. Everything Orion remembers about a project lives in that project's
+`.orion/` folder — gitignored, never packaged, and safe to delete to reset
+its memory.
 
 ---
 
@@ -216,8 +235,12 @@ Done since: the `main.py` split is complete (Phase C: `sse.py`, `session_state.p
 is English (Phase D: UI, logs, comments, system prompt), while chat replies keep
 following the user's language.
 
-Planned next: a shared-secret token between extension and backend, semantic search
-for large codebases, MCP tool servers, and parallel sub-agents.
+Planned next: an in-extension setup wizard (Route 1 of
+[docs/PANDUAN_SETUP.md](docs/PANDUAN_SETUP.md)), first-class multi-provider
+tiers (`PROVIDER_N_*` so OpenAI/Anthropic/DeepSeek/Qwen can each hold their
+own key without OpenRouter), semantic search for large codebases, MCP tool
+servers, and parallel sub-agents. (The shared-secret token shipped in
+extension 0.0.6.)
 
 ---
 

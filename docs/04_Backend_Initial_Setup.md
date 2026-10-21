@@ -1,5 +1,10 @@
 # Project Orion - Backend Initial Setup (v0.1)
 
+> **Catatan (UPDATE-010):** dokumen ini jurnal historis. Panduan setup yang
+> berlaku sekarang ada di **`docs/PANDUAN_SETUP.md`**. Nama folder venv
+> `.venv` maupun `venv` sama-sama dikenali auto-start extension dan
+> `start-backend.bat`.
+
 ## 1. Struktur Folder Backend
 - `backend/venv/`: Virtual environment Python
 - `backend/app/`: Package utama FastAPI
