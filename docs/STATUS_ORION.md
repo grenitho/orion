@@ -256,3 +256,29 @@ bagian UPDATE-008.)
 Tidak ada perubahan kode runtime backend maupun extension: tidak ada bump
 versi, tidak ada VSIX atau upload Marketplace baru. Tag `v0.0.7` dan GitHub
 Release v0.0.7 tetap menunjuk `c1ce2c6`.
+
+### UPDATE-010 — onboarding polish (paket penuh + walkthroughs + install.ps1), rilis 0.0.8
+
+| Patch | Isi |
+|---|---|
+| 0001 | `mcp` akhirnya dideklarasikan di `backend/requirements.txt` — litellm baru mengimpornya saat tool-calling; selama ini hanya hidup sebagai baris troubleshooting README sehingga pengguna baru pasti menabrak `No module named 'mcp'` di chat pertama (jebakan pemula #1, ditutup di sumbernya) |
+| 0002 | penemuan backend tahan-banting: auto-start + `start-backend.bat` menerima `venv` DAN `.venv` (README menulis `.venv`, kode lama menuntut `venv` — pengikut README pasti gagal, jebakan #2); setting GUI baru `orion.backendPath` (backend boleh tinggal di mana saja tanpa edit source); error dialog kini actionable (tombol Open Setup Guide / Open Settings / Retry). URL panduan diturunkan dari metadata `repository` package.json saat aktivasi — test security posture melarang identitas maintainer di-hardcode di `orion/src/**.ts`, dan commit 0002-0004 versi pertama sempat merah karenanya sebelum dibangun ulang |
+| 0003 | walkthrough bawaan VS Code "Get Started with Orion" (4 langkah: install backend → start backend → tugas pertama → opsional key/model tambahan) + command baru `orion.startBackend` dan `orion.openSetupGuide`; media/*.md ikut terkemas VSIX (tidak dikecualikan .vscodeignore) |
+| 0004 | chat tidak lagi menampilkan error mentah `fetch failed` saat backend mati — diganti langkah konkret (Start Backend, tautan panduan, cek port/Python); pre-flight `/set-project` dibuat non-fatal |
+| 0005 | Rute 2: `install.ps1` satu baris (irm\|iex) — cek/install Python 3.11+ (fallback winget), unduh zip repo tanpa git ke `%USERPROFILE%\orion`, `.venv` + pip, form kunci interaktif multi-key ke `backend\.env` (`.env` lama TIDAK PERNAH ditimpa), smoke test `import app.main`, bonus install extension via CLI `code`; kompatibel PS 5.1, idempoten sebagai updater. Plus `docs/PANDUAN_SETUP.md`: panduan detail Rute 1 (wizard — didokumentasikan lebih dulu, status "sedang dikembangkan"), Rute 2 (step-by-step + tabel masalah umum), Rute 3 (manual semua OS), dan seksi LLM (rotasi multi-key Gemini, OpenRouter, endpoint langsung OpenAI/DeepSeek/Qwen/Groq, trik non-Gemini sebagai primary) |
+| 0006 | README extension (halaman Marketplace) ditulis ulang untuk pengguna pertama kali: quick start gratis 3 langkah di atas, build-from-source turun ke bawah, Node.js ditegaskan opsional, seksi "Smarter models" (multi-provider tanpa ubah kode), tabel troubleshooting diperbarui |
+| 0007 | `.env.example` mendokumentasikan opsi multi-provider: resep OpenRouter (satu key semua merek) vs endpoint kompatibel-OpenAI langsung, aturan tanpa-prefix = `openai/`, reminder restart-backend |
+| 0008 | README root disegarkan: angka test basi 70 → 116 (tiga tempat), quick start dipimpin one-liner Windows, Node opsional, tabel konfigurasi `FALLBACK_*` = endpoint kompatibel-OpenAI mana pun, roadmap dikoreksi (shared-secret sudah rilis di 0.0.6; wizard + `PROVIDER_N_*` masuk rencana), `docs/04` diberi banner penunjuk PANDUAN_SETUP |
+| 0009 | bump extension 0.0.8 + CHANGELOG + keywords (openai/anthropic/deepseek) |
+| 0010 | rekor dokumen ini |
+
+(Penomoran patch, bukan hash — alasan dan caranya sama dengan catatan di
+bagian UPDATE-008.)
+
+Ada perubahan kode/metadata runtime extension (walkthrough, commands,
+setting, backendManager, ChatPanel) → **bump 0.0.8 wajib diikuti VSIX baru
++ upload Marketplace + tag `v0.0.8`**. Router LLM TIDAK berubah sama sekali
+di update ini: dukungan OpenAI/Anthropic/DeepSeek/Qwen lewat tier 2 sudah
+hidup sejak lama via LiteLLM dan kini hanya didokumentasikan; tier
+multi-provider first-class (`PROVIDER_N_*`, backend-only, tanpa bump)
+direncanakan sebagai UPDATE-011, wizard in-extension sebagai UPDATE-012.
