@@ -25,3 +25,10 @@ python-dotenv>=1.0.1
 # langsung ModuleNotFoundError saat runtime.
 tiktoken>=0.7.0
 ddgs>=9.0.0
+
+# >>> UPDATE-010: litellm versi baru mengimpor `mcp` saat tool-calling.
+# Selama ini hanya terdokumentasi di tabel troubleshooting README
+# ("pip install mcp") — pengguna baru yang mengikuti README pasti
+# menabraknya di chat pertama. Sekarang dideklarasikan di sini agar
+# `pip install -r requirements.txt` langsung lengkap.
+mcp>=1.2.0
