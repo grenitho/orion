@@ -4,7 +4,22 @@ echo [1/3] Masuk ke folder backend...
 cd /d "%~dp0backend"
 
 echo [2/3] Mengaktifkan Virtual Environment...
-call venv\Scripts\activate
+rem UPDATE-010: terima .venv maupun venv (README lama menyebut .venv,
+rem skrip lama hanya mengenal venv — sekarang keduanya jalan).
+if exist ".venv\Scripts\activate.bat" (
+    call .venv\Scripts\activate.bat
+) else if exist "venv\Scripts\activate.bat" (
+    call venv\Scripts\activate.bat
+) else (
+    echo.
+    echo [ERROR] Tidak ditemukan .venv maupun venv di folder backend.
+    echo Jalankan dulu:
+    echo     python -m venv .venv
+    echo     .venv\Scripts\pip install -r requirements.txt
+    echo.
+    pause
+    exit /b 1
+)
 
 echo [3/3] Menjalankan Uvicorn Server...
 echo.

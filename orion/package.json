@@ -34,6 +34,16 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Orion",
+      "properties": {
+        "orion.backendPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the Orion `backend` folder (the one containing `app/main.py`). Leave empty to auto-detect it from the opened workspace. See the [setup guide](https://github.com/grenitho/orion/blob/main/docs/PANDUAN_SETUP.md)."
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {

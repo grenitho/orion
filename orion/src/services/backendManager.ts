@@ -6,6 +6,25 @@ import * as fs from 'fs';
 
 let backendProcess: ChildProcess | null = null;
 
+// >>> UPDATE-010: the setup-guide URL is DERIVED from the extension's own
+// package.json `repository` metadata at activation — never hardcoded here.
+// Two reasons: the security-posture test forbids the maintainer identity in
+// orion/src/**.ts, and a single source of truth keeps the link correct if
+// the repository ever moves.
+let setupGuideUrl = '';
+
+export function initSetupGuide(context: vscode.ExtensionContext) {
+    const repoUrl: string = context.extension?.packageJSON?.repository?.url || '';
+    setupGuideUrl = repoUrl
+        ? `${repoUrl.replace(/\.git$/, '')}/blob/main/docs/PANDUAN_SETUP.md`
+        : '';
+    console.log(`[BACKEND] Setup guide URL: ${setupGuideUrl || '(unavailable — repository metadata missing)'}`);
+}
+
+export function getSetupGuideUrl(): string {
+    return setupGuideUrl;
+}
+
 function checkPort(port: number): Promise<boolean> {
     return new Promise((resolve) => {
         const tester = net.createConnection({ port, host: '127.0.0.1' }, () => {
@@ -16,6 +35,67 @@ function checkPort(port: number): Promise<boolean> {
             resolve(false);
         });
     });
+}
+
+// >>> UPDATE-010: beginner-proof backend discovery.
+// 1. The new `orion.backendPath` setting (GUI) and the legacy
+//    ORION_BACKEND_PATH env var take priority, so the backend may live
+//    anywhere — no more editing this source file.
+// 2. The strict validation stays: a candidate only counts when it contains
+//    `app/main.py`, which prevents false positives on unrelated folders.
+function findBackendFolder(workspacePath: string): string {
+    const settingPath = (vscode.workspace.getConfiguration('orion').get<string>('backendPath') || '').trim();
+    const candidates = [
+        settingPath,
+        (process.env.ORION_BACKEND_PATH || '').trim(),
+        path.join(workspacePath, 'backend'),
+        path.join(workspacePath, '..', 'backend'),
+        path.join(workspacePath, '..', '..', 'backend')
+    ];
+    for (const p of candidates) {
+        if (!p) { continue; }
+        console.log(`[BACKEND] Checking location: ${p}`);
+        if (fs.existsSync(p) && fs.existsSync(path.join(p, 'app', 'main.py'))) {
+            return p;
+        }
+    }
+    return '';
+}
+
+// >>> UPDATE-010: accept BOTH `venv` and `.venv`.
+// The READMEs historically told users to create `.venv` while this file (and
+// start-backend.bat) only accepted `venv` — everyone who followed the docs
+// failed the auto-start. `venv` is checked first so existing installs keep
+// working unchanged.
+function findVenvPython(backendPath: string): string {
+    const relativePaths = process.platform === 'win32'
+        ? [['venv', 'Scripts', 'python.exe'], ['.venv', 'Scripts', 'python.exe']]
+        : [['venv', 'bin', 'python'], ['.venv', 'bin', 'python']];
+    for (const parts of relativePaths) {
+        const candidate = path.join(backendPath, ...parts);
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+    return '';
+}
+
+// >>> UPDATE-010: setup errors are actionable now — no developer-speak
+// ("fix the fallback paths in backendManager.ts"), but buttons that lead
+// straight to the guide, the setting or a retry.
+async function showSetupError(message: string, offerSettings: boolean) {
+    const buttons: string[] = [];
+    if (setupGuideUrl) { buttons.push('Open Setup Guide'); }
+    if (offerSettings) { buttons.push('Open Settings'); }
+    buttons.push('Retry');
+    const pick = await vscode.window.showErrorMessage(message, ...buttons);
+    if (pick === 'Open Setup Guide' && setupGuideUrl) {
+        await vscode.env.openExternal(vscode.Uri.parse(setupGuideUrl));
+    } else if (pick === 'Open Settings') {
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'orion.backendPath');
+    } else if (pick === 'Retry') {
+        await ensureBackendRunning();
+    }
 }
 
 export async function ensureBackendRunning() {
@@ -29,46 +109,30 @@ export async function ensureBackendRunning() {
 
     const folders = vscode.workspace.workspaceFolders;
 
-    // >>> FIX 1: Do not return immediately when folders is empty; try the absolute fallbacks
-    let workspacePath = folders && folders.length > 0 ? folders[0].uri.fsPath : '';
+    // >>> FIX 1 (kept): do not return immediately when folders is empty;
+    // the setting/env/absolute fallbacks below still apply.
+    const workspacePath = folders && folders.length > 0 ? folders[0].uri.fsPath : '';
     console.log(`[BACKEND] Current workspace root: ${workspacePath || '(no workspace)'}`);
 
-    // >>> FIX 2: Use forward slashes (/) for absolute paths to be safe in Node.js
-    const possiblePaths = [
-        path.join(workspacePath, 'backend'),
-        path.join(workspacePath, '..', 'backend'),
-        path.join(workspacePath, '..', '..', 'backend'),
-        (process.env.ORION_BACKEND_PATH || '')               // Fallback from env; do NOT hardcode personal paths
-    ];
-
-    let backendPath = '';
-    for (const p of possiblePaths) {
-        console.log(`[BACKEND] Checking location: ${p}`);
-
-        // >>> FIX 3: STRICT validation. Do not only check for a 'backend' folder, 
-        // but make sure the file 'app/main.py' exists inside it. This prevents false positives.
-        if (fs.existsSync(p) && fs.existsSync(path.join(p, 'app', 'main.py'))) {
-            backendPath = p;
-            console.log(`[BACKEND] ✅ FOUND a valid Orion backend at: ${backendPath}`);
-            break;
-        }
-    }
-
+    const backendPath = findBackendFolder(workspacePath);
     if (!backendPath) {
         console.error('[BACKEND] ❌ FAILED: No valid Orion backend folder found in any location.');
-        vscode.window.showErrorMessage('Orion: Orion backend folder not found! Make sure the fallback paths in backendManager.ts are correct.');
+        await showSetupError(
+            'Orion: backend folder not found. Install it once with the one-line installer (see the setup guide), or point the setting "orion.backendPath" at your existing backend folder.',
+            true
+        );
         return;
     }
+    console.log(`[BACKEND] ✅ FOUND a valid Orion backend at: ${backendPath}`);
 
-    const venvPython = process.platform === 'win32'
-        ? path.join(backendPath, 'venv', 'Scripts', 'python.exe')
-        : path.join(backendPath, 'venv', 'bin', 'python');
-
-    console.log(`[BACKEND] Python venv path to be used: ${venvPython}`);
-
-    if (!fs.existsSync(venvPython)) {
-        console.error(`[BACKEND] ❌ FAILED: python executable not found at ${venvPython}`);
-        vscode.window.showErrorMessage(`Orion: Virtual environment not found. Run 'python -m venv venv' in the backend folder.`);
+    const venvPython = findVenvPython(backendPath);
+    console.log(`[BACKEND] Python venv path to be used: ${venvPython || '(none found)'}`);
+    if (!venvPython) {
+        console.error(`[BACKEND] ❌ FAILED: no python executable found under ${backendPath} (looked for venv/ and .venv/)`);
+        await showSetupError(
+            `Orion: Python virtual environment not found in ${backendPath}. Run "python -m venv .venv" there, then "pip install -r requirements.txt" — or use the one-line installer from the setup guide.`,
+            false
+        );
         return;
     }
 
