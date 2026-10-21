@@ -149,6 +149,14 @@ try:
 except ImportError:  # pragma: no cover
     from logging_setup import get_logger, setup_logging  # type: ignore[no-redef]
 
+# >>> UPDATE-013: identity of the running backend — the GET /health payload
+# and the PID-file lifecycle live in app/runtime_id.py so both the route and
+# the lifespan hook share one source of truth.
+try:
+    from app import runtime_id
+except ImportError:  # pragma: no cover
+    import runtime_id  # type: ignore[no-redef]
+
 setup_logging()
 logger = get_logger("orion.main")
 
@@ -157,12 +165,25 @@ async def lifespan(_app: FastAPI):
     """Startup hook via lifespan (UPDATE-008: replaces the deprecated
     ``@app.on_event("startup")`` which modern FastAPI flags and will remove).
     ``auto_restore_project`` is defined further down in this module; the name
-    is resolved at startup time, not at import time."""
+    is resolved at startup time, not at import time.
+
+    UPDATE-013: the PID file is announced HERE (not at import time) because
+    the lifespan startup only runs after uvicorn successfully bound the port
+    — a backend that dies on "address already in use" must never leave a
+    PID file claiming this install is alive."""
+    pid_path = runtime_id.write_pid_file()
+    if pid_path:
+        print(f"[ORION RUNTIME] PID file written: {pid_path} (pid={os.getpid()})")
     await auto_restore_project()
     yield
+    runtime_id.clear_pid_file()
 
 
-app = FastAPI(title="Project Orion Backend", version="0.4.1", lifespan=lifespan)
+app = FastAPI(
+    title="Project Orion Backend",
+    version=runtime_id.BACKEND_VERSION,
+    lifespan=lifespan,
+)
 app.add_middleware(
     CORSMiddleware,
     # >>> PATCH ORION-37 (SECURITY): allow_origins=["*"] + /execute-terminal
@@ -326,7 +347,19 @@ class ChatRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "Orion Backend is running!", "version": "0.4.1"}
+    return {"status": "Orion Backend is running!", "version": runtime_id.BACKEND_VERSION}
+
+
+# >>> UPDATE-013: identity check for the extension. Unlike the bare GET /
+# (deliberately unauthenticated so anything can probe "is A server alive"),
+# /health sits behind the shared-secret middleware: only a caller holding
+# the token can fingerprint the process. backendManager.ts uses the fields
+# below to tell a FRESH Orion from a stale orphan (booted before the code
+# was last modified) or a foreign app squatting on port 8000.
+@app.get("/health")
+async def health():
+    return runtime_id.health_payload(context_manager.project_path)
+# >>> END OF UPDATE-013 /health
 
 
 @app.post("/set-project")
