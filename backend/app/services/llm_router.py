@@ -31,37 +31,135 @@ from litellm import APIConnectionError, BadRequestError, RateLimitError, Timeout
 # start at 1), sorted by N, so adding GEMINI_API_KEY_4, _5, etc. to .env
 # just works without touching this code again.
 _gemini_key_pattern = re.compile(r"^GEMINI_API_KEY_(\d+)$")
-_found_gemini_keys = []
-for _env_name, _env_value in os.environ.items():
-    _match = _gemini_key_pattern.match(_env_name)
-    if _match and _env_value and _env_value.strip():
-        _found_gemini_keys.append((int(_match.group(1)), _env_value.strip()))
 
-# Sort by index number (GEMINI_API_KEY_1 first, then _2, etc.) --
-# this order does not affect usage (keys are still randomized per request),
-# it only keeps the logs consistent/predictable.
-_found_gemini_keys.sort(key=lambda pair: pair[0])
-GEMINI_API_KEYS = [key for _, key in _found_gemini_keys]
+
+def _scan_gemini_keys() -> list:
+    """Return every non-empty GEMINI_API_KEY_<N> value, sorted by N.
+
+    Scanning ALL env vars matching the pattern (N = any number, need not be
+    consecutive or start at 1) means adding GEMINI_API_KEY_4, _5, etc. to
+    .env just works without touching this code again. The scan is also
+    repeated when the execution queue is built (UPDATE-011), so tests and
+    late .env loads see fresh values.
+    """
+    found = []
+    for env_name, env_value in os.environ.items():
+        match = _gemini_key_pattern.match(env_name)
+        if match and env_value and env_value.strip():
+            found.append((int(match.group(1)), env_value.strip()))
+    # Sort by index number (GEMINI_API_KEY_1 first, then _2, etc.) --
+    # this order does not affect usage (keys are still randomized per
+    # request), it only keeps the logs consistent/predictable.
+    found.sort(key=lambda pair: pair[0])
+    return [key for _, key in found]
+
+
+GEMINI_API_KEYS = _scan_gemini_keys()
 
 print(f"[LLM_ROUTER] Detected {len(GEMINI_API_KEYS)} Gemini API keys from .env.")
 
 PRIMARY_MODEL = os.getenv("DEFAULT_MODEL", "gemini/gemini-3.5-flash")
 
 # ==========================================
-# 2. FALLBACK 1 CONFIGURATION (OpenRouter)
+# 2. FIRST-CLASS PROVIDERS: PROVIDER_<N>_* (UPDATE-011)
 # ==========================================
-FALLBACK_API_KEY = os.getenv("FALLBACK_API_KEY")
-FALLBACK_BASE_URL = os.getenv("FALLBACK_BASE_URL", "https://openrouter.ai/api/v1")
-raw_fallback_models = os.getenv("FALLBACK_MODELS", "")
-FALLBACK_MODELS = [m.strip() for m in raw_fallback_models.split(",") if m.strip()]
+# Generic multi-provider tiers: OpenAI, Anthropic, DeepSeek, Qwen, Groq,
+# OpenRouter, Ollama -- anything LiteLLM can talk to, each with its own key.
+# One numbered group = one provider account:
+#
+#   PROVIDER_<N>_NAME         optional label for the logs (default: Provider N)
+#   PROVIDER_<N>_API_KEY      REQUIRED -- group skipped (with a warning) if empty
+#   PROVIDER_<N>_BASE_URL     optional -- custom OpenAI-compatible endpoint
+#   PROVIDER_<N>_MODELS       REQUIRED -- comma separated model list
+#   PROVIDER_<N>_TEMPERATURE  optional -- defaults to 0.4
+#
+# Model naming rule (same as the legacy FALLBACK tier): a name containing
+# "/" is handed to LiteLLM verbatim (anthropic/claude-..., deepseek/...);
+# a name without "/" gets the openai/ prefix, which is correct for every
+# OpenAI-compatible endpoint (including BASE_URL ones).
+# Groups are tried in numeric order (1 before 2) and models inside a group
+# in the order they were written -- configured order = priority, no shuffle.
+_provider_key_pattern = re.compile(
+    r"^PROVIDER_([1-9][0-9]?)_(NAME|API_KEY|BASE_URL|MODELS|TEMPERATURE)$"
+)
+PROVIDER_TEMPERATURE_DEFAULT = 0.4
+
+
+def _scan_provider_entries() -> list:
+    """Collect PROVIDER_<N>_* env groups into an ordered list of dicts."""
+    slots = {}
+    for env_name, env_value in os.environ.items():
+        match = _provider_key_pattern.match(env_name)
+        if not match:
+            continue
+        value = (env_value or "").strip()
+        if not value:
+            continue
+        slots.setdefault(int(match.group(1)), {})[match.group(2).lower()] = value
+
+    entries = []
+    for index in sorted(slots):
+        slot = slots[index]
+        missing = [
+            f"PROVIDER_{index}_{field.upper()}"
+            for field in ("api_key", "models")
+            if not slot.get(field)
+        ]
+        if missing:
+            print(
+                f"[LLM_ROUTER] [WARNING] PROVIDER_{index}_* is incomplete "
+                f"(missing {', '.join(missing)}); group skipped."
+            )
+            continue
+        models = []
+        for raw_model in slot["models"].split(","):
+            model = raw_model.strip()
+            if model:
+                models.append(model if "/" in model else f"openai/{model}")
+        if not models:
+            print(
+                f"[LLM_ROUTER] [WARNING] PROVIDER_{index}_MODELS lists no "
+                f"model; group skipped."
+            )
+            continue
+        temperature = PROVIDER_TEMPERATURE_DEFAULT
+        raw_temperature = slot.get("temperature")
+        if raw_temperature:
+            try:
+                temperature = float(raw_temperature)
+            except ValueError:
+                print(
+                    f"[LLM_ROUTER] [WARNING] PROVIDER_{index}_TEMPERATURE="
+                    f"{raw_temperature!r} is not a number; using "
+                    f"{PROVIDER_TEMPERATURE_DEFAULT}."
+                )
+        name = slot.get("name")
+        entries.append(
+            {
+                "index": index,
+                "label": f"{name} (Provider {index})" if name else f"Provider {index}",
+                "api_key": slot["api_key"],
+                "base_url": slot.get("base_url"),
+                "models": models,
+                "temperature": temperature,
+            }
+        )
+    return entries
+
+
+PROVIDER_ENTRIES = _scan_provider_entries()
+print(
+    f"[LLM_ROUTER] Detected {len(PROVIDER_ENTRIES)} first-class provider "
+    f"group(s) from .env."
+)
 
 # ==========================================
-# 3. FALLBACK 2 CONFIGURATION: CLOUDFLARE
+# 3. LEGACY FALLBACK + CLOUDFLARE (read at queue-build time)
 # ==========================================
-CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
-raw_cf_models = os.getenv("CLOUDFLARE_MODELS", "")
-CLOUDFLARE_MODELS = [m.strip() for m in raw_cf_models.split(",") if m.strip()]
+# Kept verbatim for backwards compatibility with older .env files: one
+# shared key + base url + model list (FALLBACK_*) and the Cloudflare AI
+# worker (CLOUDFLARE_*). New setups with several providers should prefer
+# PROVIDER_<N>_* above; both can coexist, providers are tried first.
 
 # ==========================================
 # 4. RETRY & TIMEOUT CONFIGURATION
@@ -80,48 +178,71 @@ BACKOFF_BASE = float(os.getenv("LLM_BACKOFF_BASE", "1.5"))
 BACKOFF_CAP = float(os.getenv("LLM_BACKOFF_CAP", "20.0"))
 
 # ==========================================
-# 5. PER-TIER TEMPERATURE
+# 5. EXECUTION QUEUE BUILDER (UPDATE-011)
 # ==========================================
-# >>> CRITICAL FIX: temperature=1.0 used to be HARDCODED for ALL models on
-# ALL tiers (Gemini, OpenRouter, Cloudflare) at once. That 1.0 value is only
-# needed SPECIFICALLY for Gemini 3.x (to avoid hang/timeout — see the comment
-# at acompletion() below), BUT tier 2/3 fallback models are usually much
-# smaller/weaker. Forcing such a high temperature made these small models
-# produce incoherent output — gibberish words, broken grammar, even stray
-# words from other languages (exactly the symptom users reported: answers
-# that "don't connect"). Now each tier has its own temperature that is safer
-# for fallbacks, and it can still be overridden via .env if needed.
-GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "1.0"))
-FALLBACK_TEMPERATURE = float(os.getenv("FALLBACK_TEMPERATURE", "0.4"))
-CLOUDFLARE_TEMPERATURE = float(os.getenv("CLOUDFLARE_TEMPERATURE", "0.4"))
+# >>> CRITICAL FIX (kept from before): temperature=1.0 used to be HARDCODED
+# for ALL models on ALL tiers at once. That value is only needed SPECIFICALLY
+# for Gemini 3.x (to avoid hang/timeout), while fallback/provider models are
+# usually smaller/weaker and turn incoherent when forced that hot. Therefore
+# every tier keeps its own temperature, overridable via .env:
+#   GEMINI_TEMPERATURE (default 1.0), PROVIDER_<N>_TEMPERATURE (default 0.4),
+#   FALLBACK_TEMPERATURE (default 0.4), CLOUDFLARE_TEMPERATURE (default 0.4).
+def build_execution_queue() -> list:
+    """Assemble the try-order of every configured model.
 
-
-async def get_ai_response(messages: list, tools: list = None) -> dict:
-    """
-    Hybrid Router: Gemini (3-key rotation, temp=1.0) → OpenRouter → Cloudflare
+    Tier 1: Gemini rotated keys (shuffled -- equal peers, load balancing).
+    Tier 2: PROVIDER_<N>_* groups in numeric order, models as written
+            (configured order = priority).
+    Tier 3: legacy FALLBACK_* endpoint (shuffled).
+    Tier 4: Cloudflare AI (shuffled).
+    Only tiers that actually have credentials are queued.
     """
     execution_queue = []
 
-    # --- TIER 1: GEMINI (3 API KEYS - SHUFFLED FOR LOAD BALANCING) ---
-    if GEMINI_API_KEYS and PRIMARY_MODEL:
+    # --- TIER 1: GEMINI (N API KEYS - SHUFFLED FOR LOAD BALANCING) ---
+    gemini_temperature = float(os.getenv("GEMINI_TEMPERATURE", "1.0"))
+    primary_model = os.getenv("DEFAULT_MODEL", "gemini/gemini-3.5-flash")
+    gemini_keys = _scan_gemini_keys()
+    if gemini_keys and primary_model:
         gemini_models = []
-        for i, api_key in enumerate(GEMINI_API_KEYS):
+        for i, api_key in enumerate(gemini_keys):
             gemini_models.append(
                 {
-                    "model": PRIMARY_MODEL,
+                    "model": primary_model,
                     "api_key": api_key,
                     "base_url": None,
                     "provider": f"Gemini Key {i+1} (Primary)",
-                    "temperature": GEMINI_TEMPERATURE,
+                    "temperature": gemini_temperature,
                 }
             )
         random.shuffle(gemini_models)
         execution_queue.extend(gemini_models)
 
-    # --- TIER 2: OPENROUTER (SHUFFLED) ---
-    tier2_models = []
-    if FALLBACK_API_KEY:
-        for fb_model in FALLBACK_MODELS:
+    # --- TIER 2: FIRST-CLASS PROVIDERS (CONFIGURED ORDER = PRIORITY) ---
+    for entry in _scan_provider_entries():
+        for model_name in entry["models"]:
+            execution_queue.append(
+                {
+                    "model": model_name,
+                    "api_key": entry["api_key"],
+                    "base_url": entry["base_url"],
+                    "provider": entry["label"],
+                    "temperature": entry["temperature"],
+                }
+            )
+
+    # --- TIER 3: LEGACY FALLBACK (SHUFFLED) ---
+    fallback_api_key = os.getenv("FALLBACK_API_KEY")
+    fallback_base_url = os.getenv(
+        "FALLBACK_BASE_URL", "https://openrouter.ai/api/v1"
+    )
+    fallback_models = [
+        m.strip() for m in os.getenv("FALLBACK_MODELS", "").split(",") if m.strip()
+    ]
+    fallback_temperature = float(os.getenv("FALLBACK_TEMPERATURE", "0.4"))
+    if fallback_api_key:
+        tier3_models = []
+        for fb_model in fallback_models:
             safe_model_name = fb_model
             if not any(
                 fb_model.startswith(prefix)
@@ -135,39 +256,56 @@ async def get_ai_response(messages: list, tools: list = None) -> dict:
             ):
                 safe_model_name = f"openai/{fb_model}"
 
-            tier2_models.append(
-                {
-                    "model": safe_model_name,
-                    "api_key": FALLBACK_API_KEY,
-                    "base_url": FALLBACK_BASE_URL,
-                    "provider": "OpenRouter (Fallback 1)",
-                    "temperature": FALLBACK_TEMPERATURE,
-                }
-            )
-        random.shuffle(tier2_models)
-        execution_queue.extend(tier2_models)
-
-    # --- TIER 3: CLOUDFLARE (SHUFFLED) ---
-    tier3_models = []
-    if CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN:
-        cf_base_url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1"
-        for cf_model in CLOUDFLARE_MODELS:
             tier3_models.append(
                 {
-                    "model": f"cloudflare/{cf_model}",
-                    "api_key": CLOUDFLARE_API_TOKEN,
-                    "base_url": cf_base_url,
-                    "provider": "Cloudflare (Fallback 2)",
-                    "temperature": CLOUDFLARE_TEMPERATURE,
+                    "model": safe_model_name,
+                    "api_key": fallback_api_key,
+                    "base_url": fallback_base_url,
+                    "provider": "OpenRouter (Fallback 1)",
+                    "temperature": fallback_temperature,
                 }
             )
         random.shuffle(tier3_models)
         execution_queue.extend(tier3_models)
 
+    # --- TIER 4: CLOUDFLARE (SHUFFLED) ---
+    cf_account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+    cf_api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+    cf_models = [
+        m.strip() for m in os.getenv("CLOUDFLARE_MODELS", "").split(",") if m.strip()
+    ]
+    cf_temperature = float(os.getenv("CLOUDFLARE_TEMPERATURE", "0.4"))
+    if cf_account_id and cf_api_token:
+        cf_base_url = (
+            f"https://api.cloudflare.com/client/v4/accounts/{cf_account_id}/ai/v1"
+        )
+        tier4_models = []
+        for cf_model in cf_models:
+            tier4_models.append(
+                {
+                    "model": f"cloudflare/{cf_model}",
+                    "api_key": cf_api_token,
+                    "base_url": cf_base_url,
+                    "provider": "Cloudflare (Fallback 2)",
+                    "temperature": cf_temperature,
+                }
+            )
+        random.shuffle(tier4_models)
+        execution_queue.extend(tier4_models)
+
     if not execution_queue:
         raise Exception(
             "[LLM_ROUTER] No models configured. Check your .env."
         )
+    return execution_queue
+
+
+async def get_ai_response(messages: list, tools: list = None) -> dict:
+    """
+    Hybrid Router: Gemini (N-key rotation) -> PROVIDER_<N>_* groups ->
+    legacy FALLBACK_* -> Cloudflare. See build_execution_queue().
+    """
+    execution_queue = build_execution_queue()
 
     last_error = None
 
