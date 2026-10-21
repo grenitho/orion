@@ -282,3 +282,20 @@ di update ini: dukungan OpenAI/Anthropic/DeepSeek/Qwen lewat tier 2 sudah
 hidup sejak lama via LiteLLM dan kini hanya didokumentasikan; tier
 multi-provider first-class (`PROVIDER_N_*`, backend-only, tanpa bump)
 direncanakan sebagai UPDATE-011, wizard in-extension sebagai UPDATE-012.
+
+### UPDATE-011 — multi-provider first-class (`PROVIDER_<N>_*`), backend-only
+
+| Patch | Isi |
+|---|---|
+| 0001 | `llm_router.py`: tier provider first-class baru. Grup env `PROVIDER_<N>_{NAME,API_KEY,BASE_URL,MODELS,TEMPERATURE}` (N=1..99) dipindai otomatis seperti pola `GEMINI_API_KEY_<N>`; grup butuh API_KEY+MODELS (yang tidak lengkap dilewati + peringatan log), nama model tanpa `/` mendapat prefix `openai/` (endpoint kompatibel-OpenAI), nama ber-`/` lolos verbatim ke LiteLLM (anthropic/..., deepseek/..., groq/...); urutan nomor grup = prioritas, model di dalam grup urut tulisan (tanpa acak). Pembangunan antrean dipindah ke fungsi murni `build_execution_queue()` (dibaca saat dipanggil, bukan saat import) sehingga tier menjadi: Gemini → PROVIDER_<N>_* → FALLBACK_* legacy → Cloudflare; perilaku konfigurasi lama identik |
+| 0002 | `test_llm_router_providers.py`: 11 uji kontrak — prefix & base_url, grup tidak lengkap dilewati + peringatan, urutan tier & urutan numerik (2 sebelum 10), temperatur per grup + fallback saat nilai tidak angka, label log dari NAME, legacy-only tidak berubah, konfigurasi kosong tetap raise, dan satu uji end-to-end `get_ai_response` dengan `litellm.acompletion` palsu |
+| 0003 | `backend/.env.example`: tier 2 baru berisi empat resep siap salin (DeepSeek native, Qwen/DashScope kompatibel-OpenAI, Anthropic prefix LiteLLM, OpenAI/Groq langsung) + template variabel; `FALLBACK_*` turun menjadi tier 3 legacy dengan catatan kompatibilitas |
+| 0004 | `docs/PANDUAN_SETUP.md`: seksi router menjadi 4 tier + "Cara C — beberapa provider sekaligus" (contoh tiga grup, aturan prioritas & prefix, field opsional); rekor dokumen ini |
+
+(Penomoran patch, bukan hash — alasan dan caranya sama dengan catatan di
+bagian UPDATE-008.)
+
+Murni backend: router LLM + test + docs. Tidak ada perubahan kode/metadata
+extension → TANPA bump versi, TANPA VSIX/Marketplace baru. Test backend
+116 → 127 passed, 0 warnings; ruff F,E9,B bersih; baseline SSE mock a–h
+byte-identik dengan u010 (perilaku konfigurasi lama tidak berubah).

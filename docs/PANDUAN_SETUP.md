@@ -169,13 +169,18 @@ Semua di satu file: **`backend\.env`**. Setelah mengubah `.env`,
 matikan dulu proses di port 8000 (lihat tabel masalah umum), atau restart
 VS Code, baru Start Backend.
 
-### Cara kerja router (3 tier)
+### Cara kerja router (4 tier)
 
 1. **Tier 1 — Gemini**: semua `GEMINI_API_KEY_1..N` dirotasi acak per
    request; kena rate-limit → otomatis lompat ke key berikutnya.
-2. **Tier 2 — endpoint kompatibel-OpenAI** (`FALLBACK_*`): OpenRouter,
-   OpenAI, DeepSeek, Qwen, Groq, dsb.
-3. **Tier 3 — Cloudflare AI** (opsional).
+2. **Tier 2 — provider first-class** (`PROVIDER_<N>_*`, sejak UPDATE-011):
+   satu grup per akun provider (OpenAI, Anthropic, DeepSeek, Qwen, Groq,
+   OpenRouter, ...); dicoba urut nomor grup, dan model di dalam grup urut
+   sebagaimana Anda tulis — urutan = prioritas, tidak diacak.
+3. **Tier 3 — endpoint kompatibel-OpenAI gaya lama** (`FALLBACK_*`):
+   OpenRouter, OpenAI, DeepSeek, Qwen, Groq, dsb.; tetap didukung penuh
+   untuk `.env` lama.
+4. **Tier 4 — Cloudflare AI** (opsional).
 
 Tier bawah hanya dipanggil bila tier di atasnya gagal/kehabisan kuota.
 
@@ -218,9 +223,40 @@ FALLBACK_MODELS=deepseek-reasoner
 ```
 
 Nama model tanpa prefix dianggap `openai/...` (benar untuk semua endpoint
-kompatibel-OpenAI di atas). Anthropic langsung (tanpa OpenRouter) dan
-**beberapa provider sekaligus dengan key terpisah** (`PROVIDER_2_*`,
-`PROVIDER_3_*`, ...) sedang direncanakan sebagai update backend berikutnya.
+kompatibel-OpenAI di atas).
+
+**Cara C — beberapa provider sekaligus dengan key terpisah (UPDATE-011):**
+satu grup `PROVIDER_<N>_*` per akun provider. Grup dicoba urut nomor
+(1 dulu, lalu 2, dst.), jadi urutan nomor = prioritas Anda; model di dalam
+grup dicoba urut tulisan. Grup yang tidak lengkap (`API_KEY` atau `MODELS`
+kosong) dilewati dengan peringatan di log backend — tidak merusak apa pun.
+
+```ini
+# Grup 1 — DeepSeek (key native, nama model ber-prefix deepseek/)
+PROVIDER_1_NAME=DeepSeek
+PROVIDER_1_API_KEY=sk-...
+PROVIDER_1_MODELS=deepseek/deepseek-chat, deepseek/deepseek-reasoner
+
+# Grup 2 — Qwen via endpoint kompatibel-OpenAI (tanpa prefix = openai/)
+PROVIDER_2_NAME=Qwen
+PROVIDER_2_API_KEY=sk-...
+PROVIDER_2_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+PROVIDER_2_MODELS=qwen3-coder-plus, qwen-max
+
+# Grup 3 — Claude via prefix LiteLLM (tanpa BASE_URL)
+PROVIDER_3_NAME=Claude
+PROVIDER_3_API_KEY=sk-ant-...
+PROVIDER_3_MODELS=anthropic/claude-sonnet-4-5
+PROVIDER_3_TEMPERATURE=0.3
+```
+
+Aturan nama model sama dengan Cara B: tanpa garis miring (`/`) dianggap
+`openai/...` (benar untuk endpoint kompatibel-OpenAI, yaitu saat
+`BASE_URL` diisi); untuk API native tulis nama lengkap LiteLLM
+(`anthropic/...`, `deepseek/...`, `groq/...`). Field opsional: `NAME`
+(label di log) dan `TEMPERATURE` (bawaan 0.4). Tier `FALLBACK_*` dan
+Cloudflare tetap ada di bawahnya sebagai jaring pengaman. Resep lengkap
+empat provider ada di `backend\.env.example`.
 
 ### Ingin model non-Gemini sebagai model UTAMA?
 
