@@ -69,6 +69,64 @@
       {
         "command": "orion.showPerformanceDashboard",
         "title": "Orion: Show Performance Dashboard"
+      },
+      {
+        "command": "orion.startBackend",
+        "title": "Orion: Start Backend"
+      },
+      {
+        "command": "orion.openSetupGuide",
+        "title": "Orion: Open Setup Guide"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "orionGettingStarted",
+        "title": "Get Started with Orion",
+        "description": "One-time setup: install the local backend, add a free API key, and run your first task.",
+        "steps": [
+          {
+            "id": "orionWalkthroughBackend",
+            "title": "Install the backend (one time)",
+            "description": "Orion's brain is a small Python server that runs on your own computer — your code and keys never leave your machine.\nOn Windows, one PowerShell line installs everything (Python check, backend, dependencies, API keys).\n[Open Setup Guide](command:orion.openSetupGuide)",
+            "media": {
+              "markdown": "media/walkthrough-backend.md"
+            },
+            "completionEvents": [
+              "onCommand:orion.openSetupGuide"
+            ]
+          },
+          {
+            "id": "orionWalkthroughStart",
+            "title": "Start the backend",
+            "description": "Orion starts its backend automatically when VS Code opens.\nIf the chat ever says it cannot reach the backend, start it by hand:\n[Start Backend](command:orion.startBackend)",
+            "media": {
+              "markdown": "media/walkthrough-start.md"
+            },
+            "completionEvents": [
+              "onCommand:orion.startBackend"
+            ]
+          },
+          {
+            "id": "orionWalkthroughChat",
+            "title": "Send your first task",
+            "description": "Open the chat and describe what you want, in your own language. For example:\n*\"Add a dark-mode toggle, test it, and update the README.\"*\nRisky terminal commands always ask for your approval first.\n[Open Chat Panel](command:orion.openChat)",
+            "media": {
+              "markdown": "media/walkthrough-chat.md"
+            },
+            "completionEvents": [
+              "onCommand:orion.openChat"
+            ]
+          },
+          {
+            "id": "orionWalkthroughKeys",
+            "title": "Optional: more keys, smarter models",
+            "description": "Rotate several free Gemini keys, or plug in models from OpenAI, Anthropic, DeepSeek, Qwen and more via `backend/.env` — no code changes needed.\n[Multi-provider guide](https://github.com/grenitho/orion/blob/main/docs/PANDUAN_SETUP.md)",
+            "media": {
+              "markdown": "media/walkthrough-keys.md"
+            }
+          }
+        ]
       }
     ]
   },
