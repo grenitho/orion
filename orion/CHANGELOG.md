@@ -3,6 +3,45 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.10] - 2026-10-21
+
+### Added
+- **Backend identity check**: the extension no longer treats *any* process
+  answering port 8000 as a ready backend. The companion backend (0.5.0)
+  exposes a token-guarded `GET /health` (app name, version, PID, boot time,
+  backend folder, active project) and writes a PID file
+  (`.orion/orion_backend.pid`); at startup Orion verifies the listener is
+  **this installation's, fresh** backend before trusting it.
+- **Restart offer for stale/orphaned backends**: when the backend on port
+  8000 belongs to a different installation, does not match the PID file, or
+  was started *before* the backend code was last modified (typical right
+  after an upgrade), a dialog offers **Restart backend now** or
+  **Keep using it**.
+- **Port-conflict triage**: a foreign (non-Orion) application on port 8000
+  now gets a clear error asking you to close it, instead of a silent 20-second
+  timeout; when a freshly spawned backend exits early, the message tells the
+  port-grab case apart from a startup crash (and points at
+  `.orion/logs/orion_stdout.log`).
+- A **relative `orion.backendPath`** setting warns once per session with an
+  **Open Settings** button — relative paths resolve against an unpredictable
+  working directory and usually break auto-start.
+
+### Changed
+- Companion backend: `orion_stdout.log` **rotates at 5 MB** (2 backups kept)
+  instead of growing unbounded; an oversized legacy log is reclaimed on the
+  first start. Backend version bumped 0.4.1 → 0.5.0.
+
+### Fixed
+- Chatting **without a project set** no longer layers a false "Connection to
+  the backend was lost" alarm on top of the *Please set a project first.*
+  error — that stream now ends with the proper completion signal like every
+  other path.
+- An LLM answer with an **empty `choices` list** no longer crashes the stream
+  with a bare `IndexError`; the chat shows a clear, actionable error instead.
+- Disconnecting (closing the chat / VS Code) while an LLM call is in flight
+  no longer leaves the call running **orphaned in the background** — it is
+  cancelled, so no quota is burned on an answer nobody will read.
+
 ## [0.0.9] - 2026-10-21
 
 ### Added
