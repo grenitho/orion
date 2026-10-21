@@ -773,16 +773,31 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     deps.llm_call(messages=clean_api_messages, tools=TOOLS)
                 )
                 _mulai = _loop_waktu.time()
-                while not _tugas_llm.done():
-                    # NOTE: do NOT use `_` as a throwaway variable in this function.
-                    # `_` is the agent LOOP COUNTER (for _ in range(max_iter));
-                    # overwriting it makes `_ > 0` compare a set with an int.
-                    # (Real bug ORION-29 v1: asyncio.wait returns two sets.)
-                    _selesai, _tunggu_pending = await asyncio.wait({_tugas_llm}, timeout=15)
-                    if not _selesai:
-                        _detik = int(_loop_waktu.time() - _mulai)
-                        yield deps.kirim_status(f'🤔 Still thinking... {_detik} seconds')
-                response = _tugas_llm.result()
+                # >>> UPDATE-013 (SSE robustness): cancel guard. When the
+                # client disconnects while we are waiting (VS Code closed,
+                # chat refreshed, Stop pressed), uvicorn cancels this
+                # response task: a CancelledError/GeneratorExit lands on one
+                # of the awaits/yields below. The LLM call used to keep
+                # running ORPHANED in the background — burning quota on an
+                # answer nobody will ever read and littering the log with
+                # "Task was destroyed but it is pending!". Now any abnormal
+                # exit cancels the in-flight call before propagating.
+                try:
+                    while not _tugas_llm.done():
+                        # NOTE: do NOT use `_` as a throwaway variable in this function.
+                        # `_` is the agent LOOP COUNTER (for _ in range(max_iter));
+                        # overwriting it makes `_ > 0` compare a set with an int.
+                        # (Real bug ORION-29 v1: asyncio.wait returns two sets.)
+                        _selesai, _tunggu_pending = await asyncio.wait({_tugas_llm}, timeout=15)
+                        if not _selesai:
+                            _detik = int(_loop_waktu.time() - _mulai)
+                            yield deps.kirim_status(f'🤔 Still thinking... {_detik} seconds')
+                    response = _tugas_llm.result()
+                except BaseException:
+                    if not _tugas_llm.done():
+                        _tugas_llm.cancel()
+                    raise
+                # >>> END OF UPDATE-013 cancel guard
 
             except Exception as api_err:
                 err_str = str(api_err)
@@ -851,6 +866,23 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
 
             if response is None:
                 continue
+
+            # >>> UPDATE-013 (SSE robustness): a provider that answers 200
+            # with an EMPTY choices list used to raise IndexError here — a
+            # mid-stream crash whose text ("list index out of range") means
+            # nothing to a user. Report a clear error event instead and end
+            # the run cleanly (ORION-2 contract: error is always followed by
+            # done — the break exits the loop and jamin_done closes it).
+            if not getattr(response, "choices", None):
+                print("[ORION RECOVERY] Model returned an empty response (no choices).")
+                yield sse.ev(
+                    'error',
+                    text=(
+                        '⚠️ The model returned an empty response (no choices). '
+                        'Send your message again — if it repeats, switch the model/provider.'
+                    ),
+                )
+                break
 
             msg = response.choices[0].message
 

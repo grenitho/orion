@@ -478,10 +478,20 @@ async def auto_restore_project():
 async def chat_with_orion(request: ChatRequest):
     if not context_manager.project_map or tool_executor is None:
 
+        # >>> UPDATE-013 (SSE robustness): this early-exit was the ONLY /chat
+        # path that bypassed stream_utils.jamin_done — the stream ended with
+        # 'error' and NO 'done'. The extension (PATCH ORION-12: "no done ==
+        # crash") then layered a false 'Connection to the backend was lost'
+        # alarm on top of the perfectly clear error bubble. Found by the SSE
+        # harness (scenario h recorded 1 frame instead of 2). The wrapper
+        # guarantees the terminal done, exactly like every other path.
         async def error_gen():
             yield sse.ev('error', text='Please set a project first.')
 
-        return StreamingResponse(error_gen(), media_type="text/event-stream")
+        return StreamingResponse(
+            stream_utils.jamin_done(error_gen(), logger=logger),
+            media_type="text/event-stream",
+        )
 
     # >>> ATTACHMENT FEATURE ==============================================
     # Images are NOT stored in the history. The base64 of one 1 MB screenshot
