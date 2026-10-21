@@ -283,12 +283,11 @@ class ToolExecutor:
 
     def search_code(self, query: str, file_pattern: str = "*") -> str:
         import fnmatch
-        import os  # Make sure os is imported
+        import os
 
         results = []
         max_results = 50
 
-        # >>> ADDED THIS LINE <<<
         BINARY_EXTENSIONS = {
             ".exe",
             ".dll",
@@ -335,7 +334,6 @@ class ToolExecutor:
                 if file_pattern != "*" and not fnmatch.fnmatch(file, file_pattern):
                     continue
 
-                # >>> ADDED THIS LOGIC <<<
                 ext = os.path.splitext(file)[1].lower()
                 if ext in BINARY_EXTENSIONS:
                     continue  # Skip binary files, do not read them!

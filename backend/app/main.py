@@ -661,7 +661,7 @@ async def get_performance():
     logs = []
     total_cost = 0.0
     total_duration = 0.0
-    total_input_tokens = 0  # <<< ADDED THIS
+    total_input_tokens = 0
     total_output_tokens = 0
     success_count = 0
     error_count = 0
@@ -696,10 +696,10 @@ async def get_performance():
             "total_requests": total_requests,
             "total_input_tokens": sum(
                 l.get("input_tokens", 0) for l in logs
-            ),  # <<< ADDED
+            ),
             "total_output_tokens": sum(
                 l.get("output_tokens", 0) for l in logs
-            ),  # <<< ADDED
+            ),
             "total_cost_usd": round(total_cost, 6),
             "avg_response_time_ms": round(avg_duration, 2),
             "success_count": success_count,

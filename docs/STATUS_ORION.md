@@ -73,7 +73,8 @@ cara tercepat memastikan proses yang berjalan memuat kode versi mana.
 | Batas iterasi | `.orion/orion_config.json` → `max_iterations` (default 20, maksimum keras 200) |
 | Rendering | Markdown + syntax highlighting di panel chat |
 | Lampiran | **Gambar (png/jpg/webp/heic/heif) + file teks** — lewat tombol 📎, drag-drop, atau paste screenshot |
-| Logging | `.orion/logs/backend.log` (rotasi 5 MB × 5) + `.orion/logs/orion_stdout.log` (UPDATE-012; sebelumnya `~/orion_stdout.log`) |
+| Logging | `.orion/logs/backend.log` (rotasi 5 MB × 5) + `.orion/logs/orion_stdout.log` (UPDATE-012; rotasi 5 MB × 2 sejak UPDATE-013 — sebelumnya tumbuh tanpa batas; pra-0.0.9: `~/orion_stdout.log`) |
+| Identitas & anti-orphan | `GET /health` (dilindungi token: app, version, pid, started_at, backend_path, project_path) + PID file `.orion/orion_backend.pid` + pemeriksaan kesegaran di extension: backend basi/yatim ditawari restart, aplikasi asing ditolak dengan pesan jelas (UPDATE-013) |
 | Performa | `.orion/performance_log.jsonl` + endpoint `/performance` + panel dashboard |
 
 ---
@@ -197,7 +198,9 @@ target rencana <700). Test: 70 → 77 → 82 → 97 → 103 → **116**.
 
 | Modul | Tanggung jawab |
 |---|---|
-| `main.py` | Routing HTTP (`/`, `/set-project`, `/chat`, `/clear-chat`, `/execute-terminal`, `/performance`), startup, config & persistensi project, pemeriksa konsistensi tool, komposisi `SessionState`+`Deps`, wrapper `jamin_done` |
+| `main.py` | Routing HTTP (`/`, `/health`, `/set-project`, `/chat`, `/clear-chat`, `/execute-terminal`, `/performance`), startup, config & persistensi project, pemeriksa konsistensi tool, komposisi `SessionState`+`Deps`, wrapper `jamin_done` |
+| `runtime_id.py` | Identitas proses backend (UPDATE-013): `BACKEND_VERSION`, payload `/health`, siklus hidup PID file `.orion/orion_backend.pid` (tulis saat startup, hapus saat shutdown bila masih milik sendiri) |
+| `stdout_rotation.py` | Sink stdout berotasi (UPDATE-013): cap 5 MB × 2 backup untuk `orion_stdout.log`; degradasi anggun bila filesystem menolak |
 | `agent_loop.py` | **Loop agent** (`aliran_agent`): panggil LLM + heartbeat, dispatch tool, guard anti-loop/token/400, semua event SSE; plus helper privat loop (normalisasi teks, estimasi token, kebijakan perintah berbahaya/server, summarize/prune, log performa) |
 | `session_state.py` | `SessionState`: seluruh state mutable per-turn (file berubah, analyzed_files, notice tertunda, kuota nudge/verifikasi, gambar lampiran sekali pakai) |
 | `loop_guards.py` | `evaluasi_akhir_iterasi` → enum `Keputusan`: SATU fungsi murni untuk 4 gerbang akhir iterasi (nudge todo, tantang klaim, checkpoint, jawab normal, pause) |

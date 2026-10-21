@@ -88,7 +88,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_code",
-            "description": "Search for a string or regex across the whole project.",
+            "description": "Search for a string or regex across the whole project. Returns AT MOST 50 matches; if the output ends with a [LIMITED ...] note, there are more matches than shown - narrow the query or set file_pattern (e.g. '*.py') instead of re-running the same search.",
             "parameters": {
                 "type": "object",
                 "properties": {

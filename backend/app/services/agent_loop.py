@@ -151,8 +151,8 @@ BLOCKING_SERVER_PATTERNS = [
     "node server",
     "next dev",
     "django runserver",
-    "tauri dev",  # <-- ADDED THIS
-    "cargo run",  # <-- ADDED THIS
+    "tauri dev",
+    "cargo run",
 ]
 
 

@@ -500,11 +500,9 @@ export class ChatPanel {
         } else if (data.type === 'ask_user') {
             this._panel.webview.postMessage({ command: 'ask_user', question: data.question });
         }
-        // >>> ADDED THIS BLOCK <<<
         else if (data.type === 'confirm_terminal') {
             await this._handleTerminalConfirmation(data.command);
         }
-        // >>> END OF ADDITION <<<
         else if (data.type === 'error') {
             this._panel.webview.postMessage({ command: 'stream_error', text: data.text });
         }

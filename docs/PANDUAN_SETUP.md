@@ -137,7 +137,7 @@ Skrip mengerjakan 6 tahap dan melaporkan tiap tahap:
 | `pip install` lama / gagal | Cek internet/proxy; jalankan ulang perintah yang sama — aman diulang, `.env` tidak ditimpa |
 | `code` tidak dikenal di akhir skrip | Normal bila VS Code tidak memasang CLI-nya; install extension lewat Extensions panel saja |
 | Chat: *Cannot reach the Orion backend* | `Ctrl+Shift+P` → **Orion: Start Backend**; bila *backend folder not found* → periksa isi `orion.backendPath` |
-| Port 8000 sudah dipakai | `Get-NetTCPConnection -LocalPort 8000 -State Listen \| ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }` lalu Start Backend |
+| Port 8000 sudah dipakai | Sejak ext 0.0.10, **Orion: Start Backend** memeriksa dulu siapa yang menjawab di port 8000: **aplikasi lain** → pesan error meminta aplikasi itu ditutup; **instance Orion basi/yatim** (kode lama, PID tidak cocok, token tidak cocok) → dialog menawarkan **Restart backend now**. Fallback manual: `Get-NetTCPConnection -LocalPort 8000 -State Listen \| ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }` lalu Start Backend |
 
 ### Update / install ulang / hapus
 
@@ -186,10 +186,13 @@ terbuka selama Orion dipakai.
 ## Konfigurasi LLM: dari Gemini gratis sampai model "lebih cerdas"
 
 Semua di satu file: **`backend\.env`**. Setelah mengubah `.env`,
-**backend wajib di-restart** (key dibaca sekali saat backend mulai):
-`Ctrl+Shift+P` → *Orion: Start Backend* tidak merestart yang sudah hidup —
-matikan dulu proses di port 8000 (lihat tabel masalah umum), atau restart
-VS Code, baru Start Backend.
+**backend wajib di-restart** (key dibaca sekali saat backend mulai).
+Catatan sejak ext 0.0.10: *Orion: Start Backend* memang bisa mendeteksi
+backend **basi (kode lama)** dan menawarkan restart — tetapi perubahan
+`.env` TIDAK terdeteksi sebagai kebasaan (kode tidak berubah). Jadi setelah
+mengubah `.env`: tekan **Restart backend** di Setup Wizard
+(`Ctrl+Shift+P` → *Orion: Setup Wizard (Install Backend)*), atau matikan
+dulu proses di port 8000 (lihat tabel masalah umum) lalu Start Backend.
 
 ### Cara kerja router (4 tier)
 
