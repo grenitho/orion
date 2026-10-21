@@ -36,11 +36,33 @@ def _resolve_stdout_log() -> Path:
 
 
 _STDOUT_LOG_PATH = _resolve_stdout_log()
+
+
+def _open_stdout_sink(path: Path):
+    """Open the stdout sink for ``path`` — rotating since UPDATE-013.
+
+    The pre-013 sink was a plain ``open(path, "a")``: the log grew without
+    bound (2.6 MB and counting on a daily-driver machine). The rotating
+    writer caps the family at 5 MB x (1 + 2 backups); an oversized legacy
+    log is reclaimed on the very first open. If the rotation module itself
+    cannot be imported (exotic layout), fall back to the old plain append so
+    a missing helper can never stop the backend from booting.
+    """
+    try:
+        from app.stdout_rotation import RotatingFileWriter
+    except ImportError:  # pragma: no cover
+        try:
+            from stdout_rotation import RotatingFileWriter  # type: ignore[no-redef]
+        except ImportError:
+            return open(path, "a", encoding="utf-8", buffering=1)
+    return RotatingFileWriter(path)
+
+
 try:
-    sys.stdout = open(_STDOUT_LOG_PATH, "a", encoding="utf-8", buffering=1)
+    sys.stdout = _open_stdout_sink(_STDOUT_LOG_PATH)
 except OSError:  # pragma: no cover - last resort: historical home location
     _STDOUT_LOG_PATH = Path.home() / "orion_stdout.log"
-    sys.stdout = open(_STDOUT_LOG_PATH, "a", encoding="utf-8", buffering=1)
+    sys.stdout = _open_stdout_sink(_STDOUT_LOG_PATH)
 sys.stderr = sys.stdout
 
 # >>> CRITICAL FIX: load_dotenv() MUST be called HERE, FIRST, BEFORE any
@@ -135,8 +157,10 @@ logging.basicConfig(
 # parent pipe is never flooded. That problem had already been solved.
 #
 # What is STILL true and fixed here:
-#   1. the stdout log is opened in "a" mode WITHOUT ROTATION -> grows
-#      forever. The RotatingFileHandler below caps backend.log at 5 MB x 5.
+#   1. (historical) the stdout log was opened in "a" mode WITHOUT ROTATION
+#      -> it grew forever. UPDATE-013 rotates the stdout sink too (see
+#      app/stdout_rotation.py: 5 MB cap x 2 backups). The
+#      RotatingFileHandler below caps backend.log at 5 MB x 5.
 #   2. print() has no level/timestamp/module name -> hard to filter.
 # The stdout redirect is DELIBERATELY kept so there is no unnecessary
 # behaviour change; the two can coexist.
