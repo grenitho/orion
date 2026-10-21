@@ -3,6 +3,7 @@ import { BackendService } from './services/backendService';
 import { ChatPanel } from './panels/ChatPanel';
 import { PerformancePanel } from './panels/PerformancePanel';
 import { ActivityProvider } from './panels/ActivityProvider';
+import { SetupWizardPanel } from './panels/SetupWizardPanel';
 import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl } from './services/backendManager';
 
 
@@ -15,9 +16,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	// package.json repository metadata before anything can link to it.
 	initSetupGuide(context);
 
-	// WAIT for the backend to be ready before continuing
-	await ensureBackendRunning();
-
+	// >>> UPDATE-012: register ALL commands BEFORE awaiting the backend.
+	// ensureBackendRunning() can pop a setup-error dialog whose
+	// "Run Setup Wizard" button executes orion.openSetupWizard — if the
+	// command were registered only after the await, that button would
+	// fail with "command not found" on a fresh machine (exactly when the
+	// wizard matters most).
 	const activityProvider = new ActivityProvider();
 	vscode.window.registerTreeDataProvider('orionActivityView', activityProvider);
 
@@ -45,6 +49,15 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	});
 	context.subscriptions.push(openSetupGuide);
+
+	// >>> UPDATE-012: "Route 1" — install the backend from inside VS Code.
+	const openSetupWizard = vscode.commands.registerCommand('orion.openSetupWizard', () => {
+		SetupWizardPanel.createOrShow(context.extensionUri);
+	});
+	context.subscriptions.push(openSetupWizard);
+
+	// WAIT for the backend to be ready before continuing
+	await ensureBackendRunning();
 }
 
 export function deactivate() { }

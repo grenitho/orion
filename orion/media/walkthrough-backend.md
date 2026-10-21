@@ -4,9 +4,19 @@ The VS Code extension you just installed is the **interface**. The agent
 itself (planning, code editing, verification, LLM calls) is a small
 **Python backend** that runs locally on `127.0.0.1:8000`.
 
-Installing the backend is a **one-time** job:
+Installing the backend is a **one-time** job — pick ONE route:
 
-## Windows (recommended)
+## Setup Wizard (easiest, any OS)
+
+Press `Ctrl+Shift+P` → **Orion: Setup Wizard (Install Backend)**.
+
+The wizard walks you through five steps inside VS Code — no terminal:
+detect/install Python, download the backend, install dependencies,
+paste your **free** Gemini API keys (get them at
+<https://aistudio.google.com/apikey> — you can add several; Orion
+rotates them automatically), then start the backend and open the chat.
+
+## Windows terminal (one line)
 
 Open PowerShell (no administrator needed) and run one line:
 
