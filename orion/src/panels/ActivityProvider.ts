@@ -28,6 +28,13 @@ export class ActivityProvider implements vscode.TreeDataProvider<ActivityItem> {
                 new vscode.ThemeIcon('comment-discussion'),
                 { command: 'orion.openChat', title: 'Open Chat' }
             ),
+            // >>> UPDATE-015: entry point for the MCP tool-server panel.
+            new ActivityItem(
+                'MCP Servers',
+                'manage tool servers',
+                new vscode.ThemeIcon('plug'),
+                { command: 'orion.openMcpPanel', title: 'MCP Servers' }
+            ),
             new ActivityItem('Waiting for commands...', 'Ready', new vscode.ThemeIcon('circle-outline'))
         ];
     }

@@ -4,6 +4,7 @@ import { ChatPanel } from './panels/ChatPanel';
 import { PerformancePanel } from './panels/PerformancePanel';
 import { ActivityProvider } from './panels/ActivityProvider';
 import { SetupWizardPanel } from './panels/SetupWizardPanel';
+import { McpPanel } from './panels/McpPanel';
 import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl } from './services/backendManager';
 
 
@@ -55,6 +56,15 @@ export async function activate(context: vscode.ExtensionContext) {
 		SetupWizardPanel.createOrShow(context.extensionUri);
 	});
 	context.subscriptions.push(openSetupWizard);
+
+	// >>> UPDATE-015: configuration surface for MCP tool servers (the
+	// foundation shipped in UPDATE-014). Registered before the backend
+	// await like every other command, so the wizard's MCP card can open
+	// the panel even while the backend is still starting.
+	const openMcpPanel = vscode.commands.registerCommand('orion.openMcpPanel', () => {
+		McpPanel.createOrShow();
+	});
+	context.subscriptions.push(openMcpPanel);
 
 	// WAIT for the backend to be ready before continuing
 	await ensureBackendRunning();

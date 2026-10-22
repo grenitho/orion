@@ -1,6 +1,6 @@
 {
   "name": "orion-ai",
-  "displayName": "Orion — AI Software Engineer",
+  "displayName": "Orion \u2014 AI Software Engineer",
   "publisher": "grenitho",
   "license": "MIT",
   "repository": {
@@ -12,7 +12,7 @@
     "theme": "dark"
   },
   "icon": "resources/orion-icon.png",
-  "description": "Autonomous AI software engineer: plans with todo lists, edits code, runs tests and terminal commands with your approval, verifies its own work, and reports honestly — in your language.",
+  "description": "Autonomous AI software engineer: plans with todo lists, edits code, runs tests and terminal commands with your approval, verifies its own work, and reports honestly \u2014 in your language.",
   "version": "0.0.10",
   "engines": {
     "vscode": "^1.125.0"
@@ -84,6 +84,10 @@
       {
         "command": "orion.openSetupWizard",
         "title": "Orion: Setup Wizard (Install Backend)"
+      },
+      {
+        "command": "orion.openMcpPanel",
+        "title": "Orion: MCP Servers (tool servers)"
       }
     ],
     "walkthroughs": [
@@ -95,7 +99,7 @@
           {
             "id": "orionWalkthroughBackend",
             "title": "Install the backend (one time)",
-            "description": "Orion's brain is a small Python server that runs on your own computer — your code and keys never leave your machine.\nEasiest: run the built-in wizard — it installs everything for you, no terminal needed.\n[Run Setup Wizard](command:orion.openSetupWizard)\nPrefer a terminal? On Windows, one PowerShell line does the same job: [Open Setup Guide](command:orion.openSetupGuide)",
+            "description": "Orion's brain is a small Python server that runs on your own computer \u2014 your code and keys never leave your machine.\nEasiest: run the built-in wizard \u2014 it installs everything for you, no terminal needed.\n[Run Setup Wizard](command:orion.openSetupWizard)\nPrefer a terminal? On Windows, one PowerShell line does the same job: [Open Setup Guide](command:orion.openSetupGuide)",
             "media": {
               "markdown": "media/walkthrough-backend.md"
             },
@@ -129,7 +133,7 @@
           {
             "id": "orionWalkthroughKeys",
             "title": "Optional: more keys, smarter models",
-            "description": "Rotate several free Gemini keys, or plug in models from OpenAI, Anthropic, DeepSeek, Qwen and more via `backend/.env` — no code changes needed.\n[Multi-provider guide](https://github.com/grenitho/orion/blob/main/docs/PANDUAN_SETUP.md)",
+            "description": "Rotate several free Gemini keys, or plug in models from OpenAI, Anthropic, DeepSeek, Qwen and more via `backend/.env` \u2014 no code changes needed.\n[Multi-provider guide](https://github.com/grenitho/orion/blob/main/docs/PANDUAN_SETUP.md)",
             "media": {
               "markdown": "media/walkthrough-keys.md"
             }
