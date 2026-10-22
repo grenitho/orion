@@ -43,7 +43,10 @@ from pathlib import Path
 # Bumped 0.6.0 -> 0.6.1 for the UPDATE-014 adendum (patch 0005): mcp.json
 # now tolerates a Windows BOM (utf-8-sig) and the test suite no longer
 # touches the developer's real ~/.orion_last_project.json / MCP config.
-BACKEND_VERSION = "0.6.1"
+# Bumped 0.6.1 -> 0.7.0 for UPDATE-015: token-guarded management surface
+# GET /mcp/status + POST /mcp/config (validate -> atomic write -> reload),
+# consumed by the new VS Code MCP panel and wizard card.
+BACKEND_VERSION = "0.7.0"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

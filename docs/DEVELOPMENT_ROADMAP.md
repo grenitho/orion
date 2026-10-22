@@ -19,7 +19,7 @@ For the agent-facing context document (the one Orion itself reads from
 | Resilience | 3-tier LLM router with key rotation, backoff + jitter, `reasoning_effort` mapped to Gemini thinking levels; heartbeat status while the model thinks |
 | Safety | path-traversal guard, confirmation modals, destructive/remote git blocked at code level, automatic `.bak` before overwrite, reversible restores, SSRF-guarded `web_fetch`, closed CORS, loopback bind |
 | Reliability | every run ends with exactly one terminal event; a wrapper guarantees `done`; 180 automated tests, several born from real production incidents |
-| Extensibility | MCP tool-server foundation (backend 0.6.0, UPDATE-014): local MCP servers via `<project>/.orion/mcp.json`, namespaced `mcp__<server>__<tool>` tools, bounded calls with one transparent reconnect, every failure degraded to an informative tool-result string — see `docs/MCP_FOUNDATION.md` |
+| Extensibility | MCP tool-server foundation (backend 0.6.0, UPDATE-014): local MCP servers via `<project>/.orion/mcp.json`, namespaced `mcp__<server>__<tool>` tools, bounded calls with one transparent reconnect, every failure degraded to an informative tool-result string — see `docs/MCP_FOUNDATION.md`. Configuration UI shipped with UPDATE-015 (backend 0.7.0 / extension 0.0.11): MCP Servers panel + optional wizard card + token-guarded `/mcp/status` & `/mcp/config` |
 | Structure | Phase C complete: `main.py` reduced 2,769 → 569 lines (HTTP routing + composition only); the agent loop (`agent_loop.py`), per-turn state (`session_state.py`), end-of-iteration gates (`loop_guards.py`), SSE builders (`sse.py`), schema, prompts and pure-tool dispatch each live in their own tested module |
 | Auth | shared-secret token (`X-Orion-Token`) between extension and backend; every route except the health probe requires it |
 | Language | entire code surface in English — UI/status strings, tool results, logs, comments, system prompt (Phase D); chat replies still follow the user's language by design, and claim-detection keywords stay bilingual on purpose |
@@ -27,14 +27,23 @@ For the agent-facing context document (the one Orion itself reads from
 ## Next, in order
 
 1. **Semantic search** (embeddings) for large codebases — grep stops being enough
-   past a certain size.
-2. **MCP phase, continued**: the backend foundation shipped in UPDATE-014
-   (see `docs/MCP_FOUNDATION.md`); next are the VS Code configuration surface
-   (Settings/Setup Wizard) and then **parallel sub-agents** (the pattern Google
-   recommends for Flash-Lite class models).
-3. Manual VS Code pass of FASE_C_PLAN section 6 scenarios c/d (broken file →
+   past a certain size. (Cheaper alternative to evaluate first: a community
+   MCP search server through the UPDATE-014 foundation.)
+2. **Parallel sub-agents** (UPDATE-016 plan: Explorer read-only, Verifier
+   critic, disjoint-write Workers; depth 1, summaries into the main chat,
+   dangerous terminal commands still bubble to the user's approval modal).
+   The MCP configuration UI shipped in UPDATE-015, closing the config half
+   of the MCP phase.
+3. **Standalone client (vision, post-v0.10-stable):** the backend is the
+   brain (HTTP + the 7-event SSE contract); the VS Code extension is only
+   one client. A TUI/WebUI client in the style of claudecode/opencode is
+   therefore a new FRONTEND over the same API, not a rewrite — what it must
+   replace is the editor's senses (active file, selection, diagnostics) and
+   the approval modals. Deliberately scheduled AFTER v0.1.0 plus a stability
+   window; not scope for 015/016.
+4. Manual VS Code pass of FASE_C_PLAN section 6 scenarios c/d (broken file →
    `verify_code` cited; Cancel mid-generation) before the next release.
-4. Marketplace submission prep: PNG icon (≥128px), publisher account, first
+5. Marketplace submission prep: PNG icon (≥128px), publisher account, first
    GitHub Release with the VSIX attached.
 
 **Phase C — extract the agent loop: shipped** (four commits, `d8af462` →

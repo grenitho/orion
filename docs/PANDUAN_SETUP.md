@@ -307,6 +307,29 @@ FALLBACK_MODELS=deepseek-reasoner
 
 ## Checklist akhir
 
+## Server MCP tanpa menyentuh JSON (extension 0.0.11+)
+
+Sejak UPDATE-015, konfigurasi server MCP bisa penuh dari UI:
+
+1. Klik **"MCP Servers"** (ikon steker) di activity bar Orion, atau perintah
+   *Orion: MCP Servers (tool servers)*.
+2. Tabel menampilkan server aktif (status, jumlah tool, command, error bila
+   ada). Tombol **Install demo server** memasang server contoh bawaan
+   (echo/add/fail) satu klik — path python & server disusun otomatis dari
+   backend Anda, lintas OS.
+3. **Add server** untuk menambah sendiri: name, command (path absolut),
+   args satu per baris, timeout, dan env `KEY=VALUE`. Catatan privasi:
+   nilai env yang tersimpan TIDAK pernah ditampilkan lagi (hanya nama
+   key); meninggalkan kotak env kosong saat edit = kunci lama dipertahankan,
+   mengisinya = mengganti SELURUH pasangan.
+4. Toggle **Disable/Enable** dan **Remove** bekerja langsung (file
+   `.orion/mcp.json` ditulis atomik oleh backend lalu server di-reload).
+5. Kartu opsional di Setup Wizard ("Optional: MCP tool servers") melakukan
+   hal yang sama untuk onboarding pertama; melewatkannya tidak mengubah
+   apa pun.
+
+Detail teknis & kontrak kegagalan: `MCP_FOUNDATION.md` (§11 untuk UI).
+
 - [ ] Extension `grenitho.orion-ai` terpasang di VS Code
 - [ ] `orion.backendPath` terisi (atau workspace berdekatan dengan `backend/`)
 - [ ] Notifikasi *"Backend started automatically"* muncul saat membuka proyek

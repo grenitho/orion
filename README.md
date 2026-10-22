@@ -162,12 +162,16 @@ All secrets and knobs live in `backend/.env` (never committed). The most relevan
 Runtime behaviour per project lives in `.orion/orion_config.json`
 (`max_iterations`, token budget thresholds).
 
-**MCP tool servers (backend 0.6.0+):** extend Orion's 22 built-in tools
+**MCP tool servers (backend 0.7.0+):** extend Orion's 22 built-in tools
 with any local [Model Context Protocol](https://modelcontextprotocol.io)
 server via `<project>/.orion/mcp.json` — full reference, failure contract
 and a 5-minute demo-server walkthrough in
 [docs/MCP_FOUNDATION.md](docs/MCP_FOUNDATION.md). No
-config file = no behavioural change.
+config file = no behavioural change. Since extension 0.0.11 the same
+configuration is manageable without touching JSON: the **MCP Servers**
+item in the activity bar opens a panel (server table, add/edit form,
+enable-disable, one-click demo install), and the Setup Wizard gained an
+optional sixth card for it — see `docs/MCP_FOUNDATION.md` §11.
 
 ---
 

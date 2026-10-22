@@ -181,3 +181,25 @@ are consumed); remote transports; a server marketplace/registry.
 | `npx` server fails on Windows | wrap it: `"command": "cmd", "args": ["/c", "npx", ...]` (see §2) |
 | Tool never offered to the model | check warnings for a name collision (`already taken`) or `"disabled": true`; tool names appear as `mcp__<server>__<tool>` |
 | `[MCP SERVER DOWN]` mid-session | the server process died; Orion already tried one reconnect — restart via **Set Project** and inspect the server's own log output in `<project>\.orion\logs\orion_stdout.log` |
+
+## 11. The VS Code configuration surface (UPDATE-015)
+
+Since backend 0.7.0 / extension 0.0.11 you no longer need to hand-edit
+`mcp.json`:
+
+* **MCP panel** — activity bar item "MCP Servers" (plug icon) or command
+  *Orion: MCP Servers (tool servers)*: live server table (status badge,
+  tool count, command, error text), add/edit form, enable-disable, remove,
+  warnings, "Open mcp.json" escape hatch, and **Install demo server**
+  (composes command/args automatically from `/health`, cross-OS).
+* **Setup Wizard** — optional sixth card: open the panel or install the
+  demo with one click; skipping changes nothing.
+* Every mutation goes through `POST /mcp/config`: validate → atomic write
+  → reload in ONE call, so the panel and the file can never disagree.
+* **Privacy rule:** stored `env` VALUES are never displayed anywhere in the
+  UI (only key names). Editing a server keeps its existing env unless you
+  re-type every `KEY=VALUE` pair — deliberate, so a screen share can never
+  leak a secret and a command edit can never silently wipe one.
+* Management endpoints (`GET /mcp/status`, `POST /mcp/config`) are
+  token-guarded like every route except `GET /`; the SSE contract and the
+  agent loop are untouched by this surface.
