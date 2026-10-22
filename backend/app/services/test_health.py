@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 
 from fastapi.testclient import TestClient
@@ -60,6 +61,10 @@ def test_health_payload_lengkap_dan_konsisten(monkeypatch, tmp_path):
         assert 0 < body["started_at"] <= before + 1
         assert body["backend_path"].endswith("backend")
         assert body["project_path"] is None or isinstance(body["project_path"], str)
+        # patch 0007: the interpreter fields — a backend running under the
+        # wrong python (wrong package stack) must be diagnosable from /health
+        assert body["python_executable"] == sys.executable
+        assert body["python_prefix"] == sys.prefix
 
         # one source of truth: the bare probe reports the same version
         root_body = client.get("/").json()

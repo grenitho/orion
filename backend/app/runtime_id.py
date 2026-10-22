@@ -27,12 +27,16 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
 # Bumped 0.4.1 -> 0.5.0 for UPDATE-013: /health + PID file are new
 # machine-readable surface, so a minor bump is the honest signal.
-BACKEND_VERSION = "0.5.0"
+# Bumped 0.5.0 -> 0.5.1 for patch 0007: /health gained the interpreter
+# fields (python_executable / python_prefix) and the scanner hardening
+# landed — both machine-visible, so the version should move.
+BACKEND_VERSION = "0.5.1"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
@@ -94,7 +98,14 @@ def clear_pid_file() -> None:
 
 
 def health_payload(project_path: str | None) -> dict:
-    """The body of GET /health. Keep keys stable — the extension parses them."""
+    """The body of GET /health. Keep keys stable — the extension parses them.
+
+    UPDATE-013 patch 0007: the interpreter fields exist because a real
+    incident showed a backend listening on port 8000 while running under a
+    DIFFERENT Python than the project venv (wrong package stack, silent
+    provider failures). Version, folder and PID alone could not see it;
+    the executable/prefix can.
+    """
     return {
         "app": APP_NAME,
         "version": BACKEND_VERSION,
@@ -102,4 +113,6 @@ def health_payload(project_path: str | None) -> dict:
         "started_at": STARTED_AT,
         "backend_path": str(BACKEND_DIR),
         "project_path": project_path,
+        "python_executable": sys.executable,
+        "python_prefix": sys.prefix,
     }

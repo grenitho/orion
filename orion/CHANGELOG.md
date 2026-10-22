@@ -29,7 +29,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Companion backend: `orion_stdout.log` **rotates at 5 MB** (2 backups kept)
   instead of growing unbounded; an oversized legacy log is reclaimed on the
-  first start. Backend version bumped 0.4.1 → 0.5.0.
+  first start. Backend version bumped 0.4.1 → 0.5.0, then → 0.5.1 with the
+  hardening below.
+- **Hardening (backend 0.5.1)**: the project scanner now ignores dependency
+  folders by PATTERN (any name starting with `venv`/`.venv`, or containing
+  `node_modules`/`__pycache__`) instead of exact names only — a renamed
+  virtualenv (`venv-lama-…`) used to be scanned in full — and hard-caps the
+  dependency map at 20,000 files, with a loud truncation notice inside the
+  project map and in the `/set-project` warnings. Real-world trigger: a
+  45 MB map injecting ~560k tokens into every chat.
 
 ### Fixed
 - Chatting **without a project set** no longer layers a false "Connection to
@@ -41,6 +49,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Disconnecting (closing the chat / VS Code) while an LLM call is in flight
   no longer leaves the call running **orphaned in the background** — it is
   cancelled, so no quota is burned on an answer nobody will read.
+- **Runaway project map (backend 0.5.1)**: a large folder whose name is not
+  exactly on the ignore list (e.g. a renamed virtualenv) could inflate the
+  dependency map to tens of megabytes and every chat to hundreds of
+  thousands of tokens. The scanner now ignores dependency folders by
+  pattern and caps the map at 20,000 files with an explicit truncation
+  notice; `GET /health` additionally reports the running Python
+  executable/prefix so a wrong-stack backend is diagnosable.
 
 ## [0.0.9] - 2026-10-21
 

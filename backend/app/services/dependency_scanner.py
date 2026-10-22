@@ -4,10 +4,19 @@ import os
 import re
 from datetime import datetime
 
+# >>> UPDATE-013 hardening (patch 0007): a hard ceiling on how many files one
+# scan may map. Real incident: a renamed virtualenv folder (`venv-lama-…`,
+# not an EXACT ignore-list name) was scanned in full — 191,892 files, a
+# 45 MB dependency map, and ~560k tokens of "project structure" injected
+# into every chat. The cap turns that class of accident into a loud,
+# bounded, honestly-labelled partial map instead of a silent quota fire.
+MAX_SCANNED_FILES = 20000
+
 
 class DependencyScanner:
     def __init__(self, project_path: str):
         self.project_path = project_path
+        self.max_scanned_files = MAX_SCANNED_FILES
 
         # 1. FOLDER BLACKLIST (their entire contents are skipped)
         self.ignored_dirs = {
@@ -69,13 +78,36 @@ class DependencyScanner:
             ".ini",
         }
 
+    def _dir_ignored(self, name: str) -> bool:
+        """UPDATE-013 hardening (patch 0007): pattern-based folder ignore.
+
+        The exact-name set alone let renamed copies of huge folders slip
+        through (`venv-lama-20261021`, `node_modules_old`, ...). Now a
+        directory is also skipped when its lowercased name STARTS with a
+        venv family prefix or CONTAINS a dependency-cache marker. Accepted
+        false-positive: a legitimate folder whose name starts with "venv"
+        (e.g. `venv-materials`) is not mapped — a cheap price for never
+        mapping a virtualenv again; document such folders under another
+        name if you truly need them in the map.
+        """
+        if name in self.ignored_dirs:
+            return True
+        low = name.lower()
+        if low.startswith(("venv", ".venv")):
+            return True
+        return ("node_modules" in low) or ("__pycache__" in low)
+
     def scan(self) -> dict:
         """Scan the whole project and produce the dependency map."""
         files_data = {}
+        truncated = False
 
         for root, dirs, files in os.walk(self.project_path):
             # Filter ignored folders (prevents os.walk from entering venv/node_modules)
-            dirs[:] = [d for d in dirs if d not in self.ignored_dirs]
+            dirs[:] = [d for d in dirs if not self._dir_ignored(d)]
+            if truncated:
+                dirs[:] = []
+                continue
 
             for file in files:
                 # Filter specifically blacklisted files
@@ -120,6 +152,17 @@ class DependencyScanner:
                     print(f"[SCANNER WARNING] Failed to parse {rel_path}: {e}")
                     continue
 
+                # >>> UPDATE-013 hardening (patch 0007): enforce the cap.
+                if len(files_data) >= self.max_scanned_files:
+                    truncated = True
+                    print(
+                        f"[SCANNER WARNING] File cap reached ({self.max_scanned_files}); "
+                        "stopping scan. The map is saved with an explicit truncation notice."
+                    )
+                    break
+            if truncated:
+                break
+
         # Build reverse map (Reverse map: which files contain Class/Function X?)
         reverse_map = self._build_reverse_map(files_data)
 
@@ -128,6 +171,8 @@ class DependencyScanner:
             "total_files": len(files_data),
             "files": files_data,
             "reverse_map": reverse_map,
+            "truncated": truncated,
+            "file_cap": self.max_scanned_files,
         }
 
         # Save to .orion/dependency_map.json

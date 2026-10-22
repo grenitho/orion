@@ -433,6 +433,20 @@ async def set_project(request: ProjectPathRequest):
         # Build the project structure string and save it to context_manager
         map_lines = [f"📁 {path}" for path in scan_result["files"].keys()]
         project_map_str = "Project Structure:\n" + "\n".join(map_lines)
+        # >>> UPDATE-013 hardening (patch 0007): when the scan hit the file
+        # cap, SAY SO inside the map itself. A silent partial map would let
+        # the model believe the project is smaller than it is; a loud one
+        # tells it to explore beyond the list with search_code.
+        if scan_result.get("truncated"):
+            note = (
+                f"⚠️ PROJECT MAP TRUNCATED: showing {scan_result['total_files']} files "
+                f"(scanner cap {scan_result.get('file_cap')}). The project contains more "
+                "scannable files than Orion maps at once; explore beyond this list with "
+                "search_code / read_file_range instead of assuming the map is complete."
+            )
+            project_map_str = note + "\n" + project_map_str
+            structure_warnings.append(note)
+            print(f"[SCANNER WARNING] {note}")
         context_manager.set_project_map(project_map_str)
 
     except Exception as e:

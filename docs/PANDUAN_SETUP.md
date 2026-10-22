@@ -138,6 +138,7 @@ Skrip mengerjakan 6 tahap dan melaporkan tiap tahap:
 | `code` tidak dikenal di akhir skrip | Normal bila VS Code tidak memasang CLI-nya; install extension lewat Extensions panel saja |
 | Chat: *Cannot reach the Orion backend* | `Ctrl+Shift+P` → **Orion: Start Backend**; bila *backend folder not found* → periksa isi `orion.backendPath` |
 | Port 8000 sudah dipakai | Sejak ext 0.0.10, **Orion: Start Backend** memeriksa dulu siapa yang menjawab di port 8000: **aplikasi lain** → pesan error meminta aplikasi itu ditutup; **instance Orion basi/yatim** (kode lama, PID tidak cocok, token tidak cocok) → dialog menawarkan **Restart backend now**. Fallback manual: `Get-NetTCPConnection -LocalPort 8000 -State Listen \| ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }` lalu Start Backend |
+| Jawaban sangat lambat, jatuh ke model fallback, atau token konteks membengkak | Periksa ukuran `.orion\dependency_map.json` (sehat: di bawah ±1 MB). Bila raksasa: ada folder besar yang tidak diabaikan scanner (mis. backup venv bernama lain) — pindahkan/hapus folder itu, lalu buka ulang panel chat (memicu scan ulang). Sejak hardening 0.0.10: scanner mengabaikan keluarga nama `venv*`, `*node_modules*`, `*__pycache__*` dan membatasi map di 20.000 file dengan pemberitahuan truncation di dalam map serta di warning set-project |
 
 ### Update / install ulang / hapus
 
