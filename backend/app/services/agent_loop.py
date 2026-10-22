@@ -388,6 +388,13 @@ class Deps:
     logger: object
     context_message: dict         # "Current project structure" + editor context
     lampiran_desc: str = ""       # one-line attachment description (may be empty)
+    # >>> UPDATE-014: the MCP client manager (app.services.mcp_manager.MCPManager)
+    # or None when MCP is unavailable/unconfigured. The loop only ever calls
+    # has_tool/status_label/tool_names/openai_tools/call on it — all of them
+    # are side-effect-free except call(), which NEVER raises (failure strings
+    # come back as ordinary tool results). Default None keeps every existing
+    # Deps(...) construction site valid.
+    mcp: object | None = None
 
 
 async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
@@ -433,6 +440,18 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
     )
     print(f"[ORION CONFIG] max_iterations value in use: {max_iter}")
     print(f"[ORION CONFIG] Token budget threshold: {token_budget_threshold}")
+
+    # >>> UPDATE-014: MCP tools join the built-in TOOLS schema for this turn.
+    # Built ONCE per request (the registry is stable while a turn runs).
+    # Without healthy MCP servers tools_for_llm is literally TOOLS, so the
+    # provider request stays byte-identical to the pre-014 shape.
+    tools_for_llm = TOOLS
+    if deps.mcp is not None:
+        _mcp_tools = deps.mcp.openai_tools()
+        if _mcp_tools:
+            tools_for_llm = TOOLS + _mcp_tools
+            print(f"[ORION MCP] {len(_mcp_tools)} MCP tool(s) added to this turn's schema.")
+    # >>> END OF UPDATE-014 tools merge
 
     try:
         last_tool_calls = []
@@ -751,7 +770,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             print(
                 f"[DEBUG] Number of messages to send: {len(clean_api_messages)}"
             )
-            print(f"[DEBUG] Number of tools to send: {len(TOOLS)}")
+            print(f"[DEBUG] Number of tools to send: {len(tools_for_llm)}")
             # --- END OF DEBUG ---
 
             # --- 3. CALL THE LLM ---
@@ -770,7 +789,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 # ============================================================
                 _loop_waktu = asyncio.get_running_loop()
                 _tugas_llm = asyncio.create_task(
-                    deps.llm_call(messages=clean_api_messages, tools=TOOLS)
+                    deps.llm_call(messages=clean_api_messages, tools=tools_for_llm)
                 )
                 _mulai = _loop_waktu.time()
                 # >>> UPDATE-013 (SSE robustness): cancel guard. When the
@@ -1008,6 +1027,21 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 )
                                 yield sse.ev('todo_update', markdown=rendered, todos=deps.todo_manager.get_todos())
                                 result = f"Todo list updated:\n{rendered}"
+
+                        # >>> UPDATE-014: MCP tools — one dynamic branch for
+                        # every namespaced tool (mcp__<server>__<tool>). Placed
+                        # BEFORE the tool_executor guard because MCP tools do
+                        # not need the built-in executor. The manager never
+                        # raises: timeouts, dead servers and tool-level errors
+                        # all come back as [MCP ...] strings, which the existing
+                        # anti-loop guard (3 consecutive failures) protects
+                        # exactly like any other tool result.
+                        elif deps.mcp is not None and deps.mcp.has_tool(func_name):
+                            yield deps.kirim_status(
+                                f'🔌 MCP {deps.mcp.status_label(func_name)} ...'
+                            )
+                            result = await deps.mcp.call(func_name, func_args)
+                        # >>> END OF UPDATE-014 MCP branch
 
                         elif deps.tool_executor is None:
                             result = "Error: Tool executor not initialized."
@@ -1274,9 +1308,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             # >>> PATCH ORION-14b: an actionable message.
                             # "Unknown tool." alone left the model guessing.
                             # Now the model gets the list of tools that actually work.
+                            # UPDATE-014: healthy MCP tools join the list (with no
+                            # MCP servers the sorted output is byte-identical to
+                            # the pre-014 message).
+                            _nama_tersedia = set(tool_dispatch.NAMA_TOOL_AKTIF)
+                            if deps.mcp is not None:
+                                _nama_tersedia |= deps.mcp.tool_names()
                             result = (
                                 f"Error: tool '{func_name}' is NOT AVAILABLE. "
-                                f"Tools that actually work: {sorted(tool_dispatch.NAMA_TOOL_AKTIF)}. "
+                                f"Tools that actually work: {sorted(_nama_tersedia)}. "
                                 "Use one of those, or accomplish the goal another way. "
                                 "Do NOT call the same tool again."
                             )

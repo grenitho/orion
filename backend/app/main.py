@@ -138,6 +138,17 @@ except Exception as e:
     )
     TodoManager = None
 
+# >>> UPDATE-014: MCP client foundation. Same soft-dependency policy as
+# todo_manager above: a broken mcp_manager (or a missing/broken mcp SDK
+# inside it) only disables MCP tools — the backend must still boot.
+try:
+    from app.services.mcp_manager import MCPManager
+except Exception as e:
+    print(
+        f"[ORION STARTUP WARNING] mcp_manager.py failed to import ({e}). MCP tool-server support disabled."
+    )
+    MCPManager = None
+
 
 import logging
 
@@ -200,6 +211,11 @@ async def lifespan(_app: FastAPI):
         print(f"[ORION RUNTIME] PID file written: {pid_path} (pid={os.getpid()})")
     await auto_restore_project()
     yield
+    # >>> UPDATE-014: MCP subprocesses must not outlive the backend. stop_all
+    # is best-effort and never raises; the PID file is cleared afterwards so
+    # a hung MCP shutdown can never leave a stale "alive" announcement.
+    if mcp_manager is not None:
+        await mcp_manager.stop_all()
     runtime_id.clear_pid_file()
 
 
@@ -247,6 +263,9 @@ tool_executor = None
 todo_manager = (
     TodoManager() if TodoManager else None
 )  # >>> FIX: None-safe if the import fails
+# >>> UPDATE-014: one manager instance for the whole backend; it follows the
+# ACTIVE project (started by /set-project, stopped on project change/shutdown).
+mcp_manager = MCPManager() if MCPManager else None
 orion_config = {"max_iterations": 20}  # Default config
 
 # File for storing the last project
@@ -382,7 +401,13 @@ async def root():
 # was last modified) or a foreign app squatting on port 8000.
 @app.get("/health")
 async def health():
-    return runtime_id.health_payload(context_manager.project_path)
+    payload = runtime_id.health_payload(context_manager.project_path)
+    # >>> UPDATE-014: additive MCP fields (mcp_servers, mcp_tools). Old
+    # extensions ignore unknown keys — same policy as the 013 interpreter
+    # fields. Absent entirely when the manager could not be imported.
+    if mcp_manager is not None:
+        payload.update(mcp_manager.health_fields())
+    return payload
 # >>> END OF UPDATE-013 /health
 
 
@@ -456,11 +481,27 @@ async def set_project(request: ProjectPathRequest):
     # 6. Load config
     load_orion_config(request.path)
 
+    # 7. >>> UPDATE-014: (re)start the MCP tool servers of THIS project.
+    # start_all stops the servers of the previous project first, reads
+    # <project>/.orion/mcp.json, and never raises: a broken config or a dead
+    # server only produces warnings inside the additive "mcp" response field.
+    mcp_summary = None
+    if mcp_manager is not None:
+        mcp_summary = await mcp_manager.start_all(request.path)
+        for _w in mcp_summary.get("warnings", []):
+            print(f"[ORION MCP WARNING] {_w}")
+        for _srv in mcp_summary.get("servers", []):
+            if _srv.get("status") == "ok":
+                print(f"[ORION MCP] server '{_srv['name']}' ready with {_srv['tools']} tool(s)")
+            elif _srv.get("status") == "error":
+                print(f"[ORION MCP] server '{_srv['name']}' FAILED to start: {_srv.get('error')}")
+
     return {
         "success": True,
         "message": "Project scanned successfully.",
         "project_map_preview": context_manager.get_project_map()[:500] + "...",
         "structure_warnings": structure_warnings,  # Send warnings to the frontend
+        "mcp": mcp_summary,  # UPDATE-014 (additive; None when MCP is unavailable)
     }
 
 
@@ -481,6 +522,16 @@ async def auto_restore_project():
         if todo_manager:
             todo_manager.set_project_path(last_path)  # >>> FIX: None-safe guard
         load_orion_config(last_path)
+        # >>> UPDATE-014: a restored project must come back with its MCP
+        # tools, exactly like a fresh /set-project would. Failures are
+        # warnings only — startup must never hang or die because of MCP.
+        if mcp_manager is not None:
+            try:
+                _ringkasan_mcp = await mcp_manager.start_all(last_path)
+                for _w in _ringkasan_mcp.get("warnings", []):
+                    print(f"[ORION MCP WARNING] {_w}")
+            except Exception as e:
+                print(f"[ORION MCP WARNING] MCP startup skipped: {e}")
         print("[ORION STARTUP] ✅ Project restored successfully. Tool executor ready.")
     else:
         print(
@@ -592,6 +643,7 @@ async def chat_with_orion(request: ChatRequest):
         logger=logger,
         context_message=context_message,
         lampiran_desc=_lamp_desc,
+        mcp=mcp_manager,  # UPDATE-014: None when the manager failed to import
     )
 
     # >>> PATCH ORION-28 ================================================
