@@ -162,6 +162,13 @@ All secrets and knobs live in `backend/.env` (never committed). The most relevan
 Runtime behaviour per project lives in `.orion/orion_config.json`
 (`max_iterations`, token budget thresholds).
 
+**MCP tool servers (backend 0.6.0+):** extend Orion's 22 built-in tools
+with any local [Model Context Protocol](https://modelcontextprotocol.io)
+server via `<project>/.orion/mcp.json` — full reference, failure contract
+and a 5-minute demo-server walkthrough in
+[docs/MCP_FOUNDATION.md](docs/MCP_FOUNDATION.md). No
+config file = no behavioural change.
+
 ---
 
 ## Testing
@@ -195,8 +202,11 @@ backend/
       guard_rules.py     claim detection & challenge policy (pure, tested)
       research_rules.py  auto-research query building (pure, tested)
       stream_utils.py    terminal-event guarantee (tested)
+      mcp_manager.py     MCP client: config, lifecycle, tool registry (UPDATE-014)
       permission_manager.py, dependency_scanner.py, post_edit_verifier.py
-      test_*.py          116 tests
+      test_*.py          180 tests
+  examples/
+    mcp_demo_server.py   dependency-free MCP server for E2E testing
 orion/                   VS Code extension (TypeScript, esbuild)
 docs/                    status, roadmap and feature notes
 SECURITY.md              threat model and honest limitations
@@ -213,6 +223,7 @@ SECURITY.md              threat model and honest limitations
 | Extension shows a stale UI after updating | Fully restart VS Code and close old chat tabs |
 | `401 unauthorized` from chat or dashboard | Shared-token mismatch: restart the backend once, then reload the VS Code window; both re-read `~/.orion_shared_secret` |
 | Two Orion extensions installed at once | Keep exactly one (`code --list-extensions`); duplicate copies split the activity log and the chat panel |
+| MCP server never starts / `[MCP SERVER DOWN]` | See the MCP troubleshooting table in [docs/MCP_FOUNDATION.md](docs/MCP_FOUNDATION.md) §10 — usually a wrong absolute `command` path; on Windows wrap `npx` servers in `cmd /c` |
 
 The extension auto-starts the backend when the opened workspace contains (or
 sits near) this repository's `backend/` folder, or when the setting
