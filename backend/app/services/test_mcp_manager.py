@@ -614,6 +614,143 @@ def test_mcp_manager_tidak_pernah_menyentuh_lapisan_sse():
     assert 'data: {"type"' not in src
 
 
+# ------------------------------------------- management ops & endpoints (015)
+
+def test_mutate_servers_set_dan_keep_env():
+    raw = {"mcpServers": {"a": {"command": "python", "env": {"KEY": "secret"}}}, "future": 1}
+    new, err = mcp_manager.mutate_servers(raw, "set", {"name": "b", "spec": {"command": "node"}})
+    assert err is None and new["future"] == 1  # unknown top-level keys survive
+    assert new["mcpServers"]["b"] == {"command": "node", "args": []}
+
+    new2, err2 = mcp_manager.mutate_servers(
+        raw, "set", {"name": "a", "spec": {"command": "python3"}, "keep_env": True}
+    )
+    assert err2 is None
+    assert new2["mcpServers"]["a"]["env"] == {"KEY": "secret"}
+    assert new2["mcpServers"]["a"]["command"] == "python3"
+
+    new3, _ = mcp_manager.mutate_servers(raw, "set", {"name": "a", "spec": {"command": "python3"}})
+    assert "env" not in new3["mcpServers"]["a"]  # without keep_env env is replaced
+
+
+def test_mutate_servers_remove_toggle_replace_all():
+    raw = {"mcpServers": {"a": {"command": "x"}, "b": {"command": "y", "disabled": True}}}
+    new, err = mcp_manager.mutate_servers(raw, "remove", {"name": "a"})
+    assert err is None and list(new["mcpServers"]) == ["b"]
+    new, err = mcp_manager.mutate_servers(raw, "toggle", {"name": "a"})
+    assert new["mcpServers"]["a"]["disabled"] is True
+    new, err = mcp_manager.mutate_servers(raw, "toggle", {"name": "b", "disabled": False})
+    assert new["mcpServers"]["b"]["disabled"] is False
+    new, err = mcp_manager.mutate_servers(raw, "replace_all", {"servers": {"z": {"command": "z"}}})
+    assert list(new["mcpServers"]) == ["z"]
+
+
+def test_mutate_servers_menolak_operasi_buruk():
+    raw = {"mcpServers": {"a": {"command": "x"}}}
+    assert mcp_manager.mutate_servers(raw, "set", {"name": "", "spec": {}})[1]
+    assert mcp_manager.mutate_servers(raw, "set", {"name": "n", "spec": {}})[1]
+    assert mcp_manager.mutate_servers(raw, "remove", {"name": "zz"})[1]
+    assert mcp_manager.mutate_servers(raw, "toggle", {"name": "zz"})[1]
+    assert mcp_manager.mutate_servers(raw, "replace_all", {"servers": "x"})[1]
+    assert mcp_manager.mutate_servers(raw, "replace_all", {"servers": {"k": {}}})[1]
+    assert mcp_manager.mutate_servers(raw, "zonk", {})[1]
+    assert mcp_manager.mutate_servers({"mcpServers": []}, "remove", {"name": "a"})[1]
+
+
+def test_apply_config_op_tulis_dan_reload(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    mgr = MCPManager()
+
+    async def fake_start(spec):  # no real subprocess in unit tests
+        return mcp_manager._ServerRuntime(
+            spec=spec, status="disabled" if spec.disabled else "ok"
+        )
+
+    monkeypatch.setattr(mgr, "_start_server", fake_start)
+    asyncio.run(mgr.start_all(str(tmp_path)))  # active project, no config yet
+    res = asyncio.run(mgr.apply_config_op(
+        "set", {"name": "d", "spec": {"command": "python", "disabled": True}}
+    ))
+    assert res["success"] is True, res
+    teks = (tmp_path / ".orion" / "mcp.json").read_text(encoding="utf-8")
+    assert json.loads(teks)["mcpServers"]["d"]["command"] == "python"
+    assert [s["name"] for s in res["mcp"]["servers"]] == ["d"]
+
+    res = asyncio.run(mgr.apply_config_op("toggle", {"name": "d"}))
+    # toggle flips: d started disabled=True, so it is now ENABLED -> "ok"
+    assert res["success"] and mgr._servers["d"].status == "ok"
+    res = asyncio.run(mgr.apply_config_op("toggle", {"name": "d", "disabled": True}))
+    assert res["success"] and mgr._servers["d"].status == "disabled"
+    res = asyncio.run(mgr.apply_config_op("remove", {"name": "d"}))
+    assert res["success"] and res["mcp"]["servers"] == []
+
+
+def test_apply_config_op_menolak_tanpa_menyentuh_file(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    mgr = MCPManager()
+    asyncio.run(mgr.start_all(str(tmp_path)))
+    orion = tmp_path / ".orion"
+    orion.mkdir(exist_ok=True)
+    asli = '{ "mcpServers": { "a": { "command": "python" } } }'
+    (orion / "mcp.json").write_text(asli, encoding="utf-8")
+
+    res = asyncio.run(mgr.apply_config_op("set", {"name": "b", "spec": {}}))
+    assert res["success"] is False and res["error"]
+    assert (orion / "mcp.json").read_text(encoding="utf-8") == asli
+
+    (orion / "mcp.json").write_text("{rusak", encoding="utf-8")
+    res = asyncio.run(mgr.apply_config_op("set", {"name": "b", "spec": {"command": "x"}}))
+    assert res["success"] is False and "not valid JSON" in res["error"]
+    assert (orion / "mcp.json").read_text(encoding="utf-8") == "{rusak"
+
+
+def test_apply_config_op_tanpa_proyek():
+    mgr = MCPManager()
+    res = asyncio.run(mgr.apply_config_op("set", {"name": "a", "spec": {"command": "x"}}))
+    assert res["success"] is False and "no active project" in res["error"]
+
+
+def test_status_detail_menyembunyikan_nilai_env():
+    mgr = MCPManager()
+    spec = ServerSpec(name="s", command="c", args=[], env={"SECRET_KEY": "super-rahasia"})
+    mgr._servers["s"] = mcp_manager._ServerRuntime(spec=spec, status="ok")
+    blob = json.dumps(mgr.status_detail())
+    assert "SECRET_KEY" in blob
+    assert "super-rahasia" not in blob
+    assert mgr.status_detail()["servers"][0]["env_keys"] == ["SECRET_KEY"]
+
+
+def test_endpoint_mcp_token_dan_perilaku(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app.services.auth import HEADER, TOKEN_ENV
+
+    monkeypatch.setenv(TOKEN_ENV, "s3cret")
+    monkeypatch.setenv("ORION_PID_FILE", str(tmp_path / "pid"))
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module.mcp_manager, "project_path", str(tmp_path))
+    with TestClient(main_module.app) as client:
+        assert client.get("/mcp/status").status_code == 401
+        assert client.post("/mcp/config", json={"op": "remove", "name": "x"}).status_code == 401
+
+        r = client.get("/mcp/status", headers={HEADER: "s3cret"})
+        assert r.status_code == 200
+        body = r.json()
+        for key in ("servers", "config_path", "warnings", "project_path"):
+            assert key in body
+
+        # command that cannot spawn -> op accepted, server reported error
+        r = client.post(
+            "/mcp/config", headers={HEADER: "s3cret"},
+            json={"op": "set", "name": "bad", "spec": {"command": "tidak-ada-command-xyz"}},
+        )
+        assert r.status_code == 200
+        assert r.json()["mcp"]["servers"][0]["status"] == "error"
+        assert (tmp_path / ".orion" / "mcp.json").exists()
+
+
 # ------------------------------------------------------- route-level: /health
 
 def test_health_route_memiliki_field_mcp_aditif(monkeypatch, tmp_path):
