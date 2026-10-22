@@ -727,11 +727,21 @@ def test_endpoint_mcp_token_dan_perilaku(monkeypatch, tmp_path):
 
     monkeypatch.setenv(TOKEN_ENV, "s3cret")
     monkeypatch.setenv("ORION_PID_FILE", str(tmp_path / "pid"))
-    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    # >>> adendum 0006 (hermeticity, born on the owner's machine): the
+    # TestClient lifespan runs auto_restore_project(), which follows the
+    # developer's REAL ~/.orion_last_project.json and would overwrite the
+    # project_path monkeypatched below — on a machine with a live project
+    # carrying a live mcp.json, the config op then wrote into the REAL
+    # project (sandbox never showed it: its last-project file points at a
+    # dead pytest dir). Redirect the persistence file BEFORE the lifespan,
+    # and drop the MCP-config override + set project_path INSIDE the
+    # lifespan block so auto-restore cannot hijack them.
     from app import main as main_module
 
-    monkeypatch.setattr(main_module.mcp_manager, "project_path", str(tmp_path))
+    monkeypatch.setattr(main_module, "LAST_PROJECT_FILE", str(tmp_path / "last.json"))
     with TestClient(main_module.app) as client:
+        monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+        monkeypatch.setattr(main_module.mcp_manager, "project_path", str(tmp_path))
         assert client.get("/mcp/status").status_code == 401
         assert client.post("/mcp/config", json={"op": "remove", "name": "x"}).status_code == 401
 
