@@ -40,7 +40,10 @@ from pathlib import Path
 # /set-project gained the additive "mcp" field, /health gained
 # mcp_servers/mcp_tools, and the agent loop can dispatch mcp__* tools.
 # New machine-visible surface without breaking old clients = minor bump.
-BACKEND_VERSION = "0.6.0"
+# Bumped 0.6.0 -> 0.6.1 for the UPDATE-014 adendum (patch 0005): mcp.json
+# now tolerates a Windows BOM (utf-8-sig) and the test suite no longer
+# touches the developer's real ~/.orion_last_project.json / MCP config.
+BACKEND_VERSION = "0.6.1"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

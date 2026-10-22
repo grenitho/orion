@@ -449,7 +449,12 @@ class MCPManager:
         if path is None or not path.exists():
             return {}
         try:
-            raw = path.read_text(encoding="utf-8")
+            # utf-8-sig: Windows writing tools love BOMs (PowerShell 5.1
+            # Set-Content -Encoding UTF8, some Notepad modes) and json.loads
+            # chokes on the leading \ufeff. Reading as utf-8-sig accepts both
+            # BOM and no-BOM files — observed in the field during the
+            # UPDATE-014 owner E2E.
+            raw = path.read_text(encoding="utf-8-sig")
         except OSError as exc:
             self._warnings.append(f"cannot read {path.name}: {exc}")
             return {}

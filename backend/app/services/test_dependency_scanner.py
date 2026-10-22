@@ -82,6 +82,16 @@ def test_set_project_melaporkan_truncation_ke_pengguna(monkeypatch, tmp_path):
     import app.services.dependency_scanner as scanner_mod
 
     monkeypatch.setattr(scanner_mod, "MAX_SCANNED_FILES", 3)
+    # >>> UPDATE-014 adendum: this route calls save_last_project(), which used
+    # to write the developer's REAL ~/.orion_last_project.json — so a pytest
+    # run left a tmp_path behind that the next backend start auto-restored
+    # (observed live: /health reported a pytest-of-* project_path). Redirect
+    # the persistence file into tmp_path; the route behaviour is unchanged.
+    import app.main as main_module
+
+    monkeypatch.setattr(
+        main_module, "LAST_PROJECT_FILE", str(tmp_path / "last_project.json")
+    )
     for i in range(8):
         _buat(tmp_path, f"pkg/mod{i}.py", f"def f{i}():\n    ...\n")
 

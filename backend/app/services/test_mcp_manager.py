@@ -236,7 +236,8 @@ def test_format_tool_result_dua_gaya_versi():
 
 # ------------------------------------------------------------ manager: config
 
-def test_start_all_tanpa_file_config(tmp_path):
+def test_start_all_tanpa_file_config(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
     mgr = MCPManager()
     summary = asyncio.run(mgr.start_all(str(tmp_path)))
     assert summary == {"servers": [], "tools": 0, "warnings": []}
@@ -244,7 +245,8 @@ def test_start_all_tanpa_file_config(tmp_path):
     assert mgr.health_fields() == {"mcp_servers": [], "mcp_tools": 0}
 
 
-def test_start_all_config_rusak_hanya_warning(tmp_path):
+def test_start_all_config_rusak_hanya_warning(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
     orion = tmp_path / ".orion"
     orion.mkdir()
     (orion / "mcp.json").write_text("{rusak", encoding="utf-8")
@@ -254,7 +256,8 @@ def test_start_all_config_rusak_hanya_warning(tmp_path):
     assert any("not valid JSON" in w for w in summary["warnings"])
 
 
-def test_start_all_server_disabled_tidak_disentuh(tmp_path):
+def test_start_all_server_disabled_tidak_disentuh(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
     orion = tmp_path / ".orion"
     orion.mkdir()
     (orion / "mcp.json").write_text(
@@ -273,6 +276,7 @@ def test_start_all_sdk_tersedia_buruk_hanya_warning(tmp_path, monkeypatch):
         json.dumps({"mcpServers": {"x": {"command": "python"}}}), encoding="utf-8"
     )
     monkeypatch.setattr(mcp_manager, "MCP_IMPORT_ERROR", "ModuleNotFoundError: mcp")
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
     mgr = MCPManager()
     summary = asyncio.run(mgr.start_all(str(tmp_path)))
     assert summary["servers"] == [] and summary["tools"] == 0
@@ -289,6 +293,24 @@ def test_override_lokasi_config_lewat_env(tmp_path, monkeypatch):
     mgr = MCPManager()
     summary = asyncio.run(mgr.start_all(str(tmp_path / "proyek")))
     assert [s["name"] for s in summary["servers"]] == ["e"]
+
+
+def test_config_dengan_bom_windows_tetap_terbaca(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    """PowerShell 5.1 (Set-Content -Encoding UTF8) and some Notepad modes
+    prepend a BOM; json.loads chokes on it. load_config reads utf-8-sig, so
+    a BOM'd mcp.json must parse exactly like a clean one (adendum 014,
+    observed on the owner's machine)."""
+    orion = tmp_path / ".orion"
+    orion.mkdir()
+    data = json.dumps(
+        {"mcpServers": {"bom": {"command": "python", "disabled": True}}}
+    )
+    (orion / "mcp.json").write_bytes(b"\xef\xbb\xbf" + data.encode("utf-8"))
+    mgr = MCPManager()
+    summary = asyncio.run(mgr.start_all(str(tmp_path)))
+    assert [s["name"] for s in summary["servers"]] == ["bom"]
+    assert summary["warnings"] == []
 
 
 # ------------------------------------------------------------- manager: call
