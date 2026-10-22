@@ -46,7 +46,11 @@ from pathlib import Path
 # Bumped 0.6.1 -> 0.7.0 for UPDATE-015: token-guarded management surface
 # GET /mcp/status + POST /mcp/config (validate -> atomic write -> reload),
 # consumed by the new VS Code MCP panel and wizard card.
-BACKEND_VERSION = "0.7.0"
+# Bumped 0.7.0 -> 0.8.0 for UPDATE-016: internal sub-agents
+# (delegate_explorer / delegate_verifier / delegate_workers) with depth-1
+# rule, disjoint write scopes, per-turn and per-run budgets; closes the
+# MCP phase together with 0.6.x/0.7.x -> milestone v0.1.0.
+BACKEND_VERSION = "0.8.0"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

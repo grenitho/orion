@@ -173,6 +173,13 @@ item in the activity bar opens a panel (server table, add/edit form,
 enable-disable, one-click demo install), and the Setup Wizard gained an
 optional sixth card for it — see `docs/MCP_FOUNDATION.md` §11.
 
+**Sub-agents (backend 0.8.0+):** for exploration-heavy investigation,
+independent post-edit verification and mechanical multi-file work, Orion
+can delegate to bounded internal sub-agents (Explorer / Verifier / parallel
+Workers with disjoint write scopes). Reports return as ordinary tool
+results; budgets live in `.orion/orion_config.json` (`subagents_*`); every
+delegation shows in the activity log. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md).
+
 ---
 
 ## Testing

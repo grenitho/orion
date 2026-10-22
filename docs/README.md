@@ -11,6 +11,7 @@ Lives at the repository root and in this folder:
 | `/README.md` | what Orion is, quick start, configuration, limitations |
 | `/SECURITY.md` | threat model, what Orion protects against and what it deliberately does not |
 | `MCP_FOUNDATION.md` | MCP tool-server foundation (backend 0.6.0+): configuration reference, failure contract, troubleshooting |
+| `SUBAGENTS.md` | internal sub-agents (backend 0.8.0+): roles, hard rules, budgets, troubleshooting |
 | `PANDUAN_SETUP.md` | **end-user setup guide, Indonesian on purpose** (primary audience: first-time non-developer users): the one-line Windows installer, the manual route, the upcoming in-extension wizard, and multi-provider LLM configuration |
 | `DEVELOPMENT_ROADMAP.md` | current state, what is next, what is deliberately not planned |
 | `FASE_C_PLAN.md` | execution plan for extracting the agent loop out of `main.py` |

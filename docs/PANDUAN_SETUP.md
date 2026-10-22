@@ -330,6 +330,29 @@ Sejak UPDATE-015, konfigurasi server MCP bisa penuh dari UI:
 
 Detail teknis & kontrak kegagalan: `MCP_FOUNDATION.md` (§11 untuk UI).
 
+## Sub-agent: asisten internal Orion (backend 0.8.0+)
+
+Untuk kerja yang cocok dijaga, Orion kini bisa mendelegasikan ke asisten
+internal yang batasnya ketat — tanpa konfigurasi apa pun sejak awal:
+
+- **Explorer** (`delegate_explorer`): survei banyak file secara read-only,
+  mengembalikan satu laporan ringkas (konteks chat utama tetap lega).
+- **Verifier** (`delegate_verifier`): pemeriksa independen pasca-edit yang
+  memakai alat ukur sungguhan (verify_code/run_tests/git_diff/…) dan
+  mengembalikan vonis + daftar cacat.
+- **Workers** (`delegate_workers`): beberapa pekerja paralel untuk tugas
+  multi-file yang saling lepas; daftar file tulis tiap pekerja WAJIB
+  tidak bertabrakan (ditolak sistem sebelum bekerja bila bertabrakan).
+
+Aturan keras: asisten tidak pernah menjalankan perintah terminal berbahaya
+(itu tetap milik chat utama + modal persetujuan Anda), tidak bicara ke
+Anda langsung, tidak menulis ke memori chat, dan kedalaman delegasi = 1.
+Anggaran per proyek ada di `.orion/orion_config.json`:
+`subagents_enabled`, `subagent_max_per_turn` (3), `subagent_max_iterations`
+(6), `subagent_workers_max` (3). Setiap delegasi tampil di activity log
+sebagai baris `🤖 Sub-agent …`. Matikan kapan pun dengan
+`"subagents_enabled": false`. Detail: `docs/SUBAGENTS.md`.
+
 - [ ] Extension `grenitho.orion-ai` terpasang di VS Code
 - [ ] `orion.backendPath` terisi (atau workspace berdekatan dengan `backend/`)
 - [ ] Notifikasi *"Backend started automatically"* muncul saat membuka proyek
