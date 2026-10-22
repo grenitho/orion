@@ -128,6 +128,24 @@ def _looks_like_connection_loss(err: BaseException) -> bool:
     return any(marker in text for marker in _CONN_LOSS_MARKERS)
 
 
+_TIMEOUT_MARKERS = ("timed out", "timeout", "timedout")
+
+
+def _looks_like_timeout(err: BaseException) -> bool:
+    """True for OUR hard guard (asyncio.TimeoutError) AND for the SDK's own
+    read-timeout, which surfaces as McpError code -32001 with a 'timed out'
+    message (spike finding E4) — not an asyncio.TimeoutError subclass."""
+    if isinstance(err, TimeoutError):  # == asyncio.TimeoutError on py3.11+
+        return True
+    text = f"{type(err).__name__}: {err}".lower()
+    if any(marker in text for marker in _TIMEOUT_MARKERS):
+        return True
+    code = getattr(getattr(err, "exception", None), "code", None)
+    if code is None:
+        code = getattr(err, "code", None)
+    return str(code) == "-32001"
+
+
 async def _call_tool_compat(session, name: str, arguments: dict, timeout: float):
     """call_tool with read_timeout_seconds as float (2.x) or timedelta (1.x).
 
@@ -639,23 +657,30 @@ class MCPManager:
         except Exception as exc:  # pragma: no cover - last-resort guard
             return f"{PREFIX_ERROR} unexpected failure calling '{public_name}': {exc}"[:ERROR_TEXT_MAX_LEN]
 
+    def _timeout_message(self, runtime: _ServerRuntime, original: str,
+                         suffix: str = "") -> str:
+        return (
+            f"{PREFIX_TIMEOUT} tool '{original}' on MCP server "
+            f"'{runtime.spec.name}' did not answer within "
+            f"{runtime.spec.timeout:g} seconds{suffix}. "
+            "It was NOT executed to completion; do not blindly retry — try a "
+            "smaller/different operation or continue without this tool."
+        )
+
     async def _call_guarded(self, runtime: _ServerRuntime, original: str,
                             arguments: dict | None) -> str:
         """One call with timeout, connection-loss detection and ONE retry
         after a transparent reconnect (spike finding: a dead server keeps
         answering 'Connection closed' — retrying without reconnect is useless,
         and more than one reconnect risks a new loop)."""
-        timeout = runtime.spec.timeout
         try:
-            return await self._call_once(runtime, original, arguments, timeout)
-        except asyncio.TimeoutError:
-            return (
-                f"{PREFIX_TIMEOUT} tool '{original}' on MCP server "
-                f"'{runtime.spec.name}' did not answer within {timeout:g} seconds. "
-                "It was NOT executed to completion; do not blindly retry — try a "
-                "smaller/different operation or continue without this tool."
-            )
+            return await self._call_once(runtime, original, arguments, runtime.spec.timeout)
         except Exception as exc:
+            # The SDK's own read timeout is an McpError ('timed out', -32001),
+            # NOT asyncio.TimeoutError — _looks_like_timeout covers both, plus
+            # the outer wait_for hard guard.
+            if _looks_like_timeout(exc):
+                return self._timeout_message(runtime, original)
             if not _looks_like_connection_loss(exc):
                 return (
                     f"{PREFIX_ERROR} call to '{original}' failed: "
@@ -669,14 +694,10 @@ class MCPManager:
                     "tell the user the MCP server died."
                 )
             try:
-                return await self._call_once(runtime, original, arguments, timeout)
-            except asyncio.TimeoutError:
-                return (
-                    f"{PREFIX_TIMEOUT} tool '{original}' on MCP server "
-                    f"'{runtime.spec.name}' did not answer within {timeout:g} seconds "
-                    "(after a reconnect)."
-                )
+                return await self._call_once(runtime, original, arguments, runtime.spec.timeout)
             except Exception as exc2:
+                if _looks_like_timeout(exc2):
+                    return self._timeout_message(runtime, original, suffix=" (after a reconnect)")
                 return (
                     f"{PREFIX_SERVER_DOWN} '{runtime.spec.name}' failed again right "
                     f"after reconnecting: {type(exc2).__name__}: {str(exc2)[:120]}"
