@@ -87,6 +87,9 @@ NAMA_TOOL_AKTIF = {
     "verify_code",
     "restore_backup", "list_backups", "delete_file", "move_file", "git_commit",
     "run_tests",
+    # >>> UPDATE-016: sub-agent delegation branches live in agent_loop.py
+    # (one shared branch via subagent_manager.is_subagent_tool).
+    "delegate_explorer", "delegate_verifier", "delegate_workers",
 }
 
 

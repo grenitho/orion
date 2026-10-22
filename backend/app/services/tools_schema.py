@@ -405,4 +405,91 @@ TOOLS = [
             },
         },
     },
+    # >>> UPDATE-016: sub-agent delegation (backend/app/services/
+    # subagent_manager.py). Depth 1, read-only explorer, on-demand verifier,
+    # disjoint-scope parallel workers; every delegation returns ONE report
+    # string as the tool result.
+    {
+        "type": "function",
+        "function": {
+            "name": "delegate_explorer",
+            "description": (
+                "Delegate a READ-ONLY investigation to Orion's Explorer sub-agent "
+                "(separate context window, so many file reads do not flood yours). "
+                "Use when understanding a task needs reading/searching many files. "
+                "Returns one condensed findings report."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "What to investigate, concretely (paths, questions to answer).",
+                    }
+                },
+                "required": ["task"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delegate_verifier",
+            "description": (
+                "Delegate an independent check of claimed work to Orion's Verifier "
+                "sub-agent (runs verify_code/verify_html/run_tests/git_diff/reads). "
+                "Use BEFORE reporting completion of non-trivial edits. Returns a "
+                "verdict (PASS / PASS WITH NOTES / FAIL) plus a defect list."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "What must be verified, and where (files, expected behaviour).",
+                    },
+                    "claims": {
+                        "type": "string",
+                        "description": "Optional: the exact claims to check (e.g. 'function X handles empty input').",
+                    },
+                },
+                "required": ["task"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delegate_workers",
+            "description": (
+                "Delegate INDEPENDENT implementation tasks to parallel Worker "
+                "sub-agents. Every task lists the exact files it may write; scopes "
+                "must not overlap (overlaps are rejected before any work starts). "
+                "Use for multi-file mechanical work (renames, header additions, "
+                "per-file fixes). Returns one report per worker, in order."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "description": "Independent tasks with disjoint write scopes.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "task": {"type": "string", "description": "What this worker must implement."},
+                                "files": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Exact relative paths this worker may write/edit (no overlap with other tasks).",
+                                },
+                            },
+                            "required": ["task", "files"],
+                        },
+                    }
+                },
+                "required": ["tasks"],
+            },
+        },
+    },
 ]

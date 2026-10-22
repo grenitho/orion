@@ -62,6 +62,10 @@ class SessionState:
     nudge_count: int = 0
     verifikasi_count: int = 0
 
+    # >>> UPDATE-016: sub-agent delegations used on THIS turn (budget gate
+    # in subagent_manager.dispatch; cap = subagent_max_per_turn config).
+    subagent_calls: int = 0
+
     # Iteration progress marker used by the short-reply pause path.
     current_iter: int = 0
 
