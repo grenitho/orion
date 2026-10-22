@@ -320,7 +320,14 @@ def load_orion_config(project_path: str):
             # Match it to the context window of the model you actually use
             # (do not assume 8K if your model supports a larger context).
             "token_budget_threshold": 12000,
-            "description": "Orion settings. Change max_iterations to limit the AI thinking loop. token_budget_threshold controls when emergency context pruning occurs.",
+            # >>> UPDATE-016: sub-agent knobs (backend/app/services/
+            # subagent_manager.py). Delegations are bounded per turn and per
+            # sub-run so the feature can never burn quota silently.
+            "subagents_enabled": True,
+            "subagent_max_per_turn": 3,
+            "subagent_max_iterations": 6,
+            "subagent_workers_max": 3,
+            "description": "Orion settings. Change max_iterations to limit the AI thinking loop. token_budget_threshold controls when emergency context pruning occurs. subagents_* control the internal sub-agents (UPDATE-016).",
         }
         try:
             os.makedirs(os.path.dirname(config_path), exist_ok=True)

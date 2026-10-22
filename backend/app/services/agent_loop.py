@@ -38,6 +38,7 @@ from typing import AsyncIterator, Callable
 import tiktoken
 
 from app.services import loop_guards, research_rules, sse, tool_dispatch
+from app.services import subagent_manager
 from app.services.llm_router import get_ai_response
 from app.services.prompts import SYSTEM_PROMPT
 from app.services.session_state import SessionState
@@ -1055,6 +1056,39 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             result = tool_dispatch.jalankan(func_name, deps.tool_executor, func_args)
                             if _ls:
                                 yield deps.kirim_status(_ls)
+
+                        # >>> UPDATE-016: sub-agent delegation (explorer /
+                        # verifier / parallel workers). One shared branch:
+                        # subagent_manager enforces the enabled flag, the
+                        # per-turn budget, worker caps and disjoint write
+                        # scopes, and NEVER raises - every failure arrives
+                        # as an ordinary [SUBAGENT ...] tool-result string,
+                        # so the existing anti-loop guard covers it too.
+                        # Visibility uses the frozen 'status' event only.
+                        elif subagent_manager.is_subagent_tool(func_name):
+                            _sa_role = subagent_manager.role_of_tool(func_name)
+                            if func_name == subagent_manager.TOOL_WORKERS:
+                                _sa_tugas = func_args.get("tasks") or []
+                                _sa_snippet = f"{len(_sa_tugas)} parallel task(s)"
+                            else:
+                                _sa_snippet = str(func_args.get("task") or "")[:80]
+                            yield deps.kirim_status(
+                                f'🤖 Sub-agent {_sa_role}: {_sa_snippet} ...'
+                            )
+                            result = await subagent_manager.dispatch(
+                                func_name,
+                                func_args,
+                                state=state,
+                                llm_call=deps.llm_call,
+                                tool_executor=deps.tool_executor,
+                                config=deps.config,
+                                project_map=deps.context_manager.get_project_map(),
+                                logger=deps.logger,
+                            )
+                            yield deps.kirim_status(
+                                f'🤖 Sub-agent {_sa_role} finished.'
+                            )
+                        # >>> END OF UPDATE-016 sub-agent branch
 
                         elif func_name == "read_file":
                             file_path = func_args.get("file_path", "")
