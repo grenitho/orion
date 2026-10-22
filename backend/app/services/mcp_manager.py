@@ -389,6 +389,92 @@ def parse_config(raw_text: str) -> tuple[dict, list[str]]:
     return specs, warnings
 
 
+def mutate_servers(raw: dict, op: str, payload: dict) -> tuple[dict | None, str | None]:
+    """Pure mcp.json mutation for POST /mcp/config (UPDATE-015).
+
+    Returns (new raw dict, None) or (None, error message). Deliberately
+    pure: writing + reloading lives in MCPManager.apply_config_op so this
+    function is unit-testable without any filesystem or subprocess.
+
+    Ops:
+      set          {name, spec[, keep_env]}  add/update one server entry;
+                   keep_env=true + an empty env in the new spec preserves
+                   the stored env (the panel never shows secret values, so
+                   editing a command must not silently wipe the secrets).
+      remove       {name}
+      toggle       {name[, disabled]}   flip (or set) the disabled flag
+      replace_all  {servers}             whole mcpServers map, all validated
+    Unknown top-level keys of the file are preserved verbatim.
+    """
+    if not isinstance(raw, dict):
+        raw = {}
+    servers = raw.get("mcpServers")
+    if servers is None:
+        servers = {}
+    if not isinstance(servers, dict):
+        return None, (
+            '"mcpServers" in the existing file is not an object; '
+            "edit the file manually"
+        )
+    servers = dict(servers)
+
+    def _entry_from_spec(built: ServerSpec) -> dict:
+        entry: dict = {"command": built.command, "args": list(built.args)}
+        if built.env:
+            entry["env"] = dict(built.env)
+        if built.timeout != DEFAULT_CALL_TIMEOUT:
+            entry["timeoutSeconds"] = built.timeout
+        if built.disabled:
+            entry["disabled"] = True
+        return entry
+
+    if op == "set":
+        name = str(payload.get("name") or "").strip()
+        spec = payload.get("spec")
+        if not name or not isinstance(spec, dict):
+            return None, "op 'set' needs a non-empty 'name' and a 'spec' object"
+        built, warnings = build_server_spec(name, spec)
+        if built is None:
+            return None, f"invalid server spec: {warnings[0] if warnings else 'missing command'}"
+        if payload.get("keep_env") and not built.env:
+            old = servers.get(name)
+            if isinstance(old, dict) and isinstance(old.get("env"), dict):
+                built.env = {str(k): str(v) for k, v in old["env"].items()}
+        servers[name] = _entry_from_spec(built)
+    elif op == "remove":
+        name = str(payload.get("name") or "").strip()
+        if name not in servers:
+            return None, f"server '{name}' is not in the config"
+        del servers[name]
+    elif op == "toggle":
+        name = str(payload.get("name") or "").strip()
+        entry = servers.get(name)
+        if not isinstance(entry, dict):
+            return None, f"server '{name}' is not in the config"
+        disabled = payload.get("disabled")
+        if disabled is None:
+            disabled = not bool(entry.get("disabled", False))
+        servers[name] = {**entry, "disabled": bool(disabled)}
+    elif op == "replace_all":
+        new_servers = payload.get("servers")
+        if not isinstance(new_servers, dict):
+            return None, "op 'replace_all' needs a 'servers' object"
+        for key in new_servers:
+            built, warnings = build_server_spec(str(key), new_servers[key])
+            if built is None:
+                return None, (
+                    f"invalid server '{key}': "
+                    f"{warnings[0] if warnings else 'missing command'}"
+                )
+        servers = {str(k): v for k, v in new_servers.items()}
+    else:
+        return None, f"unknown op '{op}' (expected: set, remove, toggle, replace_all)"
+
+    out = dict(raw)
+    out["mcpServers"] = servers
+    return out, None
+
+
 # --------------------------------------------------------------------------
 # Runtime state
 # --------------------------------------------------------------------------
@@ -616,6 +702,99 @@ class MCPManager:
             "tools": len(self._registry),
             "warnings": list(self._warnings),
         }
+
+    # ------------------------------------------------- management (UPDATE-015)
+
+    def status_detail(self) -> dict:
+        """The full picture behind GET /mcp/status.
+
+        SECURITY: env VALUES never leave this process — only the key names
+        (``env_keys``), so the VS Code panel can say "this server has 2 env
+        vars" during a screen share without ever showing a secret. Editing
+        env means re-submitting every KEY=VALUE pair (panel explains this).
+        """
+        servers = []
+        for name, runtime in self._servers.items():
+            servers.append({
+                "name": name,
+                "status": runtime.status,
+                "tools": len(runtime.tools),
+                "error": runtime.error,
+                "disabled": runtime.spec.disabled,
+                "command": runtime.spec.command,
+                "args": list(runtime.spec.args),
+                "timeout": runtime.spec.timeout,
+                "env_keys": sorted(runtime.spec.env),
+            })
+        return {
+            "project_path": self.project_path,
+            "config_path": str(self.config_path) if self.config_path else None,
+            "warnings": list(self._warnings),
+            "servers": servers,
+        }
+
+    async def apply_config_op(self, op: str, payload: dict) -> dict:
+        """Validate -> atomically write mcp.json -> reload servers.
+
+        One call = one transaction: a rejected op leaves the existing file
+        byte-for-byte untouched; a accepted op always ends with the servers
+        reloaded from what was just written (no "file saved but servers
+        still old" state). Never raises. Returns
+        {"success", "error"|None, "mcp": summary}.
+        """
+        result: dict = {"success": False, "error": None, "mcp": self.summary()}
+        if not self.project_path:
+            result["error"] = "no active project; run Set Project first"
+            return result
+        path = self.resolve_config_path(self.project_path)
+        if path is None:  # pragma: no cover - resolve only fails w/o project
+            result["error"] = "cannot resolve the mcp.json location"
+            return result
+
+        current: dict = {}
+        if path.exists():
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8-sig"))
+            except json.JSONDecodeError:
+                result["error"] = (
+                    "the existing mcp.json is not valid JSON; fix or delete "
+                    "it manually (this operation was refused, file untouched)"
+                )
+                return result
+            except OSError as exc:
+                result["error"] = f"cannot read {path.name}: {exc}"
+                return result
+            if not isinstance(loaded, dict):
+                result["error"] = (
+                    "the existing mcp.json is not a JSON object; fix or "
+                    "delete it manually (this operation was refused)"
+                )
+                return result
+            current = loaded
+
+        new_raw, err = mutate_servers(current, op, payload)
+        if err is not None:
+            result["error"] = err
+            return result
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(
+                json.dumps(new_raw, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(tmp, path)
+        except OSError as exc:
+            result["error"] = f"cannot write {path.name}: {exc}"
+            return result
+
+        try:
+            summary = await self.start_all(self.project_path)
+        except Exception as exc:  # pragma: no cover - start_all never raises
+            summary = {"servers": [], "tools": 0, "warnings": [str(exc)]}
+        result["success"] = True
+        result["mcp"] = summary
+        return result
 
     def health_fields(self) -> dict:
         """Additive GET /health fields (old extensions ignore unknown keys)."""

@@ -411,6 +411,54 @@ async def health():
 # >>> END OF UPDATE-013 /health
 
 
+# >>> UPDATE-015: MCP management surface for the VS Code panel ============
+# Both routes sit behind the shared-secret middleware like every route
+# except GET / (test_health pins that rule). status_detail() never exposes
+# env VALUES (only key names); /mcp/config is one transaction: validate ->
+# atomic write -> reload, so the panel can never leave the file and the
+# live servers out of sync.
+class McpConfigRequest(BaseModel):
+    op: str
+    name: str | None = None
+    spec: dict | None = None
+    disabled: bool | None = None
+    servers: dict | None = None
+    keep_env: bool | None = None
+
+
+@app.get("/mcp/status")
+async def mcp_status():
+    if mcp_manager is None:
+        return JSONResponse(
+            {"error": "MCP support is unavailable in this backend"},
+            status_code=503,
+        )
+    return mcp_manager.status_detail()
+
+
+@app.post("/mcp/config")
+async def mcp_config(request: McpConfigRequest):
+    if mcp_manager is None:
+        return JSONResponse(
+            {"error": "MCP support is unavailable in this backend"},
+            status_code=503,
+        )
+    result = await mcp_manager.apply_config_op(
+        request.op,
+        {
+            "name": request.name,
+            "spec": request.spec,
+            "disabled": request.disabled,
+            "servers": request.servers,
+            "keep_env": request.keep_env,
+        },
+    )
+    if not result["success"]:
+        return JSONResponse(result, status_code=400)
+    return result
+# >>> END OF UPDATE-015 MCP management ====================================
+
+
 @app.post("/set-project")
 async def set_project(request: ProjectPathRequest):
     global tool_executor
