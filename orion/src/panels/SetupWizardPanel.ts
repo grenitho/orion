@@ -12,6 +12,7 @@ import {
     getSetupGuideUrl,
     restartBackend,
 } from '../services/backendManager';
+import { McpPanel } from './McpPanel';
 
 // ===========================================================================
 // >>> UPDATE-012: "Route 1" from docs/PANDUAN_SETUP.md — an in-VS Code Setup
@@ -379,6 +380,16 @@ export class SetupWizardPanel {
                 return;
             case 'openChat':
                 await vscode.commands.executeCommand('orion.openChat');
+                return;
+            // >>> UPDATE-015: the optional MCP card. The demo install runs
+            // in the extension host (needs /health + /mcp/config with the
+            // shared token); the result lands in the MCP panel's note.
+            case 'openMcpPanel':
+                await vscode.commands.executeCommand('orion.openMcpPanel');
+                return;
+            case 'installDemoMcp':
+                await this.runTask('installDemoMcp', async () => McpPanel.installDemoServer());
+                await vscode.commands.executeCommand('orion.openMcpPanel');
                 return;
             case 'openGuide': {
                 const url = getSetupGuideUrl();
@@ -849,6 +860,17 @@ export class SetupWizardPanel {
     </div>
 </div>
 
+<!-- OPTIONAL: MCP (UPDATE-015) -->
+<div class="card" id="cardMcp">
+    <div class="head"><span class="num">+</span><h2>Optional: MCP tool servers</h2><span class="badge" id="badgeMcp">optional</span></div>
+    <div class="body">
+        <p class="desc">Orion can borrow tools from local MCP servers (filesystem, fetch, databases, …). The MCP panel lists them, adds or removes them, and can install the bundled demo server with one click. Skipping this changes nothing — the panel stays reachable later from the activity bar (“MCP Servers”).</p>
+        <button id="btnMcpPanel">Open MCP panel</button>
+        <button class="secondary" id="btnMcpDemo">Install demo server</button>
+        <pre class="log" id="logMcp"></pre>
+    </div>
+</div>
+
 <p class="muted">Logs after setup: <code>&lt;project&gt;\\.orion\\logs\\backend.log</code> (structured) and <code>&lt;project&gt;\\.orion\\logs\\orion_stdout.log</code> (startup + routing lines).</p>
 
 <script nonce="${nonce}">
@@ -1099,6 +1121,8 @@ export class SetupWizardPanel {
     el('btnSaveEnv').addEventListener('click', function () { post(collectEnvPayload()); });
     el('btnRestart').addEventListener('click', function () { post({ cmd: 'restartBackend' }); });
     el('btnOpenChat').addEventListener('click', function () { post({ cmd: 'openChat' }); });
+    el('btnMcpPanel').addEventListener('click', function () { post({ cmd: 'openMcpPanel' }); });
+    el('btnMcpDemo').addEventListener('click', function () { post({ cmd: 'installDemoMcp' }); });
     el('guideLink').addEventListener('click', function () { post({ cmd: 'openGuide' }); });
     el('keyLink').addEventListener('click', function () { post({ cmd: 'openExternal', url: 'https://aistudio.google.com/apikey' }); });
 
