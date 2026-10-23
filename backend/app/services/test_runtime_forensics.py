@@ -146,6 +146,78 @@ def test_forensics_stale_code(pid_env, monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# Windows-safe liveness probe (UPDATE-019 adendum 0004)
+# --------------------------------------------------------------------------
+
+def test_pid_alive_di_windows_memakai_probe_bebas_efek(monkeypatch):
+    """Regression 2026-10-23 (mesin owner, Windows): os.kill(pid, 0) di
+    Windows = TerminateProcess — probe lama mencoba MEMATIKAN proses yang
+    dicek dan melempar SystemError. pid_alive harus lewat helper OpenProcess.
+    """
+    calls = []
+
+    def fake_probe(pid):
+        calls.append(pid)
+        return True
+
+    monkeypatch.setattr(runtime_id, "_IS_WINDOWS", True)
+    monkeypatch.setattr(runtime_id, "_pid_alive_windows", fake_probe)
+    assert runtime_id.pid_alive(4321) is True
+    assert calls == [4321]  # exactly one probe call, no os.kill involved
+
+
+def test_pid_alive_windows_probe_mati(monkeypatch):
+    monkeypatch.setattr(runtime_id, "_IS_WINDOWS", True)
+    monkeypatch.setattr(runtime_id, "_pid_alive_windows", lambda pid: False)
+    assert runtime_id.pid_alive(os.getpid()) is False
+
+
+def test_pid_alive_windows_probe_tak_tersedia_degradasi_aman(monkeypatch):
+    """Probe None (ctypes/windll absent) = dianggap mati, BUKAN fallback ke
+    os.kill (yang di Windows justru membunuh target)."""
+    monkeypatch.setattr(runtime_id, "_IS_WINDOWS", True)
+    monkeypatch.setattr(runtime_id, "_pid_alive_windows", lambda pid: None)
+    assert runtime_id.pid_alive(os.getpid()) is False
+
+
+def test_helper_windows_degradasi_none_di_non_windows():
+    """Di runtime non-Windows helper tidak punya windll -> None (lalu
+    pid_alive menganggap mati); yang penting TIDAK pernah os.kill."""
+    if runtime_id._IS_WINDOWS:
+        pytest.skip("helper ini native hanya di Windows")
+    assert runtime_id._pid_alive_windows(os.getpid()) is None
+
+
+def test_startup_dengan_klaim_pid_asing_hidup_tidak_meledak(monkeypatch, tmp_path):
+    """Lifespan boot dengan PID file berisi pid hidup milik proses lain
+    (simulasi kembar di POSIX): startup harus selamat — bukan SystemError
+    seperti di Windows dulu. Bukti kembar ada SEBELUM klaim ditimpa
+    (forensics_payload + log boot); sesudah boot klaim = proses ini."""
+    monkeypatch.setenv(auth.TOKEN_ENV, "s3cret")
+    pid_file = tmp_path / "pid"
+    monkeypatch.setenv("ORION_PID_FILE", str(pid_file))
+    pid_file.write_text(
+        json.dumps({"pid": os.getppid(), "started_at": time.time(), "version": "x"}),
+        encoding="utf-8",
+    )
+
+    # sebelum boot: klaim asing yang hidup = TWIN SUSPECTED
+    sebelum = runtime_id.forensics_payload(None)
+    assert any("TWIN SUSPECTED" in v for v in sebelum["verdicts"])
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as client:  # lifespan: pre-read lalu timpa klaim
+        r = client.get("/runtime/forensics", headers={"X-Orion-Token": "s3cret"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["verdicts"] == []  # klaim kini proses ini sendiri
+        assert body["pid_file"]["pid"] == os.getpid()
+
+
+# --------------------------------------------------------------------------
 # route
 # --------------------------------------------------------------------------
 

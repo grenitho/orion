@@ -128,10 +128,56 @@ def clear_pid_file() -> None:
 # answering port 8000, and the code mtime on disk — can each disagree, and
 # nothing exposed all three at once. These helpers never raise: forensics
 # must work exactly when the install is misbehaving.
+_IS_WINDOWS = os.name == "nt"
+
+
+def _pid_alive_windows(pid: int):
+    """Side-effect-free liveness probe for Windows; None when unavailable.
+
+    REGRESSION GUARD (owner's machine, 2026-10-23): ``os.kill(pid, 0)`` is
+    UNUSABLE on Windows — CPython maps any signal besides the two console
+    events to ``TerminateProcess(pid, sig)``, so a "liveness probe" would
+    KILL the target process (and with sig=0 it can even surface as
+    SystemError: <built-in function kill> returned a result with an
+    exception set). The supported probe is OpenProcess +
+    GetExitCodeProcess == STILL_ACTIVE, which only observes.
+    """
+    try:
+        import ctypes
+
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return None  # not a real Windows runtime: degrade safely
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        handle = windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not handle:
+            return False  # no such process (or no rights to even query)
+        try:
+            exit_code = ctypes.c_ulong(0)
+            if not windll.kernel32.GetExitCodeProcess(
+                handle, ctypes.byref(exit_code)
+            ):
+                return None
+            return exit_code.value == STILL_ACTIVE
+        finally:
+            windll.kernel32.CloseHandle(handle)
+    except Exception:  # noqa: BLE001 - a broken probe must never raise
+        return None
+
+
 def pid_alive(pid) -> bool:
-    """Best-effort liveness probe for a pid (signal 0)."""
+    """Best-effort liveness probe for a pid; never raises, never kills.
+
+    POSIX: signal 0 via os.kill. Windows: the OpenProcess probe above —
+    os.kill would terminate the target there (see _pid_alive_windows).
+    """
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
+    if _IS_WINDOWS:
+        return bool(_pid_alive_windows(pid))
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

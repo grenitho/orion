@@ -23,3 +23,11 @@ def _isolasi_mcp_config(tmp_path, monkeypatch):
     monkeypatch.setenv(
         "ORION_MCP_CONFIG", str(tmp_path / "mcp-config-tidak-ada.json")
     )
+    # >>> UPDATE-019 adendum: the same hermeticity rule for the PID file.
+    # TestClient lifespans run the real startup hook, which reads AND writes
+    # the PID file: on a developer machine that clobbered the live backend's
+    # announcement, and on Windows the twin probe then os.kill'ed a real
+    # process (the 2026-10-23 SystemError incident). Every test now gets a
+    # throwaway PID file; tests that care (test_health, test_runtime_*)
+    # set their own path explicitly afterwards.
+    monkeypatch.setenv("ORION_PID_FILE", str(tmp_path / "orion_backend.pid"))
