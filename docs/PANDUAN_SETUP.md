@@ -397,6 +397,13 @@ dijepit 1..20). Kedatangan diumumkan di activity log sebagai
 - [ ] Chat membalas `halo` dengan bahasa yang Anda pakai
 - [ ] (Opsional) key cadangan / provider lain terisi di `backend\.env`
 
+Catatan perilaku yang NORMAL (bukan error): bila tugas panjang, Orion bisa
+jeda dengan pesan **[SYSTEM WARNING - SOFT LIMIT]** di 80% `max_iterations`
+dan bertanya *lanjut / continue* — itu rem pengaman hemat token; ketik
+`lanjut` bila arahnya benar. Venv Anda boleh bernama `venv` atau `.venv`
+(wizard membuat `.venv`; instalasi manual lama sering `venv`) — keduanya
+dikenali, yang penting prompt berawalan `(venv)` saat menjalankan pip/pytest.
+
 Masih ada masalah? Baca tabel *Troubleshooting* di
 [README extension](../orion/README.md) atau buka issue di
 <https://github.com/grenitho/orion/issues>.

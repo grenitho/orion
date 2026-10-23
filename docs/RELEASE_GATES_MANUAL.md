@@ -94,3 +94,14 @@ Rule for every future PANDUAN/E2E that chats with Orion:
 
 Reviewers: an unexpected commit between the patch series and HEAD is a
 STOP condition, not a curiosity.
+
+## Expected pauses during long E2E (UPDATE-019 note)
+
+A `[SYSTEM WARNING - SOFT LIMIT]` bubble at 80% of `max_iterations` (default
+20 → iteration 16) followed by an `ask_user` ("Continue, or give new
+instructions?") is the designed token brake, NOT a defect and NOT a hung
+stream: answer `lanjut`/`continue` to resume, or split the task. E2E authors
+should expect it on exploration-heavy prompts in fresh projects (default
+config) and budget one extra interaction for it; raising
+`max_iterations` in the scratch project's `.orion/orion_config.json` moves
+the pause, hiding it does not.

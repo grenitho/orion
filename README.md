@@ -245,7 +245,8 @@ SECURITY.md              threat model and honest limitations
 
 | Symptom | Fix |
 |---|---|
-| Backend silent / chat reports a lost connection | Read `<project>\.orion\logs\backend.log` (fallback: `backend\logs\backend.log`) and `<project>\.orion\logs\orion_stdout.log` (pre-0.0.9: `~\orion_stdout.log`); make sure port 8000 is free |
+| Backend silent / chat reports a lost connection | Read the logs in the **backend install's** `.orion\logs\` folder — the folder that CONTAINS `backend/` (your repo root on a dev install), *not* the active chat project when the two differ: `orion_stdout.log` (startup + routing) and `backend.log` (structured, fallback `backend\logs\backend.log`); pre-0.0.9: `~\orion_stdout.log`. Make sure port 8000 is free |
+| Suspect two backends / a stale process | Token-guarded `GET /runtime/forensics` (backend 0.9.1+) compares the PID-file claim, the answering process and the code mtime, and answers with plain-English verdicts (`TWIN SUSPECTED`, `STALE CODE`, …); the same evidence is logged at every boot as `[ORION RUNTIME WARNING] TWIN SUSPECTED` |
 | `No module named 'mcp'` on the first chat | `pip install mcp` inside the backend venv (newer litellm needs it for tool calls) |
 | Extension shows a stale UI after updating | Fully restart VS Code and close old chat tabs |
 | `401 unauthorized` from chat or dashboard | Shared-token mismatch: restart the backend once, then reload the VS Code window; both re-read `~/.orion_shared_secret` |
