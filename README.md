@@ -160,7 +160,8 @@ All secrets and knobs live in `backend/.env` (never committed). The most relevan
 | `ORION_MAX_TODO_NUDGE`, `ORION_MAX_VERIFIKASI` | limits for the continuation and claim-challenge loops |
 
 Runtime behaviour per project lives in `.orion/orion_config.json`
-(`max_iterations`, token budget thresholds).
+(`max_iterations`, token budget thresholds, `subagents_*`, `mcp_enabled`,
+`inbox_*`, `subagent_models`).
 
 **MCP tool servers (backend 0.7.0+):** extend Orion's 22 built-in tools
 with any local [Model Context Protocol](https://modelcontextprotocol.io)
@@ -180,6 +181,17 @@ Workers with disjoint write scopes). Reports return as ordinary tool
 results; budgets live in `.orion/orion_config.json` (`subagents_*`); every
 delegation shows in the activity log. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md).
 
+**Inbox & model profiles (backend 0.9.0+, extension 0.2.0):** drop files
+into `<project>/.orion/inbox/` (text/code, png/jpg/webp, pdf, docx, xlsx)
+and the next chat turn ingests them under hard caps, archives them (never
+deletes) and announces `📥 Inbox: …` — attachments without an attachment
+UI. And each sub-agent role can be pinned to one model from the credential
+groups you already configured (`subagent_models` in
+`.orion/orion_config.json`), managed from the Setup Wizard's optional
+**Sub-agent models** card with a per-role Test probe. Empty state = exactly
+the old behaviour. Full reference:
+[docs/INBOX_AND_PROFILES.md](docs/INBOX_AND_PROFILES.md).
+
 ---
 
 ## Testing
@@ -188,11 +200,13 @@ delegation shows in the activity log. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md)
 python -m pytest backend -q         # from the repo root
 ```
 
-116 tests cover the attachment pipeline, the claim-verification gate, the loop-counter
-guard, the git-operation blocklist, the stream-completion wrapper, the research-query
-builder and the security posture (CORS, loopback bind, absence of personal paths and
-private artifacts). Several of these tests exist because a real production incident
-proved the bug first; their docstrings say so.
+292 tests cover the attachment pipeline, the inbox drop-zone, the model-profile
+router and endpoints, the sub-agent plumbing, the claim-verification gate, the
+loop-counter guard, the git-operation blocklist, the stream-completion wrapper,
+the research-query builder and the security posture (CORS, loopback bind, token
+guard, absence of personal paths and private artifacts). Several of these tests
+exist because a real production incident proved the bug first; their docstrings
+say so.
 
 ---
 
@@ -214,8 +228,10 @@ backend/
       research_rules.py  auto-research query building (pure, tested)
       stream_utils.py    terminal-event guarantee (tested)
       mcp_manager.py     MCP client: config, lifecycle, tool registry (UPDATE-014)
+      subagent_manager.py  Explorer/Verifier/Workers delegation (UPDATE-016)
+      inbox_manager.py   .orion/inbox drop-zone: extract, cap, archive (UPDATE-018)
       permission_manager.py, dependency_scanner.py, post_edit_verifier.py
-      test_*.py          180 tests
+      test_*.py          292 tests
   examples/
     mcp_demo_server.py   dependency-free MCP server for E2E testing
 orion/                   VS Code extension (TypeScript, esbuild)
@@ -235,6 +251,7 @@ SECURITY.md              threat model and honest limitations
 | `401 unauthorized` from chat or dashboard | Shared-token mismatch: restart the backend once, then reload the VS Code window; both re-read `~/.orion_shared_secret` |
 | Two Orion extensions installed at once | Keep exactly one (`code --list-extensions`); duplicate copies split the activity log and the chat panel |
 | MCP server never starts / `[MCP SERVER DOWN]` | See the MCP troubleshooting table in [docs/MCP_FOUNDATION.md](docs/MCP_FOUNDATION.md) §10 — usually a wrong absolute `command` path; on Windows wrap `npx` servers in `cmd /c` |
+| Dropped a file into `.orion/inbox/` but no `📥` line appears | Ingest runs once per chat turn and the manifest (`.orion/inbox_state.json`) remembers each processed file *version* — modify the file or drop a new name; check `inbox_enabled`; see [docs/INBOX_AND_PROFILES.md](docs/INBOX_AND_PROFILES.md) |
 
 The extension auto-starts the backend when the opened workspace contains (or
 sits near) this repository's `backend/` folder, or when the setting
@@ -257,12 +274,15 @@ Done since: the `main.py` split is complete (Phase C: `sse.py`, `session_state.p
 is English (Phase D: UI, logs, comments, system prompt), while chat replies keep
 following the user's language.
 
-Planned next: an in-extension setup wizard (Route 1 of
-[docs/PANDUAN_SETUP.md](docs/PANDUAN_SETUP.md)), first-class multi-provider
-tiers (`PROVIDER_N_*` so OpenAI/Anthropic/DeepSeek/Qwen can each hold their
-own key without OpenRouter), semantic search for large codebases, MCP tool
-servers, and parallel sub-agents. (The shared-secret token shipped in
-extension 0.0.6.)
+Planned next (renumbered in UPDATE-018): **019** defect-hunting & forensics
+(`validate_project_structure` ignoring `node_modules`/`__pycache__`, the
+twin-process forensics from incident 013), **020** UX polish (a webview
+attach button forwarding into the same pipeline the inbox uses, onboarding
+fixes), **021** a borrowed-stack trial for the client's ERP
+(PocketBase/SQLite → Supabase, n8n-mcp, playwright analytics), **022** the
+standalone non-VS Code client (vision, post-1.0). Everything else the old
+roadmap promised — setup wizard, multi-provider tiers, MCP tool servers,
+parallel sub-agents — has shipped.
 
 ---
 

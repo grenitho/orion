@@ -66,6 +66,36 @@ activity log as two frozen `status` frames:
 result, prefixed `[SUBAGENT REPORT • <role> • N iterations, M tool calls,
 status <ok|capped|error>]`.
 
+## 3b. Per-role model profiles (UPDATE-018)
+
+Each role can be pinned to ONE model from a credential group that already
+exists in the backend environment — the classic money-savers being a cheap
+model for `explorer` and a strong model for `verifier`. Config key
+`subagent_models` in `.orion/orion_config.json`:
+
+```json
+"subagent_models": {
+  "explorer": { "group": "provider_2", "model": "deepseek/deepseek-chat" },
+  "verifier": { "group": "gemini",     "model": "gemini/gemini-3.5-flash" },
+  "workers":  null
+}
+```
+
+* `null` / absent / `{}` = the **main router** (the pre-018 behaviour — the
+  empty state changes nothing);
+* `group` ∈ `gemini` | `provider_<N>` | `fallback`; `model` follows the
+  router's usual prefix rules;
+* **no new secrets**: a profile is a single-target queue built from the
+  group's existing credentials (gemini profiles rotate the group's N keys);
+* **a broken profile can never break a sub-run**: malformed entries are
+  dropped at config-read time, and a group without credentials falls back
+  to the main router with a `[LLM_ROUTER] [WARNING]` line;
+* managed without touching JSON by the Setup Wizard's optional
+  **Sub-agent models** card (dropdowns from `GET /models/options`, a real
+  probe via `POST /models/test`, atomic save via `POST /models/config`).
+
+Full reference: `docs/INBOX_AND_PROFILES.md` Part B.
+
 ## 4. Seeing the cost
 
 Each sub-run is real LLM traffic (its own tool rounds). The defaults cap a
@@ -93,3 +123,4 @@ with its built-ins.
 | `[SUBAGENT SCOPE] worker scopes overlap ...` | the model proposed overlapping file lists; nothing ran — ask again or split the task |
 | `[SUBAGENT ERROR] ...` | a model/tool failure inside a sub-run; the main agent sees it and can retry or report honestly |
 | reports feel too short/long | tune `subagent_max_iterations`; the explorer/verifier prompts already demand condensed output |
+| a pinned profile seems ignored | check the backend log for `[LLM_ROUTER] [WARNING] Sub-agent profile ... falling back to the main router` — the group has no credentials in this environment (or the entry is malformed); `GET /models/options` shows what the backend actually sees |

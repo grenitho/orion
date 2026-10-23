@@ -78,11 +78,23 @@ Restart the backend after editing `.env`.
   approval modal; destructive/networked git (`init/push/pull/clone/reset`) is
   blocked at code level; path-traversal guard; sensitive files (.env, keys)
   are never auto-overwritten; every overwrite keeps a `.bak` backup.
-- **Resilient by design** — 3-tier LLM router (rotated Gemini keys →
-  any OpenAI-compatible endpoint → Cloudflare), heartbeat status while the
-  model thinks, and every run ends with exactly one terminal event so the UI
-  never hangs or fakes success.
-- **Attachments** — paste screenshots or drop image/text files into the chat.
+- **Resilient by design** — multi-tier LLM router (rotated Gemini keys →
+  first-class `PROVIDER_<N>` groups → legacy OpenAI-compatible fallback →
+  Cloudflare), heartbeat status while the model thinks, and every run ends
+  with exactly one terminal event so the UI never hangs or fakes success.
+- **Inbox drop-zone** — put files (text/code, png/jpg/webp screenshots,
+  PDF, DOCX, XLSX) into `<project>/.orion/inbox/` and the next chat turn
+  picks them up: text is injected for that turn only, images travel as
+  vision parts, documents are extracted under announced caps, and every
+  processed file is archived — never deleted.
+- **MCP tool servers** — lend Orion tools from any local Model Context
+  Protocol server, managed from a dedicated panel (add/edit/disable,
+  one-click demo) with a per-project master switch.
+- **Sub-agents with model profiles** — bounded internal Explorer /
+  Verifier / parallel Workers take exploration-heavy and verification
+  work off the main context; an optional Setup-Wizard card pins one model
+  per role from the credentials you already configured, with a real Test
+  probe and automatic fallback to the main router.
 - **Performance dashboard** — requests, tokens, estimated cost and latency.
 - **Project memory** — per-project `.orion/` folder with context docs,
   dependency map, todo list, backups and logs. Local only, gitignored, never

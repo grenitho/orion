@@ -63,7 +63,13 @@ release; each takes about two minutes.
 - [ ] scenario c passed (findings quoted with line numbers)
 - [ ] scenario d passed (clean cancel, healthy backend)
 - [ ] `python -m pytest backend/app/services/ -q` green on the release commit
-- [ ] five-to-seven mock SSE baselines re-recorded byte-identical (harness owner)
+      (292 tests as of UPDATE-018)
+- [ ] all pre-existing mock-SSE harness scenarios re-recorded
+      byte-identical (15 legacy + `inbox_txt` = 16 as of UPDATE-018;
+      harness owner)
+- [ ] when dependencies changed: `pip install -r backend/requirements.txt`
+      re-run in the backend venv BEFORE the gates (UPDATE-018 added pypdf,
+      python-docx, openpyxl), and the owner PANDUAN repeats the install
 
 Only tick the boxes on the commit you intend to tag.
 

@@ -53,7 +53,10 @@ from pathlib import Path
 # Bumped 0.8.0 -> 0.8.1 for UPDATE-017: delegation policy in SYSTEM_PROMPT,
 # claim-discipline in sub-agent role prompts, and the mcp_enabled master
 # switch (behaviour-shaping, machine-visible via /mcp/status 'enabled').
-BACKEND_VERSION = "0.8.1"
+# Bumped 0.8.1 -> 0.9.0 for UPDATE-018: the .orion/inbox drop-zone (new
+# per-turn ingest, 📥 status frame, archive+manifest) and per-role
+# sub-agent model profiles (new /models/* routes, subagent_models config).
+BACKEND_VERSION = "0.9.0"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

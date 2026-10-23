@@ -78,6 +78,12 @@ Alur wizard (satu panel di dalam VS Code, tanpa terminal):
    **Open chat**. Selanjutnya backend hidup otomatis setiap VS Code
    dibuka.
 
+Di bawah langkah 5 ada dua **kartu opsional** — dilewati pun tidak
+mengubah apa pun: *"Optional: MCP tool servers"* (panel MCP + demo server
+satu klik, backend 0.7.0+) dan *"Optional: Sub-agent models"* (backend
+0.9.0+ / extension 0.2.0) yang mem-pin model per peran sub-agent — lihat
+bagian **Sub-agent** di bawah.
+
 Setiap langkah menampilkan lognya sendiri di dalam kartu, jadi bila ada
 yang gagal penyebabnya langsung terlihat tanpa membuka terminal.
 
@@ -357,6 +363,33 @@ Anggaran per proyek ada di `.orion/orion_config.json`:
 (6), `subagent_workers_max` (3). Setiap delegasi tampil di activity log
 sebagai baris `🤖 Sub-agent …`. Matikan kapan pun dengan
 `"subagents_enabled": false`. Detail: `docs/SUBAGENTS.md`.
+
+**Model per peran (backend 0.9.0+):** lewat kartu opsional Setup Wizard
+*"Sub-agent models"* (atau key `subagent_models` di
+`.orion/orion_config.json`), tiap peran bisa di-pin ke satu model dari
+grup kredensial yang SUDAH ada di `.env` — misal model murah untuk
+Explorer, model kuat untuk Verifier. **Load model options** mengisi
+dropdown dari lingkungan backend (nilai key tidak pernah dikirim), tombol
+**Test** menjalankan probe nyata satu kata, **Save profiles** menulis
+atomik dan langsung berlaku untuk turn chat berikutnya. Kosong / *Main
+router (default)* = perilaku lama persis; profil yang rusak otomatis jatuh
+ke router utama dengan peringatan di log — tidak pernah mematikan delegasi.
+Detail: `docs/INBOX_AND_PROFILES.md` (Part B).
+
+## Inbox: kirim file tanpa tombol lampiran (backend 0.9.0+)
+
+Letakkan file apa pun ke folder `<proyek>/.orion/inbox/` — **turn chat
+berikutnya** otomatis memungutnya: teks/kode disuntikkan sebagai blok
+berlabel (hanya untuk turn itu), gambar (png/jpg/webp) menjadi vision
+parts, dan pdf/docx/xlsx diekstrak jadi teks. File yang sudah diproses
+**dipindahkan** (tak pernah dihapus) ke `.orion/inbox/archive/`; yang tak
+didukung tetap di inbox dan diperingatkan sekali per versi file. Batas
+keras: 20 MB/file, 7 MB/gambar, 60 ribu karakter, 30 halaman PDF, 200 baris
+sheet — semua pemotongan diumumkan ke model. Knob di
+`.orion/orion_config.json`: `inbox_enabled` (true), `inbox_max_files` (5,
+dijepit 1..20). Kedatangan diumumkan di activity log sebagai
+`📥 Inbox: …`. Detail + troubleshooting: `docs/INBOX_AND_PROFILES.md`
+(Part A).
 
 - [ ] Extension `grenitho.orion-ai` terpasang di VS Code
 - [ ] `orion.backendPath` terisi (atau workspace berdekatan dengan `backend/`)

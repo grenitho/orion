@@ -3,6 +3,45 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-10-23
+
+### Added
+- **Setup Wizard: optional “Sub-agent models” card** (companion backend
+  0.9.0). Pin one model per internal sub-agent role — Explorer, Verifier,
+  Workers — with dropdowns fed by the new token-guarded
+  `GET /models/options` (credential groups and model names derived from the
+  backend environment; key values never cross the wire), a per-role **Test**
+  button that runs a real one-shot probe (`POST /models/test`), and
+  **Save profiles** which writes `subagent_models` atomically through
+  `POST /models/config`. *Main router (default)* keeps the pre-018
+  behaviour; a saved profile whose group vanished from the environment
+  stays visible (marked *not in current env*) and the backend falls back to
+  the main router with a warning — a broken profile can never break a
+  sub-run.
+- Companion backend 0.9.0 also ships the **inbox drop-zone**: files dropped
+  into `<project>/.orion/inbox/` (text/code, png/jpg/webp, pdf, docx, xlsx)
+  are ingested on the next chat turn, extracted under hard caps, archived
+  (never deleted) and announced with a `📥 Inbox: …` activity line — no
+  extension UI required. See `docs/INBOX_AND_PROFILES.md`.
+
+## [0.1.1] - 2026-10-23
+
+### Changed
+- No extension changes (backend-only release, backend 0.8.1): delegation
+  policy in the system prompt, claim-free wording in sub-agent role
+  prompts, and the per-project `mcp_enabled` master switch. The
+  Marketplace listing stays at 0.1.0.
+
+## [0.1.0] - 2026-10-22
+
+### Added
+- **Sub-agents** (companion backend 0.8.0): Orion delegates bounded work to
+  internal sub-agents — Explorer (read-only survey), Verifier (real-tool
+  post-edit critic) and parallel Workers with disjoint write scopes — with
+  per-turn budgets in `.orion/orion_config.json` (`subagents_*`) and
+  `🤖 Sub-agent …` activity lines around every delegation. First public
+  Marketplace release.
+
 ## [0.0.10] - 2026-10-21
 
 ### Added
