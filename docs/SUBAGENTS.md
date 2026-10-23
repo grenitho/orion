@@ -44,6 +44,13 @@ ask for it explicitly in chat ("kirim Verifier untuk cek ulang hasil edit").
 
 ## 3. Budgets (per project, `.orion/orion_config.json`)
 
+Since UPDATE-017 the MAIN system prompt carries an explicit delegation
+policy (when delegating pays, how to scope workers, reports-as-evidence,
+budget honouring, built-ins-over-MCP-guests, claim-word discipline), and
+every role prompt ends with a claim-discipline sentence so sub-agent
+reports do not trip the main loop's completion-claim gate. Delegation is
+therefore taught, not just available.
+
 | Key | Default | Meaning |
 |---|---|---|
 | `subagents_enabled` | `true` | master switch |

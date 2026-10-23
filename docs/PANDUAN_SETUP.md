@@ -139,6 +139,7 @@ Skrip mengerjakan 6 tahap dan melaporkan tiap tahap:
 | Chat: *Cannot reach the Orion backend* | `Ctrl+Shift+P` → **Orion: Start Backend**; bila *backend folder not found* → periksa isi `orion.backendPath` |
 | Port 8000 sudah dipakai | Sejak ext 0.0.10, **Orion: Start Backend** memeriksa dulu siapa yang menjawab di port 8000: **aplikasi lain** → pesan error meminta aplikasi itu ditutup; **instance Orion basi/yatim** (kode lama, PID tidak cocok, token tidak cocok) → dialog menawarkan **Restart backend now**. Fallback manual: `Get-NetTCPConnection -LocalPort 8000 -State Listen \| ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }` lalu Start Backend |
 | Jawaban sangat lambat, jatuh ke model fallback, atau token konteks membengkak | Periksa ukuran `.orion\dependency_map.json` (sehat: di bawah ±1 MB). Bila raksasa: ada folder besar yang tidak diabaikan scanner (mis. backup venv bernama lain) — pindahkan/hapus folder itu, lalu buka ulang panel chat (memicu scan ulang). Sejak hardening 0.0.10: scanner mengabaikan keluarga nama `venv*`, `*node_modules*`, `*__pycache__*` dan membatasi map di 20.000 file dengan pemberitahuan truncation di dalam map serta di warning set-project |
+| Panel MCP kosong / interpreter venv "hilang" / Start Backend bilang folder backend tidak ada | Pastikan jendela VS Code yang AKTIF membuka folder proyek orion: deteksi interpreter Python dan auto-detect backend bekerja per-workspace. Buka foldernya (File → Open Folder) dan Trust workspace bila diminta |
 
 ### Update / install ulang / hapus
 
@@ -324,6 +325,10 @@ Sejak UPDATE-015, konfigurasi server MCP bisa penuh dari UI:
    mengisinya = mengganti SELURUH pasangan.
 4. Toggle **Disable/Enable** dan **Remove** bekerja langsung (file
    `.orion/mcp.json` ditulis atomik oleh backend lalu server di-reload).
+   Sejak backend 0.8.1 ada juga **sakelar utama** per proyek:
+   `"mcp_enabled": false` di `.orion/orion_config.json` mematikan SELURUH
+   lapisan MCP tanpa menghapus mcp.json (stop kontak); kembalikan ke
+   `true` untuk menyala lagi.
 5. Kartu opsional di Setup Wizard ("Optional: MCP tool servers") melakukan
    hal yang sama untuk onboarding pertama; melewatkannya tidak mengubah
    apa pun.

@@ -97,6 +97,13 @@ everything else keeps working.
 setups). Config is re-read on every `/set-project`; servers of the previous
 project are stopped first.
 
+**Master switch (backend 0.8.1+):** `"mcp_enabled": false` in the project's
+`.orion/orion_config.json` turns the whole MCP layer off for that project
+without deleting `mcp.json` — no servers spawn, `/mcp/status` reports
+`"enabled": false` with an explanatory warning, and flipping the flag back
+on (or removing it) restores everything on the next `/set-project` or
+backend restart. Per-server `disabled` flags remain the fine-grained knob.
+
 Security note: `mcp.json` grants command execution on your machine, exactly
 like `backend/.env`. Only configure servers you trust; the file lives in the
 project's `.orion/` folder, which Orion never packages or publishes.

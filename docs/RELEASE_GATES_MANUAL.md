@@ -66,3 +66,25 @@ release; each takes about two minutes.
 - [ ] five-to-seven mock SSE baselines re-recorded byte-identical (harness owner)
 
 Only tick the boxes on the commit you intend to tag.
+
+## E2E chat hygiene (UPDATE-017 rule)
+
+Chat-based E2E scenarios run against a REAL repo-shaped project can make the
+model call `git_commit` (its designed checkpoint tool). On a git repo that
+creates LOCAL checkpoint commits containing the test artifacts - which a
+later `git push` would publish (incident UPDATE-016: two checkpoint commits
+with E2E test files were caught in review seconds before push).
+
+Rule for every future PANDUAN/E2E that chats with Orion:
+
+1. Prefer a **non-git scratch project** for chat E2E (no `.git` folder: the
+   tool then refuses cleanly and nothing can be committed), OR
+2. if the E2E must run in the real repo, end with a **checkpoint cleanup**
+   before any push:
+   `git log --oneline -8` (spot commits that are not from `git am`),
+   `git reset --hard <last patch commit>`, delete the test artifacts,
+   then verify `git status --short` is empty and `git log -1 --format=%T`
+   matches the expected tree.
+
+Reviewers: an unexpected commit between the patch series and HEAD is a
+STOP condition, not a curiosity.

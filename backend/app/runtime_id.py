@@ -50,7 +50,10 @@ from pathlib import Path
 # (delegate_explorer / delegate_verifier / delegate_workers) with depth-1
 # rule, disjoint write scopes, per-turn and per-run budgets; closes the
 # MCP phase together with 0.6.x/0.7.x -> milestone v0.1.0.
-BACKEND_VERSION = "0.8.0"
+# Bumped 0.8.0 -> 0.8.1 for UPDATE-017: delegation policy in SYSTEM_PROMPT,
+# claim-discipline in sub-agent role prompts, and the mcp_enabled master
+# switch (behaviour-shaping, machine-visible via /mcp/status 'enabled').
+BACKEND_VERSION = "0.8.1"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
