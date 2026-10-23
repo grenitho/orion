@@ -13,6 +13,7 @@ import {
     restartBackend,
 } from '../services/backendManager';
 import { McpPanel } from './McpPanel';
+import { orionHeaders } from '../services/authToken';
 
 // ===========================================================================
 // >>> UPDATE-012: "Route 1" from docs/PANDUAN_SETUP.md — an in-VS Code Setup
@@ -240,6 +241,61 @@ function getNonce(): string {
     return text;
 }
 
+// >>> UPDATE-018: the optional "Sub-agent models" card talks to the three
+// token-guarded /models/* routes. All privileged work (HTTP with the shared
+// token) stays in the extension host; the webview only renders selects and
+// posts messages — the same architecture as the MCP card (UPDATE-015).
+const MODELS_BACKEND = 'http://127.0.0.1:8000';
+
+interface ModelGroup { group: string; label: string; models: string[]; }
+
+interface ModelProfile { group: string; model: string; }
+
+interface ModelsOptions {
+    roles: string[];
+    groups: ModelGroup[];
+    subagent_models: Record<string, ModelProfile | null>;
+}
+
+interface ModelsTestResult {
+    success: boolean;
+    resolved_model?: string;
+    reply_preview?: string;
+    error?: string;
+}
+
+interface ModelsConfigResult { success: boolean; error?: string; }
+
+async function fetchModelsJson(url: string, init?: RequestInit): Promise<unknown> {
+    const ctrl = new AbortController();
+    // The Test probe performs a REAL LLM call and the router has its own
+    // per-model timeout/retries — so this leash is deliberately much longer
+    // than the MCP panel's 10 s.
+    const timer = setTimeout(() => ctrl.abort(), 180000);
+    try {
+        const res = await fetch(url, { ...init, headers: orionHeaders(), signal: ctrl.signal });
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (res.status === 401) {
+            throw new Error('Backend rejected the shared token (401) — restart the backend (step 5) and try again.');
+        }
+        if (!res.ok) {
+            throw new Error(body && body.error ? body.error : ('HTTP ' + res.status));
+        }
+        return body;
+    } catch (e: unknown) {
+        if (e instanceof Error && e.name === 'AbortError') {
+            throw new Error('Backend did not answer in time — is it running? (step 5)');
+        }
+        if (e instanceof TypeError) {
+            // fetch itself failed: nothing is listening on port 8000.
+            throw new Error('Backend not reachable on port 8000 — finish step 5 (Start backend) first.');
+        }
+        throw e;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 export class SetupWizardPanel {
     public static currentPanel: SetupWizardPanel | undefined;
     public static readonly viewType = 'orionSetupWizard';
@@ -391,6 +447,67 @@ export class SetupWizardPanel {
                 await this.runTask('installDemoMcp', async () => McpPanel.installDemoServer());
                 await vscode.commands.executeCommand('orion.openMcpPanel');
                 return;
+            // >>> UPDATE-018: optional sub-agent model profiles. All three
+            // tasks are plain HTTP against the token-guarded /models/* routes;
+            // the extension host holds the token, the webview never sees it.
+            case 'loadModelOptions':
+                await this.runTask('loadModelOptions', async () => {
+                    const data = (await fetchModelsJson(MODELS_BACKEND + '/models/options')) as ModelsOptions;
+                    const groups = Array.isArray(data.groups) ? data.groups : [];
+                    this.post({
+                        type: 'modelOptions',
+                        groups,
+                        saved: (data.subagent_models && typeof data.subagent_models === 'object')
+                            ? data.subagent_models
+                            : {},
+                    });
+                    if (!groups.length) {
+                        return 'No credential group is configured in the backend environment yet — add keys in step 4 first.';
+                    }
+                    const count = groups.reduce((n, g) => n + ((g.models || []).length), 0);
+                    return `Loaded ${groups.length} credential group(s), ${count} model(s).`;
+                });
+                return;
+            case 'testModelProfile': {
+                const group = String(msg.group || '');
+                const model = String(msg.model || '');
+                await this.runTask('testModelProfile', async () => {
+                    if (!group || !model) {
+                        throw new Error('Pick a concrete model first — the main router needs no test.');
+                    }
+                    const res = (await fetchModelsJson(MODELS_BACKEND + '/models/test', {
+                        method: 'POST',
+                        body: JSON.stringify({ group, model }),
+                    })) as ModelsTestResult;
+                    if (!res || res.success !== true) {
+                        throw new Error((res && res.error) || 'probe failed without a reported reason');
+                    }
+                    const preview = (res.reply_preview || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+                    return `${res.resolved_model || (group + '/' + model)} answered`
+                        + (preview ? `: "${preview}"` : '.');
+                });
+                return;
+            }
+            case 'saveModelProfiles':
+                await this.runTask('saveModelProfiles', async () => {
+                    const raw = msg.profiles;
+                    const profiles = (raw && typeof raw === 'object' && !Array.isArray(raw))
+                        ? raw as Record<string, unknown>
+                        : {};
+                    const res = (await fetchModelsJson(MODELS_BACKEND + '/models/config', {
+                        method: 'POST',
+                        body: JSON.stringify({ subagent_models: profiles }),
+                    })) as ModelsConfigResult;
+                    if (!res || res.success !== true) {
+                        throw new Error((res && res.error) || 'save failed without a reported reason');
+                    }
+                    const pinned = Object.keys(profiles).filter((r) => profiles[r]);
+                    return pinned.length
+                        ? `Saved. Pinned model(s) for: ${pinned.join(', ')}. Applies to the next chat turn.`
+                        : 'Saved. All three roles are back on the main router.';
+                });
+                return;
+            // >>> END OF UPDATE-018 model-profile tasks
             case 'openGuide': {
                 const url = getSetupGuideUrl();
                 if (url) { await vscode.env.openExternal(vscode.Uri.parse(url)); }
@@ -757,6 +874,11 @@ export class SetupWizardPanel {
     input:focus { outline: 1px solid var(--vscode-focusBorder); }
     .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
     .row input { flex: 1 1 160px; min-width: 120px; }
+    select { background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+        border: 1px solid var(--vscode-input-border, #555); border-radius: 3px; padding: 5px 8px;
+        font-size: .9em; margin: 2px 0; flex: 1 1 260px; min-width: 180px; max-width: 480px; }
+    select:focus { outline: 1px solid var(--vscode-focusBorder); }
+    .rolelab { width: 74px; flex: 0 0 auto; color: var(--vscode-descriptionForeground); font-size: .88em; }
     pre.log { display: none; background: var(--vscode-textCodeBlock-background, #111);
         color: var(--vscode-textPreformat-foreground, #ccc); padding: 8px 10px; border-radius: 4px;
         font-size: .8em; max-height: 190px; overflow-y: auto; white-space: pre-wrap;
@@ -871,6 +993,18 @@ export class SetupWizardPanel {
     </div>
 </div>
 
+<!-- OPTIONAL: SUB-AGENT MODELS (UPDATE-018) -->
+<div class="card" id="cardModels">
+    <div class="head"><span class="num">+</span><h2>Optional: Sub-agent models</h2><span class="badge" id="badgeModels">optional</span></div>
+    <div class="body">
+        <p class="desc">Pin one model per internal sub-agent role — Explorer (read-only surveys), Verifier (post-edit checks), Workers (parallel edits). Options come from the credential groups already configured in step 4; no new keys are ever added, and a broken profile falls back to the main router automatically. A role left on &ldquo;Main router (default)&rdquo; behaves exactly like before. The backend must be running (step 5).</p>
+        <div id="modelRows" class="muted">No options loaded yet — press &ldquo;Load model options&rdquo;.</div>
+        <button id="btnModelsLoad">Load model options</button>
+        <button class="secondary" id="btnModelsSave" disabled>Save profiles</button>
+        <pre class="log" id="logModels"></pre>
+    </div>
+</div>
+
 <p class="muted">Logs after setup: <code>&lt;project&gt;\\.orion\\logs\\backend.log</code> (structured) and <code>&lt;project&gt;\\.orion\\logs\\orion_stdout.log</code> (startup + routing lines).</p>
 
 <script nonce="${nonce}">
@@ -881,7 +1015,8 @@ export class SetupWizardPanel {
     var formDirty = false;
     var envSignature = '';
     var removedProviderNs = [];
-    var TASK_STEP = { detectPython: 1, installPython: 1, downloadBackend: 2, installDeps: 3, saveEnv: 4, restartBackend: 5 };
+    var TASK_STEP = { detectPython: 1, installPython: 1, downloadBackend: 2, installDeps: 3, saveEnv: 4, restartBackend: 5,
+                      loadModelOptions: 'Models', testModelProfile: 'Models', saveModelProfiles: 'Models' };
 
     function el(id) { return document.getElementById(id); }
     function post(m) { vscode.postMessage(m); }
@@ -1008,6 +1143,80 @@ export class SetupWizardPanel {
                  removedProviderNs: removedProviderNs, defaultModel: el('defaultModel').value };
     }
 
+    // ---- sub-agent model card (UPDATE-018) --------------------------------
+    var MODEL_ROLES = [['explorer', 'Explorer'], ['verifier', 'Verifier'], ['workers', 'Workers']];
+
+    function renderModelRows(groups, saved) {
+        var container = el('modelRows');
+        container.innerHTML = '';
+        container.className = '';
+        MODEL_ROLES.forEach(function (pair) {
+            var role = pair[0];
+            var row = document.createElement('div');
+            row.className = 'row';
+            var lab = document.createElement('span');
+            lab.className = 'rolelab';
+            lab.textContent = pair[1];
+            var sel = document.createElement('select');
+            sel.dataset.role = role;
+            var optMain = document.createElement('option');
+            optMain.value = '';
+            optMain.textContent = 'Main router (default)';
+            sel.appendChild(optMain);
+            (groups || []).forEach(function (g) {
+                (g.models || []).forEach(function (m) {
+                    var o = document.createElement('option');
+                    o.value = g.group + '|' + m;
+                    o.textContent = g.label + ' — ' + m;
+                    sel.appendChild(o);
+                });
+            });
+            var cur = saved && saved[role];
+            if (cur && cur.group && cur.model) {
+                sel.value = cur.group + '|' + cur.model;
+                if (sel.value !== cur.group + '|' + cur.model) {
+                    // saved profile references a group/model the current env
+                    // no longer offers — keep it visible so Save cannot
+                    // silently drop it; the backend falls back anyway.
+                    var ghost = document.createElement('option');
+                    ghost.value = cur.group + '|' + cur.model;
+                    ghost.textContent = cur.group + ' — ' + cur.model + ' (saved; not in current env)';
+                    sel.appendChild(ghost);
+                    sel.value = ghost.value;
+                }
+            }
+            var test = document.createElement('button');
+            test.className = 'secondary';
+            test.textContent = 'Test';
+            test.addEventListener('click', function () {
+                var v = sel.value;
+                if (!v) {
+                    showInfo('Pick a concrete model for ' + pair[1] + ' first — the main router needs no test.', false);
+                    return;
+                }
+                var i = v.indexOf('|');
+                post({ cmd: 'testModelProfile', role: role, group: v.slice(0, i), model: v.slice(i + 1) });
+            });
+            row.appendChild(lab); row.appendChild(sel); row.appendChild(test);
+            container.appendChild(row);
+        });
+        el('btnModelsSave').disabled = false;
+    }
+
+    function collectModelProfiles() {
+        var profiles = {};
+        document.querySelectorAll('#modelRows select').forEach(function (sel) {
+            var v = sel.value;
+            if (!v) {
+                profiles[sel.dataset.role] = null;
+            } else {
+                var i = v.indexOf('|');
+                profiles[sel.dataset.role] = { group: v.slice(0, i), model: v.slice(i + 1) };
+            }
+        });
+        return profiles;
+    }
+
     // ---- state rendering ------------------------------------------------
     function render() {
         if (!state) { return; }
@@ -1093,8 +1302,13 @@ export class SetupWizardPanel {
             runningTask = null;
             setButtonsEnabled(true);
             if (msg.task === 'saveEnv' && msg.ok) { formDirty = false; envSignature = ''; }
+            if (msg.task === 'testModelProfile' && msg.ok) { setBadge('Models', 'ok', 'probe passed'); }
+            if (msg.task === 'saveModelProfiles' && msg.ok) { setBadge('Models', 'ok', 'saved'); }
             if (!msg.ok && st) { setBadge(st, 'err', 'failed'); }
             showInfo((msg.ok ? '\\u2705 ' : '\\u274c ') + msg.message, !msg.ok);
+        } else if (msg.type === 'modelOptions') {
+            renderModelRows(msg.groups, msg.saved);
+            setBadge('Models', 'ok', (msg.groups || []).length + ' group(s) loaded');
         } else if (msg.type === 'info') {
             showInfo(msg.message, false);
         }
@@ -1123,6 +1337,8 @@ export class SetupWizardPanel {
     el('btnOpenChat').addEventListener('click', function () { post({ cmd: 'openChat' }); });
     el('btnMcpPanel').addEventListener('click', function () { post({ cmd: 'openMcpPanel' }); });
     el('btnMcpDemo').addEventListener('click', function () { post({ cmd: 'installDemoMcp' }); });
+    el('btnModelsLoad').addEventListener('click', function () { post({ cmd: 'loadModelOptions' }); });
+    el('btnModelsSave').addEventListener('click', function () { post({ cmd: 'saveModelProfiles', profiles: collectModelProfiles() }); });
     el('guideLink').addEventListener('click', function () { post({ cmd: 'openGuide' }); });
     el('keyLink').addEventListener('click', function () { post({ cmd: 'openExternal', url: 'https://aistudio.google.com/apikey' }); });
 
