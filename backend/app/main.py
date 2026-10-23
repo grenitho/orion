@@ -86,23 +86,79 @@ import json
 import re
 
 
+# >>> UPDATE-019: the structure checker below walks the project at every
+# /set-project. Before 019 it skipped NOTHING except roots whose path
+# merely CONTAINED "venv"/"target"/".git" (substring!): an `assets` folder
+# inside node_modules/__pycache__ produced a false "duplicate assets"
+# warning (seen again on the owner's set-project output in 017/018), while
+# a legitimate folder like `target-practice` was silently skipped (false
+# NEGATIVE), and a 100k-folder project stalled the walk for nothing. It now
+# prunes dependency/tooling folders by the same PATTERN family
+# dependency_scanner._dir_ignored uses (exact names + venv-family prefix +
+# node_modules/__pycache__ markers) and caps the walk.
+# Deliberately NOT pruned (unlike the scanner's map-size set): dist/build/
+# out/public/test/tests/assets — legitimate project folders where a nested
+# `assets` folder IS the duplicate this checker exists to report.
+VALIDATE_MAX_DIRS = 20_000
+
+_VALIDATE_PRUNE_EXACT = {
+    ".git",
+    ".orion",
+    ".vscode",
+    ".idea",
+    ".pytest_cache",
+    "node_modules",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "env",
+    ".env",
+    "target",
+}
+
+
+def _validate_dir_pruned(name: str) -> bool:
+    """True for folders the duplicate-assets walk must never enter."""
+    if name in _VALIDATE_PRUNE_EXACT:
+        return True
+    low = name.lower()
+    if low.startswith(("venv", ".venv")):
+        return True
+    return ("node_modules" in low) or ("__pycache__" in low)
+
+
 def validate_project_structure(project_path: str) -> list:
     """Check and report suspicious folder structures (duplicates, junk, etc.)."""
     warnings = []
+    visited = 0
+    capped = False
 
-    # Check for duplicate assets folders
     for root, dirs, _files in os.walk(project_path):
-        # Ignore venv and target folders to avoid false positives
-        if "venv" in root or "target" in root or ".git" in root:
-            continue
+        # Prune BEFORE the check: ignored trees never contribute warnings
+        # and are never even walked (speed on huge projects).
+        dirs[:] = [d for d in dirs if not _validate_dir_pruned(d)]
+        visited += 1
+        if visited > VALIDATE_MAX_DIRS:
+            capped = True
+            dirs[:] = []
+            break
 
         if "assets" in dirs:
             assets_path = os.path.join(root, "assets")
-            # If there is an assets folder inside another folder (not the project root), warn
+            # If there is an assets folder inside another folder (not the
+            # project root), warn
             expected_assets = os.path.join(project_path, "assets")
             if os.path.normpath(assets_path) != os.path.normpath(expected_assets):
                 warnings.append(f"⚠️ Duplicate folder detected: {assets_path}")
 
+    if capped:
+        # Honest truncation, same philosophy as the scanner's map cap: a
+        # silent partial scan would let a real duplicate hide unnoticed.
+        warnings.append(
+            f"⚠️ STRUCTURE SCAN CAPPED: checked {VALIDATE_MAX_DIRS} folders; "
+            "deeper folders were NOT checked for duplicate 'assets' folders. "
+            "Inspect them manually if the project really is this large."
+        )
     return warnings
 
 
