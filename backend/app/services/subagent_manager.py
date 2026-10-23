@@ -58,12 +58,26 @@ WORKER_TOOLS = READ_TOOLS | {"write_file", "edit_file"}
 
 ROLE_TOOLSETS = {EXPLORER: READ_TOOLS, VERIFIER: VERIFY_TOOLS, WORKER: WORKER_TOOLS}
 
+# >>> UPDATE-017: shared closing sentence for every role prompt. The main
+# loop's completion-claim gate (ORION-17b) reacts to claim words in the MAIN
+# agent's reply; reports full of "done/selesai/berhasil" get quoted or
+# paraphrased by the main agent and then challenged, burning an extra
+# verification round (observed live in the UPDATE-016 owner E2E). Teaching
+# sub-agents factual wording keeps the whole chain cheap.
+_CLAIM_DISCIPLINE = (
+    " Report factually (what exists, what you changed, what is missing); "
+    "avoid completion-claim words such as 'done', 'completed', 'finished', "
+    "'success', 'selesai', 'berhasil' — the orchestrating loop reads those "
+    "as completion claims and pays an extra challenge round for them."
+)
+
 ROLE_PROMPTS = {
     EXPLORER: (
         "You are Orion's Explorer sub-agent. Investigate the task using ONLY "
         "read-only tools. Do not modify anything, do not ask the user anything. "
         "Finish with ONE condensed findings report: what exists where, what is "
         "relevant to the task, and what is missing. Keep it under 400 words."
+        + _CLAIM_DISCIPLINE
     ),
     VERIFIER: (
         "You are Orion's Verifier sub-agent. Check the claimed state of the code "
@@ -72,12 +86,14 @@ ROLE_PROMPTS = {
         "with a verdict line (PASS / PASS WITH NOTES / FAIL) followed by a "
         "concrete defect list (file, problem, suggested fix) or 'no defects "
         "found'. Quote tool output where it matters."
+        + _CLAIM_DISCIPLINE
     ),
     WORKER: (
         "You are an Orion Worker sub-agent. Implement ONLY the assigned task and "
         "ONLY inside your assigned file scope; writes outside the scope are "
         "rejected by the system. Do not ask the user anything. Finish with a "
         "short report: files changed, what was done, what was left out."
+        + _CLAIM_DISCIPLINE
     ),
 }
 

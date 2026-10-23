@@ -327,6 +327,10 @@ def load_orion_config(project_path: str):
             "subagent_max_per_turn": 3,
             "subagent_max_iterations": 6,
             "subagent_workers_max": 3,
+            # >>> UPDATE-017: master switch for the whole MCP layer of this
+            # project (the "stop kontak": off = no servers spawned, mcp.json
+            # preserved; per-server Disable/Enable lives in the MCP panel).
+            "mcp_enabled": True,
             "description": "Orion settings. Change max_iterations to limit the AI thinking loop. token_budget_threshold controls when emergency context pruning occurs. subagents_* control the internal sub-agents (UPDATE-016).",
         }
         try:

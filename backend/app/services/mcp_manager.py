@@ -509,6 +509,12 @@ class MCPManager:
         self._warnings: list[str] = []
         self.project_path: str | None = None
         self.config_path: Path | None = None
+        # >>> UPDATE-017: master switch read from the project's
+        # orion_config.json ("mcp_enabled", default True). False = the whole
+        # MCP layer stays off for this project without deleting mcp.json
+        # (the "stop kontak" the owner asked for; per-server Disable/Enable
+        # already exists since UPDATE-015).
+        self.enabled: bool = True
         self._start_timeout = start_timeout
 
     # ------------------------------------------------------------- config
@@ -521,6 +527,24 @@ class MCPManager:
             return Path(project_path) / CONFIG_RELPATH
         return None
 
+    def _read_enabled_flag(self, project_path: str | None) -> bool:
+        """The mcp_enabled master switch from <project>/.orion/orion_config.json.
+
+        Missing file, unreadable file, broken JSON or missing key all mean
+        ENABLED (the safe historical behaviour); only an explicit false-ish
+        value turns the layer off.
+        """
+        if not project_path:
+            return True
+        cfg_path = Path(project_path) / ".orion" / "orion_config.json"
+        try:
+            data = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            return True
+        if isinstance(data, dict):
+            return bool(data.get("mcp_enabled", True))
+        return True
+
     def load_config(self, project_path: str | None) -> dict:
         """Read mcp.json for the project; never raises."""
         self._warnings = []
@@ -528,6 +552,14 @@ class MCPManager:
             self._warnings.append(
                 f"the mcp package is unavailable ({MCP_IMPORT_ERROR}); "
                 "run: pip install -r backend/requirements.txt"
+            )
+            return {}
+        self.enabled = self._read_enabled_flag(project_path)
+        if not self.enabled:
+            self._warnings.append(
+                "MCP is disabled for this project (mcp_enabled=false in "
+                ".orion/orion_config.json); no servers were started. The "
+                "config file stays untouched so re-enabling is one flag away."
             )
             return {}
         path = self.resolve_config_path(project_path)
@@ -701,6 +733,7 @@ class MCPManager:
             "servers": servers,
             "tools": len(self._registry),
             "warnings": list(self._warnings),
+            "enabled": self.enabled,  # UPDATE-017 master switch visibility
         }
 
     # ------------------------------------------------- management (UPDATE-015)
@@ -731,6 +764,7 @@ class MCPManager:
             "config_path": str(self.config_path) if self.config_path else None,
             "warnings": list(self._warnings),
             "servers": servers,
+            "enabled": self.enabled,  # UPDATE-017 master switch visibility
         }
 
     async def apply_config_op(self, op: str, payload: dict) -> dict:
