@@ -278,8 +278,31 @@ async def lifespan(_app: FastAPI):
     UPDATE-013: the PID file is announced HERE (not at import time) because
     the lifespan startup only runs after uvicorn successfully bound the port
     — a backend that dies on "address already in use" must never leave a
-    PID file claiming this install is alive."""
+    PID file claiming this install is alive.
+
+    UPDATE-019: the OLD claim is read BEFORE it is overwritten (incident-013
+    forensics): evidence of a racing or uncleanly-dead predecessor belongs
+    in the log, not silently clobbered."""
+    _klaim_lama = runtime_id.read_pid_file()
     pid_path = runtime_id.write_pid_file()
+    if _klaim_lama["exists"] and _klaim_lama["error"] is None:
+        _p = _klaim_lama.get("pid")
+        if isinstance(_p, int) and _p != os.getpid():
+            if runtime_id.pid_alive(_p):
+                print(
+                    f"[ORION RUNTIME WARNING] TWIN SUSPECTED: the PID file "
+                    f"claimed alive pid {_p} (version "
+                    f"{_klaim_lama.get('version')}) while this process "
+                    f"({os.getpid()}) booted — two backends raced for this "
+                    f"install; only one can hold port 8000. Diagnose: "
+                    f"GET /runtime/forensics on the survivor."
+                )
+            else:
+                print(
+                    f"[ORION RUNTIME] PID file held dead pid {_p} (unclean "
+                    f"previous shutdown); the claim was replaced by this "
+                    f"process ({os.getpid()})."
+                )
     if pid_path:
         print(f"[ORION RUNTIME] PID file written: {pid_path} (pid={os.getpid()})")
     await auto_restore_project()
@@ -506,6 +529,19 @@ async def health():
         payload.update(mcp_manager.health_fields())
     return payload
 # >>> END OF UPDATE-013 /health
+
+
+# >>> UPDATE-019: twin-process forensics (incident 013) ====================
+# One token-guarded surface where the three sources of truth that can
+# disagree meet: the PID file's claim, the process answering port 8000
+# (this one), and the code mtime on disk. Empty "verdicts" = nothing
+# suspicious; otherwise honest, actionable sentences (TWIN SUSPECTED /
+# STALE PID FILE / PID FILE UNREADABLE / STALE CODE). The startup log line
+# uses the same evidence before the claim is overwritten.
+@app.get("/runtime/forensics")
+async def runtime_forensics():
+    return runtime_id.forensics_payload(context_manager.project_path)
+# >>> END OF UPDATE-019 forensics ==========================================
 
 
 # >>> UPDATE-015: MCP management surface for the VS Code panel ============

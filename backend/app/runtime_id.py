@@ -56,7 +56,12 @@ from pathlib import Path
 # Bumped 0.8.1 -> 0.9.0 for UPDATE-018: the .orion/inbox drop-zone (new
 # per-turn ingest, 📥 status frame, archive+manifest) and per-role
 # sub-agent model profiles (new /models/* routes, subagent_models config).
-BACKEND_VERSION = "0.9.0"
+# Bumped 0.9.0 -> 0.9.1 for UPDATE-019 (defects & forensics): the
+# duplicate-assets structure check is pattern-pruned and capped, and the
+# incident-013 twin-process diagnosis gained a token-guarded surface
+# (GET /runtime/forensics) plus a startup log line — additive diagnostic
+# surface, no behaviour change for existing routes.
+BACKEND_VERSION = "0.9.1"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
@@ -115,6 +120,129 @@ def clear_pid_file() -> None:
             path.unlink()
         except OSError:
             pass
+
+
+# >>> UPDATE-019: twin-process forensics (incident 013) ====================
+# The 013 incident ("two backends alive at once") was painful because the
+# three sources of truth — the PID file's claim, the process actually
+# answering port 8000, and the code mtime on disk — can each disagree, and
+# nothing exposed all three at once. These helpers never raise: forensics
+# must work exactly when the install is misbehaving.
+def pid_alive(pid) -> bool:
+    """Best-effort liveness probe for a pid (signal 0)."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # it exists, it just is not ours to signal
+    except OSError:
+        return False
+    return True
+
+
+def read_pid_file() -> dict:
+    """The raw PID-file claim: {path, exists, pid, started_at, version, error}.
+
+    ``error`` is set when the file EXISTS but cannot be parsed (corrupt or
+    foreign content); a missing file is simply exists=False, error=None.
+    """
+    path = pid_file_path()
+    out = {
+        "path": str(path),
+        "exists": False,
+        "pid": None,
+        "started_at": None,
+        "version": None,
+        "error": None,
+    }
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return out  # missing file = simply no claim, not an error
+    except OSError as e:
+        out["error"] = f"unreadable: {type(e).__name__}"
+        return out
+    out["exists"] = True
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        out["error"] = "corrupt: not valid JSON"
+        return out
+    if isinstance(data, dict):
+        out["pid"] = data.get("pid")
+        out["started_at"] = data.get("started_at")
+        out["version"] = data.get("version")
+    else:
+        out["error"] = "corrupt: not a JSON object"
+    return out
+
+
+def forensics_payload(project_path: str | None) -> dict:
+    """The body of GET /runtime/forensics — incident-013 evidence in one call.
+
+    Compares the three sources of truth that can disagree:
+      1. the PID file's CLAIM (which process announced this install),
+      2. THIS process (by definition the one answering port 8000),
+      3. the code on disk (booted before the last modification = stale).
+    ``verdicts`` holds honest, human-readable conclusions; an empty list
+    means nothing suspicious. The extension's own staleness check
+    (backendManager.ts) stays as it is — this route is the owner/agent
+    facing diagnostic, and the startup log line uses the same evidence.
+    """
+    claim = read_pid_file()
+    me = os.getpid()
+    claim_pid = claim.get("pid")
+    claim_alive = pid_alive(claim_pid)
+    verdicts: list = []
+
+    if claim["exists"] and claim["error"] is not None:
+        verdicts.append(
+            f"PID FILE UNREADABLE ({claim['error']}); its claim is ignored. "
+            "A corrupt or foreign file at this path usually means another "
+            "tool wrote here, or the previous process died mid-write."
+        )
+    elif claim["exists"] and isinstance(claim_pid, int) and claim_pid != me:
+        if claim_alive:
+            verdicts.append(
+                f"TWIN SUSPECTED: the PID file claims pid {claim_pid} for this "
+                f"install and that pid is ALIVE, yet the process answering this "
+                f"request is {me}. Two backends are racing for one install — "
+                f"only one can hold port 8000. Find the stray process "
+                f"(Get-Process -Id {claim_pid}) and kill it, or restart VS Code."
+            )
+        else:
+            verdicts.append(
+                f"STALE PID FILE: it claims pid {claim_pid}, which is not alive "
+                f"— the previous shutdown was unclean (crash/kill). This "
+                f"process ({me}) replaced the claim at boot; no twin."
+            )
+
+    code_modified_at = None
+    try:
+        code_modified_at = (BACKEND_DIR / "app" / "main.py").stat().st_mtime
+    except OSError:
+        pass
+    if code_modified_at is not None and STARTED_AT < code_modified_at:
+        verdicts.append(
+            "STALE CODE: this process booted BEFORE app/main.py was last "
+            "modified, so it is running old code. Restart the backend "
+            "(kill the port-8000 listener, then Start Backend)."
+        )
+
+    return {
+        "app": APP_NAME,
+        "version": BACKEND_VERSION,
+        "self": {"pid": me, "started_at": STARTED_AT},
+        "pid_file": claim,
+        "pid_file_claim_alive": claim_alive,
+        "code_modified_at": code_modified_at,
+        "project_path": project_path,
+        "verdicts": verdicts,
+    }
+# >>> END OF UPDATE-019 forensics ==========================================
 
 
 def health_payload(project_path: str | None) -> dict:
