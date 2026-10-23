@@ -411,3 +411,23 @@ def test_agent_loop_cabang_subagent_frame_dan_budget(tmp_path):
         for m in deps.context_manager.messages
     )
     assert frames[-1] == 'data: {"type": "done"}\n\n'
+
+
+# ------------------------------------------------------------- prompts (017)
+
+def test_system_prompt_memuat_kebijakan_delegasi():
+    from app.services.prompts import SYSTEM_PROMPT
+
+    assert "DELEGATION & BORROWED-TOOLS POLICY" in SYSTEM_PROMPT
+    for nama in ("delegate_explorer", "delegate_verifier", "delegate_workers"):
+        assert nama in SYSTEM_PROMPT
+    assert "mcp__" in SYSTEM_PROMPT
+    # budget & disabled strings are taught, not just produced
+    assert "[SUBAGENT BUDGET]" in SYSTEM_PROMPT
+    assert "[SUBAGENTS DISABLED]" in SYSTEM_PROMPT
+
+
+def test_role_prompts_disiplin_kata_klaim():
+    for role, prompt in sa.ROLE_PROMPTS.items():
+        assert "completion-claim words" in prompt, role
+        assert "selesai" in prompt and "berhasil" in prompt, role

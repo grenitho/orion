@@ -240,7 +240,7 @@ def test_start_all_tanpa_file_config(tmp_path, monkeypatch):
     monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
     mgr = MCPManager()
     summary = asyncio.run(mgr.start_all(str(tmp_path)))
-    assert summary == {"servers": [], "tools": 0, "warnings": []}
+    assert summary == {"servers": [], "tools": 0, "warnings": [], "enabled": True}
     assert mgr.openai_tools() == []
     assert mgr.health_fields() == {"mcp_servers": [], "mcp_tools": 0}
 
@@ -785,3 +785,45 @@ def test_health_route_memiliki_field_mcp_aditif(monkeypatch, tmp_path):
         # 014 additive fields
         assert isinstance(body["mcp_servers"], list)
         assert body["mcp_tools"] == 0
+
+
+# --------------------------------------------------- master switch (017)
+
+def test_mcp_enabled_false_mematikan_semua_tanpa_menghapus_config(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    orion = tmp_path / ".orion"
+    orion.mkdir()
+    (orion / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"d": {"command": "python", "disabled": True}}}),
+        encoding="utf-8",
+    )
+    (orion / "orion_config.json").write_text(
+        json.dumps({"mcp_enabled": False}), encoding="utf-8"
+    )
+    mgr = MCPManager()
+    summary = asyncio.run(mgr.start_all(str(tmp_path)))
+    assert summary["servers"] == [] and summary["tools"] == 0
+    assert summary["enabled"] is False
+    assert any("mcp_enabled=false" in w for w in summary["warnings"])
+    # the config file itself stays untouched for a one-flag re-enable
+    assert (orion / "mcp.json").exists()
+
+    (orion / "orion_config.json").write_text(json.dumps({"mcp_enabled": True}), encoding="utf-8")
+    mgr2 = MCPManager()
+
+    async def fake_start(spec):
+        return mcp_manager._ServerRuntime(spec=spec, status="disabled")
+
+    monkeypatch.setattr(mgr2, "_start_server", fake_start)
+    summary2 = asyncio.run(mgr2.start_all(str(tmp_path)))
+    assert summary2["enabled"] is True and [s["name"] for s in summary2["servers"]] == ["d"]
+
+
+def test_mcp_enabled_rusak_atau_hilang_berarti_aktif(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    orion = tmp_path / ".orion"
+    orion.mkdir()
+    (orion / "orion_config.json").write_text("{rusak", encoding="utf-8")
+    mgr = MCPManager()
+    summary = asyncio.run(mgr.start_all(str(tmp_path)))
+    assert summary["enabled"] is True and summary["servers"] == []
