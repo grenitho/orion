@@ -32,3 +32,13 @@ ddgs>=9.0.0
 # menabraknya di chat pertama. Sekarang dideklarasikan di sini agar
 # `pip install -r requirements.txt` langsung lengkap.
 mcp>=1.2.0
+
+# >>> UPDATE-018: parser dokumen untuk inbox drop-zone (.orion/inbox/).
+# Diimpor secara SOFT oleh app/services/inbox_manager.py — parser yang
+# hilang hanya menurunkan dukungan tipe file itu menjadi warning per file,
+# backend tetap boot. Dideklarasikan di sini (aturan gate §4: dependensi
+# baru WAJIB masuk requirements.txt sebelum gate owner) agar instalasi
+# baru langsung bisa mengekstrak pdf/docx/xlsx.
+pypdf>=5.0.0
+python-docx>=1.1.0
+openpyxl>=3.1.0

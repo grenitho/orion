@@ -396,6 +396,11 @@ class Deps:
     # come back as ordinary tool results). Default None keeps every existing
     # Deps(...) construction site valid.
     mcp: object | None = None
+    # >>> UPDATE-018: one-line inbox arrival description for the frozen
+    # 'status' frame (📥 Inbox: …) — produced by inbox_manager.describe()
+    # in the /chat route; '' when the drop-zone brought nothing this turn,
+    # which keeps the SSE stream byte-identical to the pre-018 shape.
+    inbox_desc: str = ""
 
 
 async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
@@ -551,6 +556,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 if deps.lampiran_desc:
                     yield deps.kirim_status(f'📎 {deps.lampiran_desc}')
             # >>> END OF ATTACHMENT FEATURE
+
+            # >>> UPDATE-018: announce what the inbox drop-zone delivered on
+            # this turn. Frozen 'status' event only (the 7-event SSE contract
+            # is untouched); emitted once, on the first iteration, and never
+            # when deps.inbox_desc is empty — so a project without an inbox
+            # produces a byte-identical stream.
+            if _ == 0 and deps.inbox_desc:
+                yield deps.kirim_status(f'📥 {deps.inbox_desc}')
+            # >>> END OF UPDATE-018 inbox frame
 
             # >>> STEP 3: SHORT REPLY ANTI-AMNESIA GUARD <<<
             if _ == 0:

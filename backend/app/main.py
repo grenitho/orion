@@ -149,6 +149,18 @@ except Exception as e:
     )
     MCPManager = None
 
+# >>> UPDATE-018: inbox drop-zone (.orion/inbox/). Same soft-dependency
+# policy again: a broken inbox_manager (or a missing document parser inside
+# it) only disables the inbox feature — the backend must still boot, and
+# the module itself never raises into the request path anyway.
+try:
+    from app.services import inbox_manager
+except Exception as e:
+    print(
+        f"[ORION STARTUP WARNING] inbox_manager.py failed to import ({e}). Inbox feature disabled."
+    )
+    inbox_manager = None
+
 
 import logging
 
@@ -331,7 +343,20 @@ def load_orion_config(project_path: str):
             # project (the "stop kontak": off = no servers spawned, mcp.json
             # preserved; per-server Disable/Enable lives in the MCP panel).
             "mcp_enabled": True,
-            "description": "Orion settings. Change max_iterations to limit the AI thinking loop. token_budget_threshold controls when emergency context pruning occurs. subagents_* control the internal sub-agents (UPDATE-016).",
+            # >>> UPDATE-018: inbox drop-zone knobs (backend/app/services/
+            # inbox_manager.py). inbox_max_files is clamped to 1..20 per
+            # turn; hard caps (20 MB/file, 7 MB/image, 60k chars, 30 PDF
+            # pages, 200 spreadsheet rows) live in the module itself.
+            "inbox_enabled": True,
+            "inbox_max_files": 5,
+            # >>> UPDATE-018: per-role sub-agent model profiles. Empty (or
+            # null per role) = the sub-agent uses the main router, exactly
+            # like before. Shape per role: {"group": "gemini"|"provider_N"|
+            # "fallback", "model": "<model name>"} — written by the setup
+            # wizard via POST /models/config; a broken profile falls back
+            # to the main router with a logged warning (never crashes).
+            "subagent_models": {},
+            "description": "Orion settings. Change max_iterations to limit the AI thinking loop. token_budget_threshold controls when emergency context pruning occurs. subagents_* control the internal sub-agents (UPDATE-016). inbox_* control the .orion/inbox drop-zone; subagent_models pins per-role models (UPDATE-018).",
         }
         try:
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -641,7 +666,70 @@ async def chat_with_orion(request: ChatRequest):
     if _lamp_desc:
         logger.info("[ATTACHMENT] %s", _lamp_desc)
 
-    context_manager.add_message("user", _riwayat_text)
+    # >>> UPDATE-018: INBOX — the ambient drop-zone (.orion/inbox/) =========
+    # ingest() runs once per /chat turn and NEVER raises: an unreadable
+    # folder, a broken parser or an oversized file all come back as warning
+    # strings. Routing of the result (same philosophy as attachments.py):
+    #   * extracted texts   -> appended to THIS turn's context message
+    #                          (visible on every iteration of this turn,
+    #                          never persisted into session_history.json);
+    #   * images            -> joined into the single-use vision parts of
+    #                          the first iteration, in the SAME part format
+    #                          attachments.py uses (image_url + data URI);
+    #   * history           -> placeholders only ("[INBOX FILE: name …]"),
+    #                          so later turns know the files arrived and
+    #                          where the archived copies live;
+    #   * names/warnings    -> frozen 'status' frame (📥 Inbox: …) via
+    #                          Deps.inbox_desc + [INBOX WARNINGS] inside the
+    #                          context block, so the model is told what it
+    #                          cannot see.
+    # With an empty inbox every variable below is empty/None and the stream
+    # stays byte-identical to the pre-018 shape (harness u018base contract).
+    if inbox_manager is not None:
+        _inbox = inbox_manager.ingest(context_manager.project_path, orion_config)
+        _inbox_desc = inbox_manager.describe(_inbox)
+        _inbox_block = inbox_manager.context_block(_inbox)
+    else:
+        _inbox, _inbox_desc, _inbox_block = {"names": [], "images": []}, "", ""
+
+    _inbox_riwayat = "".join(
+        f"\n[INBOX FILE: {_n} — processed this turn; archived copy under "
+        ".orion/inbox/archive/]"
+        for _n in _inbox.get("names", [])
+    )
+    if _inbox.get("names"):
+        logger.info("[INBOX] %s", _inbox_desc)
+        for _w in _inbox.get("warnings", []):
+            logger.warning("[INBOX] %s", _w)
+
+    if _inbox.get("images"):
+        _bagian = (
+            list(state.pending_image)
+            if isinstance(state.pending_image, list)
+            else []
+        )
+        if not any(
+            isinstance(_p, dict) and _p.get("type") == "text" for _p in _bagian
+        ):
+            _bagian.insert(
+                0,
+                {
+                    "type": "text",
+                    "text": (_riwayat_text + _inbox_riwayat)
+                    or "(see the inbox images)",
+                },
+            )
+        for _nama, _mime, _b64 in _inbox["images"]:
+            _bagian.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{_mime};base64,{_b64}"},
+                }
+            )
+        state.pending_image = _bagian
+    # >>> END OF UPDATE-018 inbox ingest ====================================
+
+    context_manager.add_message("user", _riwayat_text + _inbox_riwayat)
 
     # >>> CACHE OPTIMIZATION: separate static and dynamic messages <<<
 
@@ -683,7 +771,13 @@ async def chat_with_orion(request: ChatRequest):
     context_message = {
         "role": "user",
         "content": f"Current project structure:\n{context_manager.get_project_map()}"
-        + _editor_block,
+        + _editor_block
+        # >>> UPDATE-018: the labelled inbox block rides on the per-turn
+        # context message: present on EVERY iteration of this turn (the
+        # loop rebuilds api_messages from deps.context_message), absent
+        # from the persisted history — "visible THIS TURN ONLY". Empty
+        # string when the inbox brought nothing (byte-identical stream).
+        + _inbox_block,
     }
 
     # >>> END OF CACHE OPTIMIZATION <<<
@@ -703,6 +797,7 @@ async def chat_with_orion(request: ChatRequest):
         context_message=context_message,
         lampiran_desc=_lamp_desc,
         mcp=mcp_manager,  # UPDATE-014: None when the manager failed to import
+        inbox_desc=_inbox_desc,  # UPDATE-018: '' when the drop-zone is empty
     )
 
     # >>> PATCH ORION-28 ================================================
