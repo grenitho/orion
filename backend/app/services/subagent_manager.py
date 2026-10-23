@@ -109,6 +109,18 @@ CFG_ENABLED = "subagents_enabled"
 CFG_MAX_ITER = "subagent_max_iterations"
 CFG_MAX_PER_TURN = "subagent_max_per_turn"
 CFG_WORKERS_MAX = "subagent_workers_max"
+# >>> UPDATE-018: per-role model profiles (Feature B). Config shape:
+#   "subagent_models": {"explorer"|"verifier"|"workers":
+#       {"group": "gemini"|"provider_<N>"|"fallback", "model": name} | null}
+# Empty/absent/null = the role keeps using the main router (owner's
+# explicit requirement). The router owns credential resolution; a broken
+# profile degrades to the main router with a warning, never to a crash.
+CFG_MODELS = "subagent_models"
+
+# Config keys are the OWNER-facing role names; note 'workers' (plural) maps
+# to the internal WORKER role — every parallel worker of one delegation
+# shares the same profile.
+ROLE_PROFILE_KEYS = {EXPLORER: "explorer", VERIFIER: "verifier", WORKER: "workers"}
 
 DEFAULT_MAX_ITER = 6
 DEFAULT_MAX_PER_TURN = 3
@@ -148,6 +160,51 @@ def read_config(config: dict | None) -> dict:
         "max_per_turn": _int(CFG_MAX_PER_TURN, DEFAULT_MAX_PER_TURN, 1, 10),
         "workers_max": _int(CFG_WORKERS_MAX, DEFAULT_WORKERS_MAX, 1, 6),
     }
+
+
+def read_model_profiles(config: dict | None) -> dict:
+    """Validated {role: {"group","model"}} from orion_config subagent_models.
+
+    UPDATE-018. Deliberately tolerant: malformed entries (wrong types,
+    empty strings, unknown roles) are DROPPED here so the affected role
+    silently keeps using the main router; credential-level validity (does
+    the group exist in this env?) is the router's job — it re-checks and
+    logs the fallback warning. Nothing raises.
+    """
+    raw = (config or {}).get(CFG_MODELS) if isinstance(config, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    profiles: dict = {}
+    for role, key in ROLE_PROFILE_KEYS.items():
+        entry = raw.get(key)
+        if not isinstance(entry, dict):
+            continue  # null / absent / garbage -> main router
+        group = entry.get("group")
+        model = entry.get("model")
+        if (
+            isinstance(group, str)
+            and group.strip()
+            and isinstance(model, str)
+            and model.strip()
+        ):
+            profiles[role] = {"group": group.strip(), "model": model.strip()}
+    return profiles
+
+
+def _llm_with_profile(llm_call: Callable, profile: dict | None) -> Callable:
+    """Wrap llm_call so every sub-run call carries the role's profile.
+
+    Returns the ORIGINAL callable when there is no profile, so the default
+    path (no subagent_models configured) is bit-for-bit the pre-018
+    behaviour — existing fakes in tests keep working untouched.
+    """
+    if not profile:
+        return llm_call
+
+    async def _call(messages, tools=None):
+        return await llm_call(messages=messages, tools=tools, profile=profile)
+
+    return _call
 
 
 def check_scopes_disjoint(scopes: list) -> str | None:
@@ -339,6 +396,24 @@ async def dispatch(
 
     role = role_of_tool(tool_name)
 
+    # >>> UPDATE-018: per-role model profile (orion_config subagent_models).
+    # Resolved ONCE per delegation; workers of one delegation share the
+    # 'workers' profile. A missing/invalid entry means llm_call_role is the
+    # untouched main-router callable (pre-018 behaviour); credential-level
+    # fallback happens inside the router with a logged warning.
+    profile = read_model_profiles(config).get(role)
+    if profile and logger is not None:
+        try:
+            logger.info(
+                "[SUBAGENT %s] model profile pinned: group=%s model=%s",
+                role,
+                profile["group"],
+                profile["model"],
+            )
+        except Exception:  # noqa: BLE001 - logging must never break a dispatch
+            pass
+    llm_call_role = _llm_with_profile(llm_call, profile)
+
     if tool_name == TOOL_WORKERS:
         tasks = args.get("tasks") or []
         if not isinstance(tasks, list) or not tasks:
@@ -359,7 +434,7 @@ async def dispatch(
             outcome = await run_subagent(
                 WORKER,
                 str(item.get("task") or ""),
-                llm_call=llm_call,
+                llm_call=llm_call_role,
                 tool_executor=tool_executor,
                 max_iter=cfg["max_iter"],
                 scope=item.get("files") or [],
@@ -383,7 +458,7 @@ async def dispatch(
     outcome = await run_subagent(
         role,
         task,
-        llm_call=llm_call,
+        llm_call=llm_call_role,
         tool_executor=tool_executor,
         max_iter=cfg["max_iter"],
         project_map=project_map,

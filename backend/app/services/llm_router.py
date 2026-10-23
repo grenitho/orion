@@ -300,12 +300,170 @@ def build_execution_queue() -> list:
     return execution_queue
 
 
-async def get_ai_response(messages: list, tools: list = None) -> dict:
+# ==========================================
+# 5b. SUB-AGENT MODEL PROFILES (UPDATE-018)
+# ==========================================
+# orion_config.json can pin a model per sub-agent role:
+#   "subagent_models": {"explorer"|"verifier"|"workers":
+#       {"group": "gemini"|"provider_<N>"|"fallback", "model": "<name>"} | null}
+# A profile is a SINGLE-TARGET queue built from the credential group that
+# ALREADY exists in the environment — no new secrets are ever introduced.
+# A malformed profile, an unknown group or a group without credentials
+# degrades to the main router with a logged warning (never to a crash):
+# the sub-run simply proceeds on the normal tiers.
+_provider_group_pattern = re.compile(r"^provider_([1-9][0-9]?)$")
+
+# Same prefix rules as build_execution_queue, per group.
+_FALLBACK_PREFIXES = ("openai/", "anthropic/", "openrouter/", "groq/", "gemini/")
+
+
+def build_profile_queue(profile) -> list | None:
+    """One-target execution queue for a sub-agent profile, or None.
+
+    None means "profile unusable" (malformed shape, unknown group, or the
+    group has no credentials in this environment); the caller then falls
+    back to build_execution_queue(). Gemini profiles rotate the group's
+    existing N keys (peers, like tier 1); provider/fallback profiles are a
+    single entry with that group's key, base URL and temperature.
+    """
+    if not isinstance(profile, dict):
+        return None
+    group = str(profile.get("group") or "").strip().lower()
+    model = str(profile.get("model") or "").strip()
+    if not group or not model:
+        return None
+
+    if group == "gemini":
+        keys = _scan_gemini_keys()
+        if not keys:
+            return None
+        gemini_temperature = float(os.getenv("GEMINI_TEMPERATURE", "1.0"))
+        model_name = model if "/" in model else f"gemini/{model}"
+        queue = [
+            {
+                "model": model_name,
+                "api_key": key,
+                "base_url": None,
+                "provider": f"Gemini Key {i + 1} (profile)",
+                "temperature": gemini_temperature,
+            }
+            for i, key in enumerate(keys)
+        ]
+        random.shuffle(queue)
+        return queue
+
+    match = _provider_group_pattern.match(group)
+    if match:
+        wanted = int(match.group(1))
+        for entry in _scan_provider_entries():
+            if entry["index"] != wanted:
+                continue
+            model_name = model if "/" in model else f"openai/{model}"
+            return [
+                {
+                    "model": model_name,
+                    "api_key": entry["api_key"],
+                    "base_url": entry["base_url"],
+                    "provider": f"{entry['label']} (profile)",
+                    "temperature": entry["temperature"],
+                }
+            ]
+        return None
+
+    if group == "fallback":
+        api_key = os.getenv("FALLBACK_API_KEY")
+        if not api_key:
+            return None
+        model_name = (
+            model
+            if model.startswith(_FALLBACK_PREFIXES)
+            else f"openai/{model}"
+        )
+        return [
+            {
+                "model": model_name,
+                "api_key": api_key,
+                "base_url": os.getenv(
+                    "FALLBACK_BASE_URL", "https://openrouter.ai/api/v1"
+                ),
+                "provider": "OpenRouter (Fallback 1, profile)",
+                "temperature": float(os.getenv("FALLBACK_TEMPERATURE", "0.4")),
+            }
+        ]
+
+    return None
+
+
+def model_options() -> list:
+    """Credential groups + their models for the setup wizard (env-derived).
+
+    GET /models/options serves this verbatim: group ids match the profile
+    'group' field, labels are log-friendly, models are the configured
+    names. NEVER includes key values (security posture §6: env privacy —
+    only key NAMES/counts may surface, exactly like /mcp/status).
+    """
+    options = []
+    primary_model = os.getenv("DEFAULT_MODEL", "gemini/gemini-3.5-flash")
+    gemini_keys = _scan_gemini_keys()
+    if gemini_keys and primary_model:
+        options.append(
+            {
+                "group": "gemini",
+                "label": f"Gemini ({len(gemini_keys)} key(s), Primary)",
+                "models": [primary_model],
+            }
+        )
+    for entry in _scan_provider_entries():
+        options.append(
+            {
+                "group": f"provider_{entry['index']}",
+                "label": entry["label"],
+                "models": list(entry["models"]),
+            }
+        )
+    if os.getenv("FALLBACK_API_KEY"):
+        fallback_models = [
+            m.strip()
+            for m in os.getenv("FALLBACK_MODELS", "").split(",")
+            if m.strip()
+        ]
+        options.append(
+            {
+                "group": "fallback",
+                "label": "OpenRouter (Fallback 1)",
+                "models": fallback_models,
+            }
+        )
+    return options
+
+
+async def get_ai_response(messages: list, tools: list = None, profile: dict = None) -> dict:
     """
     Hybrid Router: Gemini (N-key rotation) -> PROVIDER_<N>_* groups ->
     legacy FALLBACK_* -> Cloudflare. See build_execution_queue().
+
+    UPDATE-018: optional ``profile`` ({"group", "model"}, from
+    orion_config subagent_models) pins the call to ONE target built from
+    the group's existing credentials. A broken profile (break/absent shape,
+    unknown group, group without credentials) NEVER fails the call: it logs
+    a warning and falls back to the full main router.
     """
-    execution_queue = build_execution_queue()
+    execution_queue = None
+    if profile:
+        execution_queue = build_profile_queue(profile)
+        if execution_queue:
+            print(
+                f"[LLM_ROUTER] Sub-agent profile active: group={profile.get('group')} "
+                f"model={execution_queue[0]['model']}"
+            )
+        else:
+            print(
+                f"[LLM_ROUTER] [WARNING] Sub-agent profile group={profile.get('group')!r} "
+                f"model={profile.get('model')!r} is invalid or its group has no "
+                "credentials in this environment; falling back to the main router."
+            )
+    if not execution_queue:
+        execution_queue = build_execution_queue()
 
     last_error = None
 

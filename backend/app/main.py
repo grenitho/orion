@@ -83,6 +83,7 @@ load_dotenv()
 # >>> END OF CRITICAL FIX <<<
 
 import json
+import re
 
 
 def validate_project_structure(project_path: str) -> list:
@@ -119,7 +120,11 @@ from app.services.session_state import SessionState
 from app.services.tools_schema import TOOLS
 from app.services.context_manager import ContextManager
 from app.services.dependency_scanner import DependencyScanner
-from app.services.llm_router import get_ai_response  # <-- The only gateway to the LLM
+from app.services.llm_router import (  # <-- The only gateway to the LLM
+    build_profile_queue,  # UPDATE-018: profile feasibility probe (/models/test)
+    get_ai_response,
+    model_options,  # UPDATE-018: env-derived group+model list (/models/options)
+)
 from app.services.tool_executor import ToolExecutor
 
 # >>> CRITICAL FIX: 3 additional modules (todo tracking, post-edit
@@ -493,6 +498,194 @@ async def mcp_config(request: McpConfigRequest):
         return JSONResponse(result, status_code=400)
     return result
 # >>> END OF UPDATE-015 MCP management ====================================
+
+
+# >>> UPDATE-018: model-profile surface for the setup wizard ===============
+# Three token-guarded routes (the shared-secret middleware covers every path
+# except GET /, so nothing here needs its own auth check). Design rules:
+#   * GET  /models/options — what the ENVIRONMENT offers (groups + model
+#     names + the profiles currently saved in the project). Never a key
+#     value: same env-privacy posture as /mcp/status.
+#   * POST /models/test    — a small real probe through the profile path so
+#     the owner learns "this group+model answers" BEFORE saving it.
+#   * POST /models/config  — validate -> atomic write -> live sync, one
+#     transaction (same shape as /mcp/config), so the file and the running
+#     backend can never disagree.
+SUBAGENT_ROLE_KEYS = ("explorer", "verifier", "workers")
+PROFILE_GROUP_PATTERN = re.compile(r"^(gemini|provider_[1-9][0-9]?|fallback)$")
+
+
+class ModelsTestRequest(BaseModel):
+    group: str
+    model: str
+
+
+class ModelsConfigRequest(BaseModel):
+    # >>> Role -> {"group","model"} | null. `null` (or an absent role) means
+    # "main router", the owner's explicit requirement for the empty state.
+    subagent_models: dict | None = None
+
+
+def _orion_config_path() -> str | None:
+    project_path = context_manager.project_path
+    if not project_path:
+        return None
+    return os.path.join(project_path, ".orion", "orion_config.json")
+
+
+def validate_subagent_models(payload) -> str | None:
+    """Return an error string when the payload is not a valid profile map."""
+    if not isinstance(payload, dict):
+        return "subagent_models must be an object mapping role -> profile."
+    for role, entry in payload.items():
+        if role not in SUBAGENT_ROLE_KEYS:
+            return (
+                f"unknown role '{role}'; allowed roles: "
+                f"{', '.join(SUBAGENT_ROLE_KEYS)}."
+            )
+        if entry is None:
+            continue
+        if not isinstance(entry, dict):
+            return f"role '{role}' must be null or an object {{group, model}}."
+        group = entry.get("group")
+        model = entry.get("model")
+        if not isinstance(group, str) or not PROFILE_GROUP_PATTERN.match(group.strip()):
+            return (
+                f"role '{role}': group must be 'gemini', 'provider_<N>' or "
+                f"'fallback' (got {group!r})."
+            )
+        if not isinstance(model, str) or not model.strip():
+            return f"role '{role}': model must be a non-empty string."
+        extra = set(entry) - {"group", "model"}
+        if extra:
+            return f"role '{role}': unexpected field(s) {sorted(extra)}."
+    return None
+
+
+def _sanitize_profile_error(text: str, queue: list) -> str:
+    """Strip credential values out of a provider error before it leaves."""
+    for target in queue:
+        key = str(target.get("api_key") or "")
+        if key and key in text:
+            text = text.replace(key, "***")
+    return text[:300]
+
+
+@app.get("/models/options")
+async def models_options_route():
+    """Groups + models offered by this environment, and the saved profiles."""
+    saved = {}
+    cfg_path = _orion_config_path()
+    if cfg_path and os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                loaded = json.load(f)
+            candidate = loaded.get("subagent_models") if isinstance(loaded, dict) else None
+            if isinstance(candidate, dict):
+                saved = candidate
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[ORION MODELS WARNING] could not read orion_config.json: {e}")
+    return {
+        "roles": list(SUBAGENT_ROLE_KEYS),
+        "groups": model_options(),
+        "subagent_models": saved,
+    }
+
+
+@app.post("/models/test")
+async def models_test_route(request: ModelsTestRequest):
+    """Probe one group+model with a tiny prompt. Never raises a 500."""
+    profile = {"group": request.group, "model": request.model}
+    queue = build_profile_queue(profile)
+    if not queue:
+        return {
+            "success": False,
+            "profile": profile,
+            "error": (
+                f"no credentials found for group '{request.group}' in this "
+                "backend's environment (or the group/model name is empty)."
+            ),
+        }
+    try:
+        response = await get_ai_response(
+            [{"role": "user", "content": "Reply with the single word: pong"}],
+            tools=None,
+            profile=profile,
+        )
+        content = ""
+        choices = getattr(response, "choices", None)
+        if choices:
+            content = str(getattr(choices[0].message, "content", "") or "")
+        return {
+            "success": True,
+            "profile": profile,
+            "resolved_model": queue[0]["model"],
+            "reply_preview": content[:120],
+        }
+    except Exception as exc:  # a failed probe is data, not a crash
+        return {
+            "success": False,
+            "profile": profile,
+            "resolved_model": queue[0]["model"],
+            "error": _sanitize_profile_error(
+                f"{type(exc).__name__}: {exc}", queue
+            ),
+        }
+
+
+@app.post("/models/config")
+async def models_config_route(request: ModelsConfigRequest):
+    """Validate -> atomic write -> live sync of subagent_models."""
+    global orion_config
+
+    cfg_path = _orion_config_path()
+    if cfg_path is None:
+        return JSONResponse(
+            {"success": False, "error": "No project is set; open a folder first."},
+            status_code=400,
+        )
+
+    payload = request.subagent_models if request.subagent_models is not None else {}
+    error = validate_subagent_models(payload)
+    if error:
+        # Reject BEFORE touching the file (same rule as /mcp/config).
+        return JSONResponse({"success": False, "error": error}, status_code=400)
+
+    data = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, json.JSONDecodeError) as e:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"orion_config.json is unreadable/corrupt: {e}",
+                },
+                status_code=400,
+            )
+
+    data["subagent_models"] = payload
+    try:
+        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+        tmp_path = cfg_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, cfg_path)
+    except OSError as e:
+        return JSONResponse(
+            {"success": False, "error": f"could not write orion_config.json: {e}"},
+            status_code=500,
+        )
+
+    # Live sync: a saved profile must apply to the NEXT /chat turn without
+    # re-running /set-project (deps.config is this very dict object).
+    orion_config["subagent_models"] = payload
+    print(f"[ORION MODELS] subagent_models saved: {payload}")
+    return {"success": True, "subagent_models": payload}
+# >>> END OF UPDATE-018 model profiles ====================================
 
 
 @app.post("/set-project")
