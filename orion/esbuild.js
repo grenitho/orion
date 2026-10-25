@@ -48,6 +48,18 @@ async function main() {
 		await ctx.rebuild();
 		await ctx.dispose();
 	}
+	// >>> UPDATE-020 adendum-4: the chat webview runtime is a SEPARATE
+	// browser-platform bundle (loaded by the webview via asWebviewUri).
+	await esbuild.build({
+		entryPoints: ['src/panels/chatWebview.ts'],
+		bundle: false,
+		format: 'iife',
+		minify: production,
+		sourcemap: !production,
+		platform: 'browser',
+		outfile: 'dist/chatwebview.js',
+		logLevel: 'silent',
+	});
 }
 
 main().catch(e => {

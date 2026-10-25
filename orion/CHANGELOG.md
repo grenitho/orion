@@ -3,6 +3,20 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.3] - 2026-10-25
+
+### Changed
+- **The chat webview runtime is no longer an inline script.** VS Code
+  delivers webview HTML through `document.write()`; on VS Code 1.143 the
+  giant inline chat script died on that path with a parse error (owner
+  machine, incident 2026-10-25) while every local engine accepted it. The
+  runtime now ships as a separate bundled file (`dist/chatwebview.js`)
+  loaded through `asWebviewUri` behind a nonce CSP (the pattern the MCP
+  panel and wizard already follow in spirit); an external script parses
+  from its own file URL and is immune to write-chunking and re-encoding.
+  The ASCII-only parse-error beacon from 0.3.2 stays as the permanent
+  tripwire.
+
 ## [0.3.2] - 2026-10-25
 
 ### Added
