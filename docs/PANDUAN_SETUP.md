@@ -338,6 +338,12 @@ Sejak UPDATE-015, konfigurasi server MCP bisa penuh dari UI:
 5. Kartu opsional di Setup Wizard ("Optional: MCP tool servers") melakukan
    hal yang sama untuk onboarding pertama; melewatkannya tidak mengubah
    apa pun.
+6. **Tombol master switch di panel (extension 0.3.0):** "MCP ON — turn OFF
+   (master switch)" / sebaliknya menulis `mcp_enabled` ke
+   `.orion/orion_config.json` dan langsung menerapkannya (off = semua
+   server berhenti saat itu juga, mcp.json utuh; on = start ulang server) —
+   satu transaksi `/mcp/config` op `master_switch`, tanpa edit JSON dan
+   tanpa restart backend.
 
 Detail teknis & kontrak kegagalan: `MCP_FOUNDATION.md` (§11 untuk UI).
 
@@ -377,6 +383,14 @@ ke router utama dengan peringatan di log — tidak pernah mematikan delegasi.
 Detail: `docs/INBOX_AND_PROFILES.md` (Part B).
 
 ## Inbox: kirim file tanpa tombol lampiran (backend 0.9.0+)
+
+Sejak extension 0.3.0 ada juga jalur sebaliknya untuk file yang memang
+Anda pilih sadar: tombol **📎** di sebelah kotak chat membuka dialog file
+(gambar png/jpg/webp + teks/kode), menampilkan *chips* di atas kotak input,
+dan mengirimnya **hanya bersama pesan berikutnya** (batas sama dengan
+inbox: 7 MB/gambar, 512 KB/teks, maks 4 gambar & 8 file per pesan; file
+yang lewat batas ditolak di tempat dengan toast penjelasan). Inbox tetap
+jalur termudah untuk alur "lempar file lalu chat".
 
 Letakkan file apa pun ke folder `<proyek>/.orion/inbox/` — **turn chat
 berikutnya** otomatis memungutnya: teks/kode disuntikkan sebagai blok

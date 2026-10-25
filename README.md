@@ -192,6 +192,13 @@ groups you already configured (`subagent_models` in
 the old behaviour. Full reference:
 [docs/INBOX_AND_PROFILES.md](docs/INBOX_AND_PROFILES.md).
 
+**Attach & quality-of-life (extension 0.3.0):** the chat panel's 📎 button
+attaches images/text files to ONE message (same pipeline and caps as the
+inbox); the MCP panel carries the **master-switch button** (mcp_enabled,
+applied live, mcp.json preserved); and a watchdog toasts once when the
+backend goes stale mid-session (git pull / extension update) with a
+Restart action.
+
 ---
 
 ## Testing
@@ -200,7 +207,7 @@ the old behaviour. Full reference:
 python -m pytest backend -q         # from the repo root
 ```
 
-292 tests cover the attachment pipeline, the inbox drop-zone, the model-profile
+342 tests cover the attachment pipeline, the inbox drop-zone, the model-profile
 router and endpoints, the sub-agent plumbing, the claim-verification gate, the
 loop-counter guard, the git-operation blocklist, the stream-completion wrapper,
 the research-query builder and the security posture (CORS, loopback bind, token
@@ -231,7 +238,7 @@ backend/
       subagent_manager.py  Explorer/Verifier/Workers delegation (UPDATE-016)
       inbox_manager.py   .orion/inbox drop-zone: extract, cap, archive (UPDATE-018)
       permission_manager.py, dependency_scanner.py, post_edit_verifier.py
-      test_*.py          292 tests
+      test_*.py          342 tests
   examples/
     mcp_demo_server.py   dependency-free MCP server for E2E testing
 orion/                   VS Code extension (TypeScript, esbuild)

@@ -103,6 +103,11 @@ without deleting `mcp.json` — no servers spawn, `/mcp/status` reports
 `"enabled": false` with an explanatory warning, and flipping the flag back
 on (or removing it) restores everything on the next `/set-project` or
 backend restart. Per-server `disabled` flags remain the fine-grained knob.
+Since UPDATE-020 (backend 0.9.2) the flag no longer needs hand-editing or a
+restart: the MCP panel's master-switch button posts one `/mcp/config` op
+(`master_switch`) that writes `orion_config.json` atomically and applies
+the change LIVE (off = stop every server now, on = start_all), and
+§11's wizard/panel surface reflects the state from `/mcp/status`.
 
 Security note: `mcp.json` grants command execution on your machine, exactly
 like `backend/.env`. Only configure servers you trust; the file lives in the

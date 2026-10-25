@@ -82,14 +82,14 @@ Restart the backend after editing `.env`.
   first-class `PROVIDER_<N>` groups → legacy OpenAI-compatible fallback →
   Cloudflare), heartbeat status while the model thinks, and every run ends
   with exactly one terminal event so the UI never hangs or fakes success.
-- **Inbox drop-zone** — put files (text/code, png/jpg/webp screenshots,
-  PDF, DOCX, XLSX) into `<project>/.orion/inbox/` and the next chat turn
-  picks them up: text is injected for that turn only, images travel as
-  vision parts, documents are extracted under announced caps, and every
-  processed file is archived — never deleted.
+- **Inbox drop-zone & attachments** — put files (text/code, png/jpg/webp
+  screenshots, PDF, DOCX, XLSX) into `<project>/.orion/inbox/` and the next
+  chat turn picks them up, or use the 📎 button in the chat panel to attach
+  files to ONE message; documents are extracted under announced caps, and
+  every processed file is archived — never deleted.
 - **MCP tool servers** — lend Orion tools from any local Model Context
   Protocol server, managed from a dedicated panel (add/edit/disable,
-  one-click demo) with a per-project master switch.
+  one-click demo) with a per-project master switch button.
 - **Sub-agents with model profiles** — bounded internal Explorer /
   Verifier / parallel Workers take exploration-heavy and verification
   work off the main context; an optional Setup-Wizard card pins one model

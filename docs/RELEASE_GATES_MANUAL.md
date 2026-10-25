@@ -63,7 +63,7 @@ release; each takes about two minutes.
 - [ ] scenario c passed (findings quoted with line numbers)
 - [ ] scenario d passed (clean cancel, healthy backend)
 - [ ] `python -m pytest backend/app/services/ -q` green on the release commit
-      (292 tests as of UPDATE-018)
+      (342 tests as of UPDATE-020)
 - [ ] all pre-existing mock-SSE harness scenarios re-recorded
       byte-identical (15 legacy + `inbox_txt` = 16 as of UPDATE-018;
       harness owner)

@@ -3,6 +3,30 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-10-23
+
+### Added
+- **Attachments are real now**: a 📎 button in the chat panel opens a file
+  dialog (images png/jpg/webp + text/code), renders removable chips above
+  the input, and sends them with the NEXT message only — the backend
+  pipeline existed since the attachment feature but had no UI (companion
+  backend applies the same caps: 7 MB/image, 512 KB/text, 4 images).
+- **MCP master-switch button** in the MCP Servers panel ("MCP ON/OFF —
+  master switch"): one `/mcp/config` transaction writes `mcp_enabled` into
+  `orion_config.json` and applies it live (off stops every server,
+  `mcp.json` preserved; on restarts them). Companion backend 0.9.2.
+- **Stale-backend watchdog toast**: a backend that goes stale MID-session
+  (git pull, extension update) now toasts once per backend boot with
+  Restart/Keep actions — previously only detected at VS Code start.
+
+### Changed
+- Setup Wizard step 4 states explicitly that empty fields keep stored keys
+  and that Gemini may be skipped in favour of provider groups; saving with
+  zero credentials warns loudly instead of a cheerful "Saved 0 key(s)".
+- `install.ps1`: skipping Gemini is a first-class path (offers one
+  OpenAI-compatible provider group right there); all user-facing output is
+  now English (Indonesian walkthrough stays in `docs/PANDUAN_SETUP.md`).
+
 ## [0.2.0] - 2026-10-23
 
 ### Added
