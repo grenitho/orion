@@ -130,15 +130,32 @@ export class ChatPanel {
                         display: none;
                     }
                     #cancel-btn.visible { display: inline-block; }
+                    /* >>> UPDATE-020: attachment chips above the input row.
+                        Empty container collapses; chips ride the NEXT send
+                        only (single-turn rule, same as the inbox). */
+                    #attach-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px 0; }
+                    #attach-chips:empty { display: none; margin: 0; }
+                    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px;
+                            border: 1px solid var(--vscode-panel-border, #555); border-radius: 10px;
+                            font-size: 11px; color: var(--vscode-descriptionForeground);
+                            background: var(--vscode-input-background); }
+                    .chip button { padding: 0 5px; background: transparent; color: inherit;
+                                   font-weight: normal; font-size: 12px; }
                 </style>
             </head>
             <body>
                 <div id="chat-container"></div>
+                <div id="attach-chips"></div>
                 <div id="input-area">
                     <!-- ORION-22: layout restored to the simple form. The input box uses
                          flex:1 from the #input-area CSS so it spans the full width. -->
                     <textarea id="msg-input" placeholder="Type a command... (Shift+Enter for a new line)" rows="3"
                               style="flex:1 1 auto;min-width:0;min-height:62px;"></textarea>
+                    <!-- >>> UPDATE-020: the attach button revives the dormant
+                         attachment forwarding (ORION-20b) with a REAL UI: the
+                         host reads the files, chips show what rides on the
+                         next message, backend caps still apply server-side. -->
+                    <button id="attach-btn" title="Attach files (images or text/code) to the NEXT message only">📎</button>
                     <button id="send-btn">Send</button>
                     <button id="cancel-btn">Cancel</button>
                 </div>
@@ -199,14 +216,24 @@ export class ChatPanel {
                         if (!text) return;
 
                         currentAiText = ""; // Reset the buffer when the user sends a new message
-                        appendMsg(text, 'user');
+                        // >>> UPDATE-020: attachments ride THIS message only
+                        // (single-turn rule, same as the inbox); the chips
+                        // clear immediately so a later message never leaks
+                        // them by accident.
+                        const atts = pendingAttachments;
+                        const label = atts.length
+                            ? text + '\n\n📎 ' + atts.map(a => a.name).join(', ')
+                            : text;
+                        appendMsg(label, 'user');
                         input.value = '';
+                        pendingAttachments = [];
+                        renderChips();
                         isProcessing = true;
                         btn.disabled = true;
                         btn.innerText = 'Processing...';
                         cancelBtn.classList.add('visible');
 
-                        vscode.postMessage({ command: 'chat', text: text });
+                        vscode.postMessage({ command: 'chat', text: text, attachments: atts });
                     }
 
                     // >>> NEW: cancel function
@@ -214,6 +241,38 @@ export class ChatPanel {
                         if (!isProcessing) return;
                         vscode.postMessage({ command: 'cancel' });
                     }
+
+                    // >>> UPDATE-020: attachment chips. The 📎 button asks the
+                    // extension host to open a file dialog and read the files
+                    // (privileged work stays out of the webview); the chips
+                    // here only DISPLAY what will ride on the next send and
+                    // let the user drop an item before sending.
+                    let pendingAttachments = [];
+                    const attachBtn = document.getElementById('attach-btn');
+                    const chipsBox = document.getElementById('attach-chips');
+
+                    function renderChips() {
+                        chipsBox.innerHTML = '';
+                        pendingAttachments.forEach((a, i) => {
+                            const chip = document.createElement('span');
+                            chip.className = 'chip';
+                            const kb = Math.max(1, Math.round((a.size || 0) / 1024));
+                            chip.appendChild(document.createTextNode(a.name + ' (' + kb + ' KB)'));
+                            const x = document.createElement('button');
+                            x.textContent = '\\u00d7';
+                            x.title = 'Remove ' + a.name;
+                            x.addEventListener('click', () => {
+                                pendingAttachments.splice(i, 1);
+                                renderChips();
+                            });
+                            chip.appendChild(x);
+                            chipsBox.appendChild(chip);
+                        });
+                    }
+
+                    attachBtn.addEventListener('click', () => {
+                        vscode.postMessage({ command: 'pickAttachments' });
+                    });
 
                     // >>> PATCH ORION-13b: render the todo list in the chat panel
                     function renderTodos(markdown, todos) {
@@ -241,7 +300,15 @@ export class ChatPanel {
 
                     window.addEventListener('message', event => {
                         const msg = event.data;
-                        if (msg.command === 'stream_done') {
+                        if (msg.command === 'attachmentsPicked') {
+                            // >>> UPDATE-020: host read the picked files; keep
+                            // max 8 items total (backend caps images at 4 per
+                            // message anyway; oversize was rejected host-side).
+                            pendingAttachments = pendingAttachments
+                                .concat(msg.items || [])
+                                .slice(0, 8);
+                            renderChips();
+                        } else if (msg.command === 'stream_done') {
                             isProcessing = false;
                             btn.disabled = false;
                             btn.innerText = 'Send';
@@ -351,6 +418,86 @@ export class ChatPanel {
     }
     // >>> AKHIR PATCH ORION-20a ==========================================
 
+    // >>> UPDATE-020: the 📎 picker. Caps MIRROR backend/app/services/
+    // attachments.py (7 MB per image = Gemini's inline limit, 512 KB per
+    // text file, 4 images per message) so an oversized file is rejected
+    // HERE with a clear toast instead of burning a backend round-trip;
+    // the backend re-checks anyway (defence in depth, same numbers).
+    private static readonly ATTACH_MAX_IMAGE_BYTES = 7 * 1024 * 1024;
+    private static readonly ATTACH_MAX_TEXT_BYTES = 512 * 1024;
+    private static readonly ATTACH_MAX_IMAGES = 4;
+    private static readonly ATTACH_MAX_TOTAL = 8;
+
+    private async _pickAttachments(): Promise<void> {
+        const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: true,
+            openLabel: 'Attach to next message',
+            filters: {
+                'Images': ['png', 'jpg', 'jpeg', 'webp'],
+                'Text & code': ['txt', 'md', 'csv', 'tsv', 'log', 'json', 'py', 'ts', 'tsx', 'js', 'jsx', 'html', 'css', 'sql', 'sh', 'ps1', 'yaml', 'yml', 'toml', 'ini', 'cfg'],
+            },
+        });
+        if (!picked || !picked.length) { return; }
+
+        const items: Array<{ name: string; mime: string; size: number; data: string }> = [];
+        const rejected: string[] = [];
+        let images = 0;
+        for (const uri of picked) {
+            const name = uri.fsPath.split(/[\\/]/).pop() || 'file';
+            try {
+                const stat = await vscode.workspace.fs.stat(uri);
+                const lower = name.toLowerCase();
+                const isImage = /\.(png|jpe?g|webp)$/.test(lower);
+                const cap = isImage
+                    ? ChatPanel.ATTACH_MAX_IMAGE_BYTES
+                    : ChatPanel.ATTACH_MAX_TEXT_BYTES;
+                if (stat.size > cap) {
+                    rejected.push(`${name}: exceeds the ${isImage ? '7 MB image' : '512 KB text'} limit`);
+                    continue;
+                }
+                if (isImage && images >= ChatPanel.ATTACH_MAX_IMAGES) {
+                    rejected.push(`${name}: more than ${ChatPanel.ATTACH_MAX_IMAGES} images per message`);
+                    continue;
+                }
+                if (items.length >= ChatPanel.ATTACH_MAX_TOTAL) {
+                    rejected.push(`${name}: more than ${ChatPanel.ATTACH_MAX_TOTAL} files per message`);
+                    continue;
+                }
+                const bytes = await vscode.workspace.fs.readFile(uri);
+                const mime = isImage
+                    ? (lower.endsWith('.png') ? 'image/png'
+                        : lower.endsWith('.webp') ? 'image/webp'
+                            : 'image/jpeg')
+                    : 'text/plain';
+                if (isImage) { images++; }
+                items.push({
+                    name,
+                    mime,
+                    size: stat.size,
+                    data: Buffer.from(bytes).toString('base64'),
+                });
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : String(e);
+                rejected.push(`${name}: unreadable (${msg})`);
+            }
+        }
+
+        if (rejected.length) {
+            vscode.window.showWarningMessage(
+                'Orion attach: skipped ' + rejected.length + ' file(s) — ' +
+                rejected.slice(0, 3).join('; ') +
+                (rejected.length > 3 ? ` (+${rejected.length - 3} more)` : '')
+            );
+        }
+        if (items.length) {
+            this._panel.webview.postMessage({ command: 'attachmentsPicked', items });
+            this._activity.addActivity(`Attached ${items.length} file(s) to the next message`, '');
+        }
+    }
+    // >>> END OF UPDATE-020 attach picker ==================================
+
     private async _handleMessage(message: any) {
         // >>> NEW: handler for the Cancel button
         if (message.command === 'cancel') {
@@ -359,6 +506,14 @@ export class ChatPanel {
                 this._currentAbortController.abort();
                 this._currentAbortController = undefined;
             }
+            return;
+        }
+
+        // >>> UPDATE-020: the 📎 button. Dialog + fs reads happen HERE (the
+        // extension host), the webview only renders chips — same split as
+        // the Setup Wizard and MCP panel.
+        if (message.command === 'pickAttachments') {
+            await this._pickAttachments();
             return;
         }
 
@@ -391,6 +546,12 @@ export class ChatPanel {
                     // >>> ATTACHMENT FEATURE: forward attachments from the webview to the backend
                     body: JSON.stringify({
                         message: message.text,
+                        // >>> UPDATE-020: the dormant forwarding is now ALIVE:
+                        // chips from the 📎 button travel as [{name,mime,size,
+                        // data(base64)}]; backend/app/services/attachments.py
+                        // already speaks this shape (image data-URI parts,
+                        // capped text, history placeholders).
+                        attachments: Array.isArray(message.attachments) ? message.attachments : [],
                         // >>> PATCH ORION-20b: include Orion's "eyes" with every request
                         editor: this._collectEditorContext()
                     }),
