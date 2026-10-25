@@ -192,9 +192,10 @@ groups you already configured (`subagent_models` in
 the old behaviour. Full reference:
 [docs/INBOX_AND_PROFILES.md](docs/INBOX_AND_PROFILES.md).
 
-**Attach & quality-of-life (extension 0.3.0):** the chat panel's 📎 button
-attaches images/text files to ONE message (same pipeline and caps as the
-inbox); the MCP panel carries the **master-switch button** (mcp_enabled,
+**Attach & quality-of-life (extension 0.3.0+, documents since 0.4.0):** the
+chat panel's 📎 button attaches images, text/code AND pdf/docx/xlsx (extracted
+server-side by the inbox engine) to ONE message (same pipeline and caps as
+the inbox); the MCP panel carries the **master-switch button** (mcp_enabled,
 applied live, mcp.json preserved); and a watchdog toasts once when the
 backend goes stale mid-session (git pull / extension update) with a
 Restart action.

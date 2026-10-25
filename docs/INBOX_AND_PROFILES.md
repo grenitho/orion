@@ -80,6 +80,14 @@ The hard caps (20 MB / 7 MB / 60k chars / 30 pages / 10 tables / 200 rows)
 live in `inbox_manager.py` on purpose: they are safety rails, not
 preferences.
 
+### The 📎 button shares this engine (extension 0.4.0+)
+
+Attachments picked with the chat panel's 📎 button run through the very
+same extractor (`inbox_manager.extract_file`) for pdf/docx/xlsx, with the
+same caps and the same announced truncations; the extracted text then
+rides that one message instead of the per-turn context block. One engine,
+two doors, identical honesty contract.
+
 ### Troubleshooting
 
 | Symptom | Cause / fix |

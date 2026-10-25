@@ -386,10 +386,12 @@ Detail: `docs/INBOX_AND_PROFILES.md` (Part B).
 
 Sejak extension 0.3.0 ada juga jalur sebaliknya untuk file yang memang
 Anda pilih sadar: tombol **📎** di sebelah kotak chat membuka dialog file
-(gambar png/jpg/webp + teks/kode), menampilkan *chips* di atas kotak input,
-dan mengirimnya **hanya bersama pesan berikutnya** (batas sama dengan
-inbox: 7 MB/gambar, 512 KB/teks, maks 4 gambar & 8 file per pesan; file
-yang lewat batas ditolak di tempat dengan toast penjelasan). Inbox tetap
+(gambar png/jpg/webp, teks/kode, dan sejak extension 0.4.0 juga dokumen
+pdf/docx/xlsx yang diekstrak backend dengan mesin yang sama seperti inbox),
+menampilkan *chips* di atas kotak input, dan mengirimnya **hanya bersama
+pesan berikutnya** (batas: 7 MB/gambar, 512 KB/teks, 20 MB/dokumen, maks 4
+gambar & 8 file per pesan; file yang lewat batas ditolak di tempat dengan
+toast penjelasan). Inbox tetap
 jalur termudah untuk alur "lempar file lalu chat".
 
 Letakkan file apa pun ke folder `<proyek>/.orion/inbox/` — **turn chat

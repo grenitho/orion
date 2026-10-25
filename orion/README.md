@@ -85,7 +85,7 @@ Restart the backend after editing `.env`.
 - **Inbox drop-zone & attachments** — put files (text/code, png/jpg/webp
   screenshots, PDF, DOCX, XLSX) into `<project>/.orion/inbox/` and the next
   chat turn picks them up, or use the 📎 button in the chat panel to attach
-  files to ONE message; documents are extracted under announced caps, and
+  images, text/code or PDF/DOCX/XLSX (extracted server-side) to ONE message; documents are extracted under announced caps, and
   every processed file is archived — never deleted.
 - **MCP tool servers** — lend Orion tools from any local Model Context
   Protocol server, managed from a dedicated panel (add/edit/disable,
