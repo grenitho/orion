@@ -581,6 +581,20 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 if last_user_idx >= 0:
                     last_user_msg = api_messages[last_user_idx]
                     user_content = last_user_msg.get("content") or ""
+                    # >>> UPDATE-020 adendum-5: with image attachments the
+                    # last user content is a vision-parts LIST (injected
+                    # above). The short-reply guard below concatenates a
+                    # reminder string onto it — list + str = TypeError, the
+                    # owner's 2026-10-25 png crash. Length checks use a text
+                    # view; the reminder is patched INTO the text part.
+                    if isinstance(user_content, list):
+                        uc_text = " ".join(
+                            str(_p.get("text") or "")
+                            for _p in user_content
+                            if isinstance(_p, dict) and _p.get("type") == "text"
+                        )
+                    else:
+                        uc_text = user_content
 
                     last_assistant_msg = None
                     for i in range(last_user_idx - 1, -1, -1):
@@ -602,8 +616,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     # with the universal "ends with a question mark" detection.
                     if (
                         last_assistant_msg is not None
-                        and len(user_content) < 150
-                        and len(user_content) > 0
+                        and len(uc_text) < 150
+                        and len(uc_text) > 0
                         and len(last_assistant_content) > 30
                     ):
                         assistant_content_lower = last_assistant_content.lower()
@@ -635,9 +649,33 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "4. Focus 100% on what the user chose and execute immediately.\n"
                                 "[END OF REMINDER]"
                             )
-                            api_messages[last_user_idx]["content"] = (
-                                user_content + reminder
-                            )
+                            if isinstance(user_content, str):
+                                api_messages[last_user_idx]["content"] = (
+                                    user_content + reminder
+                                )
+                            else:
+                                # vision-parts list: fold the reminder into
+                                # the leading text part (or add one), never
+                                # concatenate list + str.
+                                _patched = []
+                                _done = False
+                                for _p in user_content:
+                                    if (
+                                        not _done
+                                        and isinstance(_p, dict)
+                                        and _p.get("type") == "text"
+                                    ):
+                                        _patched.append(
+                                            {**_p, "text": str(_p.get("text") or "") + reminder}
+                                        )
+                                        _done = True
+                                    else:
+                                        _patched.append(_p)
+                                if not _done:
+                                    _patched.insert(
+                                        0, {"type": "text", "text": reminder.strip()}
+                                    )
+                                api_messages[last_user_idx]["content"] = _patched
                             print(
                                 "[ORION ANTI-AMNESIA] Short reply detected. Context reminder injected."
                             )
@@ -741,7 +779,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 clean_msg = {"role": msg.get("role")}
 
                 if "content" in msg and msg["content"] is not None:
-                    clean_msg["content"] = str(msg["content"])
+                    # >>> UPDATE-020 adendum-5: vision-parts lists must stay
+                    # LISTS. The blanket str() here stringified image
+                    # attachments into a Python repr (latent bug since the
+                    # attachment feature; invisible while the attach UI was
+                    # dormant, found by the owner's first real png on
+                    # 2026-10-25). estimate_message_tokens above already
+                    # knows content can be a list - this line forgot.
+                    clean_msg["content"] = msg["content"]
                 elif clean_msg["role"] == "assistant":
                     clean_msg["content"] = ""
 
@@ -758,13 +803,22 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 # consecutive tool messages are merged, the second one's tool_call_id is LOST
                 # and the API will reject the request with a 400 error
                 # ("tool_call_id ... not found" / "bad request").
+                # >>> UPDATE-020 adendum-5: never merge when either side
+                # carries vision parts - f-stringing a list into text would
+                # reintroduce the stringification bug one line earlier.
+                prev_content = (
+                    merged_messages[-1].get("content", "") or ""
+                    if merged_messages
+                    else ""
+                )
+                curr_content = clean_msg.get("content", "") or ""
                 if (
                     merged_messages
                     and merged_messages[-1]["role"] == clean_msg["role"]
                     and clean_msg["role"] != "tool"
+                    and isinstance(prev_content, str)
+                    and isinstance(curr_content, str)
                 ):
-                    prev_content = merged_messages[-1].get("content", "") or ""
-                    curr_content = clean_msg.get("content", "") or ""
                     merged_messages[-1][
                         "content"
                     ] = f"{prev_content}\n\n{curr_content}".strip()
