@@ -52,6 +52,23 @@ export class ChatPanel {
             <html>
             <head>
                 <meta charset="UTF-8">
+                <!-- >>> UPDATE-020 adendum-3: parse-error beacon. A separate,
+                     ASCII-only script tag so it survives even if the main
+                     inline script fails to PARSE; it reports the exact
+                     line:col of any load error to the Extension Host log
+                     (command 'webviewError'). It also owns the single
+                     acquireVsCodeApi() call and stashes it on window. -->
+                <script>
+                    window.__orionVs = acquireVsCodeApi();
+                    window.addEventListener('error', function (e) {
+                        try {
+                            window.__orionVs.postMessage({
+                                command: 'webviewError',
+                                text: (e.message || 'load error') + ' @line ' + e.lineno + ':' + e.colno
+                            });
+                        } catch (x) { /* nothing else we can do */ }
+                    }, true);
+                </script>
                 <!-- >>> UPDATE-020 adendum: the CDN scripts/style used to sit
                      HERE, before the inline script. A hanging CDN request
                      (proxy / offline / blackhole) blocked the HTML parser
@@ -166,7 +183,7 @@ export class ChatPanel {
                 </div>
                 </div>
                 <script>
-                    const vscode = acquireVsCodeApi();
+                    const vscode = window.__orionVs || acquireVsCodeApi();
                     // >>> UPDATE-020 adendum: boot beacon - proves in the
                     // Extension Host log that this inline script executed
                     // (the 2026-10-25 silent-death incident had no signal).
@@ -251,7 +268,7 @@ export class ChatPanel {
                         // them by accident.
                         const atts = pendingAttachments;
                         const label = atts.length
-                            ? text + '\n\n📎 ' + atts.map(a => a.name).join(', ')
+                            ? text + '\n\n\ud83d\udcce ' + atts.map(a => a.name).join(', ')
                             : text;
                         appendMsg(label, 'user');
                         input.value = '';
@@ -271,7 +288,7 @@ export class ChatPanel {
                         vscode.postMessage({ command: 'cancel' });
                     }
 
-                    // >>> UPDATE-020: attachment chips. The 📎 button asks the
+                    // >>> UPDATE-020: attachment chips. The \ud83d\udcce button asks the
                     // extension host to open a file dialog and read the files
                     // (privileged work stays out of the webview); the chips
                     // here only DISPLAY what will ride on the next send and
@@ -347,20 +364,20 @@ export class ChatPanel {
                             btn.disabled = false;
                             btn.innerText = 'Send';
                             cancelBtn.classList.remove('visible'); // >>> NEW
-                            appendMsg('⚠️ **Error:** ' + msg.text, 'ai');
+                            appendMsg('\u26a0\ufe0f **Error:** ' + msg.text, 'ai');
                         } else if (msg.command === 'stream_cancelled') {
                             // >>> NEW: cancelled by the user, not a real error
                             isProcessing = false;
                             btn.disabled = false;
                             btn.innerText = 'Send';
                             cancelBtn.classList.remove('visible');
-                            appendMsg('🛑 Cancelled by the user.', 'ai');
+                            appendMsg('\ud83d\uded1 Cancelled by the user.', 'ai');
                         } else if (msg.command === 'ask_user') {
                             isProcessing = false;
                             btn.disabled = false;
                             btn.innerText = 'Send';
                             cancelBtn.classList.remove('visible'); // >>> NEW
-                            appendMsg('❓ ' + msg.question, 'ai');
+                            appendMsg('\u2753 ' + msg.question, 'ai');
                         } else if (msg.command === 'append_token') {
                             appendTokenToLastAi(msg.text);
                         }
@@ -539,6 +556,16 @@ export class ChatPanel {
         // exact signal the 2026-10-25 silent-death incident lacked.
         if (message.command === 'webviewBoot') {
             console.log('[ORION] chat webview inline script booted');
+            return;
+        }
+
+        // >>> UPDATE-020 adendum-3: parse/load errors from the chat webview,
+        // reported by the ASCII-only beacon script. These are INVISIBLE in
+        // the workbench DevTools console (webview page errors are not
+        // forwarded), which is exactly why the 2026-10-25 silent death took
+        // three rounds to diagnose.
+        if (message.command === 'webviewError') {
+            console.error('[ORION] chat webview load error: ' + String(message.text));
             return;
         }
 

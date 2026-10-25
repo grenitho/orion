@@ -3,6 +3,19 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2] - 2026-10-25
+
+### Added
+- **Parse-error beacon in the chat webview**: a separate ASCII-only script
+  tag (first thing in `<head>`) reports ANY load/parse error of the webview
+  document to the Extension Host log as `[ORION] chat webview load error:
+  … @line L:C`. Webview page errors are invisible in the workbench DevTools
+  console — this closes the blind spot that made the 2026-10-25 silent
+  death take three rounds to diagnose.
+- Hardening: the chat inline script is now ASCII-only (raw astral emoji
+  replaced with explicit escapes), removing a whole class of
+  encoding/transport oddities from the parse path.
+
 ## [0.3.1] - 2026-10-25
 
 ### Fixed
