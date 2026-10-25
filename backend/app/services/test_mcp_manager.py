@@ -827,3 +827,100 @@ def test_mcp_enabled_rusak_atau_hilang_berarti_aktif(tmp_path, monkeypatch):
     mgr = MCPManager()
     summary = asyncio.run(mgr.start_all(str(tmp_path)))
     assert summary["enabled"] is True and summary["servers"] == []
+
+
+# --------------------------------------------------------------------------
+# UPDATE-020: master switch as a /mcp/config op ("stop kontak" button)
+# --------------------------------------------------------------------------
+
+def test_master_switch_menulis_orion_config_dan_apply_live(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    mgr = MCPManager()
+
+    async def fake_start(spec):  # no real subprocess in unit tests
+        return mcp_manager._ServerRuntime(spec=spec, status="ok")
+
+    monkeypatch.setattr(mgr, "_start_server", fake_start)
+    orion = tmp_path / ".orion"
+    orion.mkdir(exist_ok=True)
+    (orion / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"a": {"command": "python"}}}), encoding="utf-8"
+    )
+    (orion / "orion_config.json").write_text(
+        json.dumps({"max_iterations": 7, "mcp_enabled": True}), encoding="utf-8"
+    )
+    asyncio.run(mgr.start_all(str(tmp_path)))
+    assert mgr.enabled and "a" in mgr._servers
+
+    # OFF: file merged (other keys preserved), servers stopped live,
+    # mcp.json PRESERVED (stop kontak, bukan hapus)
+    res = asyncio.run(mgr.apply_config_op("master_switch", {"enabled": False}))
+    assert res["success"] is True, res
+    cfg = json.loads((orion / "orion_config.json").read_text(encoding="utf-8"))
+    assert cfg["mcp_enabled"] is False and cfg["max_iterations"] == 7
+    assert mgr._servers == {} and mgr.enabled is False
+    assert res["mcp"]["enabled"] is False
+    assert (orion / "mcp.json").exists()
+
+    # ON: servers started again from the same mcp.json
+    res = asyncio.run(mgr.apply_config_op("master_switch", {"enabled": True}))
+    assert res["success"] is True, res
+    assert mgr.enabled and "a" in mgr._servers
+    assert json.loads(
+        (orion / "orion_config.json").read_text(encoding="utf-8")
+    )["mcp_enabled"] is True
+
+
+def test_master_switch_payload_salah_ditolak(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    mgr = MCPManager()
+    asyncio.run(mgr.start_all(str(tmp_path)))
+    res = asyncio.run(mgr.apply_config_op("master_switch", {"enabled": "ya"}))
+    assert res["success"] is False and "boolean" in res["error"]
+    res = asyncio.run(mgr.apply_config_op("master_switch", {}))
+    assert res["success"] is False and "boolean" in res["error"]
+
+
+def test_master_switch_tanpa_proyek_ditolak():
+    mgr = MCPManager()
+    res = asyncio.run(mgr.apply_config_op("master_switch", {"enabled": False}))
+    assert res["success"] is False and "project" in res["error"]
+
+
+def test_master_switch_orion_config_korup_ditolak_file_utuh(tmp_path, monkeypatch):
+    monkeypatch.delenv(mcp_manager.ENV_CONFIG_OVERRIDE, raising=False)
+    mgr = MCPManager()
+    asyncio.run(mgr.start_all(str(tmp_path)))
+    orion = tmp_path / ".orion"
+    orion.mkdir(exist_ok=True)
+    (orion / "orion_config.json").write_text("{rusak", encoding="utf-8")
+    sebelum = (orion / "orion_config.json").read_bytes()
+    res = asyncio.run(mgr.apply_config_op("master_switch", {"enabled": False}))
+    assert res["success"] is False and "not valid JSON" in res["error"]
+    assert (orion / "orion_config.json").read_bytes() == sebelum
+
+
+def test_route_mcp_config_meneruskan_field_enabled(monkeypatch, tmp_path):
+    """The Pydantic model must carry 'enabled' through to the op payload —
+    the exact seam that would silently drop the master-switch argument."""
+    from fastapi.testclient import TestClient
+
+    from app.services import auth
+
+    monkeypatch.setenv(auth.TOKEN_ENV, "s3cret")
+    monkeypatch.setenv("ORION_PID_FILE", str(tmp_path / "pid"))
+    import app.main as main
+
+    monkeypatch.setattr(main.mcp_manager, "project_path", str(tmp_path))
+    (tmp_path / ".orion").mkdir(exist_ok=True)
+    with TestClient(main.app) as client:
+        r = client.post(
+            "/mcp/config",
+            headers={"X-Orion-Token": "s3cret"},
+            json={"op": "master_switch", "enabled": False},
+        )
+        assert r.status_code == 200 and r.json()["success"] is True
+        cfg = json.loads(
+            (tmp_path / ".orion" / "orion_config.json").read_text(encoding="utf-8")
+        )
+        assert cfg["mcp_enabled"] is False

@@ -780,6 +780,62 @@ class MCPManager:
         if not self.project_path:
             result["error"] = "no active project; run Set Project first"
             return result
+
+        # >>> UPDATE-020: the master-switch op ("stop kontak" button in the
+        # MCP panel). Writes mcp_enabled into orion_config.json (NOT
+        # mcp.json — different file, different rule) and applies it LIVE in
+        # the same transaction: off = stop every server now, on = start_all
+        # again. Refusals leave orion_config.json byte-for-byte untouched,
+        # exactly like the mcp.json ops below.
+        if op == "master_switch":
+            enabled = payload.get("enabled")
+            if not isinstance(enabled, bool):
+                result["error"] = "master_switch needs a boolean 'enabled'"
+                return result
+            cfg_path = Path(self.project_path) / ".orion" / "orion_config.json"
+            data: dict = {}
+            if cfg_path.exists():
+                try:
+                    loaded_cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+                    if isinstance(loaded_cfg, dict):
+                        data = loaded_cfg
+                except json.JSONDecodeError:
+                    result["error"] = (
+                        "orion_config.json is not valid JSON; fix it manually "
+                        "(this operation was refused, file untouched)"
+                    )
+                    return result
+                except OSError as exc:
+                    result["error"] = f"cannot read orion_config.json: {exc}"
+                    return result
+            data["mcp_enabled"] = enabled
+            try:
+                cfg_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_cfg = cfg_path.with_name(cfg_path.name + ".tmp")
+                tmp_cfg.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                os.replace(tmp_cfg, cfg_path)
+            except OSError as exc:
+                result["error"] = f"cannot write orion_config.json: {exc}"
+                return result
+            if enabled:
+                try:
+                    summary = await self.start_all(self.project_path)
+                except Exception as exc:  # pragma: no cover - start_all never raises
+                    summary = {"servers": [], "tools": 0, "warnings": [str(exc)]}
+            else:
+                await self.stop_all()
+                # refresh enabled-flag + honest warning from the file we
+                # just wrote, so /mcp/status and the panel agree immediately
+                self.load_config(self.project_path)
+                summary = self.summary()
+            result["success"] = True
+            result["mcp"] = summary
+            return result
+        # >>> END OF UPDATE-020 master-switch op ============================
+
         path = self.resolve_config_path(self.project_path)
         if path is None:  # pragma: no cover - resolve only fails w/o project
             result["error"] = "cannot resolve the mcp.json location"

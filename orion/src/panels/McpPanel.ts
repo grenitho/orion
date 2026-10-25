@@ -37,6 +37,7 @@ interface McpStatus {
     config_path: string | null;
     warnings: string[];
     servers: ServerRow[];
+    enabled?: boolean;  // UPDATE-017 master switch; UPDATE-020 makes it toggleable
 }
 
 interface ConfigResult { success: boolean; error: string | null; mcp?: unknown; }
@@ -212,6 +213,24 @@ export class McpPanel {
                 await this.pushState();
                 return;
             }
+            // >>> UPDATE-020: the master-switch button ("stop kontak") —
+            // one /mcp/config op that writes mcp_enabled into orion_config
+            // and applies it live (off stops every server, on re-starts).
+            case 'masterSwitch': {
+                const enabled = msg.enabled === true;
+                try {
+                    const res = await postConfig({ op: 'master_switch', enabled });
+                    this.lastNote = res.success
+                        ? (enabled
+                            ? 'MCP master switch ON — servers started again.'
+                            : 'MCP master switch OFF — all servers stopped; mcp.json preserved.')
+                        : ('Master switch failed: ' + (res.error || 'unknown error'));
+                } catch (e: unknown) {
+                    this.lastNote = 'Master switch failed: ' + (e instanceof Error ? e.message : String(e));
+                }
+                await this.pushState();
+                return;
+            }
             case 'toggle': {
                 const name = String(msg.name || '');
                 try {
@@ -298,6 +317,7 @@ export class McpPanel {
 <div class="sub" id="meta">Loading…</div>
 <div class="bar">
   <button id="btnRefresh">Refresh</button>
+  <button id="btnMaster" title="Master switch: stops/starts the whole MCP layer for this project (mcp_enabled in orion_config.json); mcp.json is preserved"></button>
   <button id="btnAdd">Add server</button>
   <button id="btnDemo">Install demo server</button>
   <button id="btnJson">Open mcp.json</button>
@@ -352,6 +372,13 @@ export class McpPanel {
     var st = STATE.status;
     meta.textContent = 'Project: ' + (st.project_path || '(none — run Set Project)') +
       '   ·   config: ' + (st.config_path || '(none)');
+    // >>> UPDATE-020: master-switch button label mirrors the live state.
+    var bm = el('btnMaster');
+    if (st.enabled === false) {
+      bm.textContent = 'MCP OFF — turn ON (master switch)';
+    } else {
+      bm.textContent = 'MCP ON — turn OFF (master switch)';
+    }
     var note = el('note');
     if (STATE.note) { note.className = 'note'; note.textContent = STATE.note; }
     else { note.className = 'note hidden'; }
@@ -397,6 +424,11 @@ export class McpPanel {
   }
 
   el('btnRefresh').onclick = function () { post({ cmd: 'refresh' }); };
+  el('btnMaster').onclick = function () {
+    var st = STATE && STATE.status;
+    var currentlyOn = !st || st.enabled !== false;
+    post({ cmd: 'masterSwitch', enabled: !currentlyOn });
+  };
   el('btnAdd').onclick = function () { openForm(null); };
   el('btnDemo').onclick = function () { post({ cmd: 'demo' }); };
   el('btnJson').onclick = function () {

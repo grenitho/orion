@@ -557,6 +557,8 @@ class McpConfigRequest(BaseModel):
     disabled: bool | None = None
     servers: dict | None = None
     keep_env: bool | None = None
+    # >>> UPDATE-020: master-switch op payload (mcp_enabled in orion_config)
+    enabled: bool | None = None
 
 
 @app.get("/mcp/status")
@@ -584,6 +586,7 @@ async def mcp_config(request: McpConfigRequest):
             "disabled": request.disabled,
             "servers": request.servers,
             "keep_env": request.keep_env,
+            "enabled": request.enabled,  # UPDATE-020 master switch
         },
     )
     if not result["success"]:
