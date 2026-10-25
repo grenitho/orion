@@ -1,22 +1,27 @@
 # ============================================================================
-#  ORION — Installer Satu Baris (Rute 2) / One-line installer
+#  ORION — one-line installer (Route 2)
 #
-#  Apa yang dilakukan skrip ini (semua di folder %USERPROFILE%\orion):
-#    1. Cek Python 3.11+ (bila tidak ada, coba install lewat winget)
-#    2. Unduh kode Orion dari GitHub (tanpa perlu git)
-#    3. Buat virtual environment .venv di folder backend
-#    4. Install semua dependensi Python (requirements.txt)
-#    5. Buat backend\.env dan minta API key Gemini GRATIS (bisa lebih dari
-#       satu — Orion merotasinya otomatis). .env lama TIDAK pernah ditimpa.
-#    6. Uji impor backend, lalu tampilkan langkah terakhir di VS Code.
+#  What this script does (everything under %USERPROFILE%\orion):
+#    1. Check Python 3.11+ (if missing, try winget)
+#    2. Download the Orion code from GitHub (no git required)
+#    3. Create the backend virtual environment (.venv)
+#    4. Install all Python dependencies (requirements.txt)
+#    5. Create backend\.env and ask for FREE Gemini API keys (several are
+#       supported — Orion rotates them). An existing .env is NEVER
+#       overwritten. Skipping Gemini is supported: the script then offers
+#       one OpenAI-compatible provider group (UPDATE-020), and both can
+#       still be added later in the Setup Wizard.
+#    6. Smoke-test the backend import, then print the final VS Code steps.
 #
-#  Cara pakai (PowerShell biasa, TANPA admin):
+#  Usage (plain PowerShell, NO admin):
 #    powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/grenitho/orion/main/install.ps1 | iex"
 #
-#  Atau unduh skrip ini lalu jalankan dengan parameter:
+#  Or download this script and run it with parameters:
 #    powershell -ExecutionPolicy Bypass -File install.ps1 -InstallDir D:\orion
 #
-#  Panduan lengkap: docs/PANDUAN_SETUP.md di repository ini.
+#  Full guide (Indonesian): docs/PANDUAN_SETUP.md in this repository.
+#  User-facing output is English (repo language rule, Phase D); the
+#  Indonesian walkthrough lives in docs/PANDUAN_SETUP.md.
 # ============================================================================
 
 param(
@@ -25,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest jauh lebih cepat di PS 5.1
+$ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is much faster on PS 5.1
 try {
     [Net.ServicePointManager]::SecurityProtocol =
         [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -35,18 +40,14 @@ function Write-Step([string]$msg) { Write-Host ''; Write-Host "==> $msg" -Foregr
 function Write-Ok([string]$msg)   { Write-Host "    [OK] $msg" -ForegroundColor Green }
 function Write-Note([string]$msg) { Write-Host "    [!] $msg" -ForegroundColor Yellow }
 
-# Cari interpreter Python >= 3.11; kembalikan command string atau $null.
+# Find a Python interpreter >= 3.11; return the command string or $null.
 function Find-Python {
     foreach ($candidate in @('py -3', 'python')) {
         try {
             $out = Invoke-Expression "& $candidate --version 2>&1"
             if ("$out" -match 'Python (\d+)\.(\d+)') {
                 $major = [int]$Matches[1]; $minor = [int]$Matches[2]
-                if ($major -eq 3 -and $minor -ge 11) {
-                    Write-Ok "$candidate = Python $major.$minor"
-                    return $candidate
-                }
-                Write-Note "$candidate = Python $major.$minor (butuh 3.11+, dilewati)"
+                if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11)) { return $candidate }
             }
         } catch { }
     }
@@ -54,90 +55,90 @@ function Find-Python {
 }
 
 Write-Host '=============================================='
-Write-Host '  ORION AI — Installer Otomatis (Windows)'
+Write-Host '  ORION AI — automatic installer (Windows)'
 Write-Host '=============================================='
 
 # --- 1/6 Python -------------------------------------------------------------
-Write-Step '1/6  Memeriksa Python 3.11+ ...'
+Write-Step '1/6  Checking Python 3.11+ ...'
 $pythonCmd = Find-Python
 if (-not $pythonCmd) {
-    Write-Note 'Python 3.11+ belum ada. Mencoba install lewat winget (Python.Python.3.12)...'
+    Write-Note 'Python 3.11+ not found. Trying winget (Python.Python.3.12)...'
     try {
         winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
-        # Segarkan PATH untuk sesi ini tanpa perlu membuka PowerShell baru
+        # Refresh PATH for this session without reopening PowerShell
         $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
                     [Environment]::GetEnvironmentVariable('Path', 'User')
         $pythonCmd = Find-Python
     } catch {
-        Write-Note "winget gagal: $($_.Exception.Message)"
+        Write-Note "winget failed: $($_.Exception.Message)"
     }
 }
 if (-not $pythonCmd) {
     Write-Host ''
-    Write-Host 'GAGAL: Python 3.11+ tidak ditemukan dan winget tidak tersedia.' -ForegroundColor Red
-    Write-Host 'Install manual dari https://www.python.org/downloads/ — CENTANG'
-    Write-Host '"Add python.exe to PATH" saat instalasi — lalu jalankan ulang skrip ini.'
+    Write-Host 'FAILED: Python 3.11+ not found and winget is unavailable.' -ForegroundColor Red
+    Write-Host 'Install it manually from https://www.python.org/downloads/ — tick'
+    Write-Host '"Add python.exe to PATH" during setup — then re-run this script.'
     exit 1
 }
 
-# --- 2/6 Unduh kode Orion ---------------------------------------------------
-Write-Step '2/6  Mengunduh Orion dari GitHub ...'
+# --- 2/6 Download the Orion code ---------------------------------------------
+Write-Step '2/6  Downloading Orion from GitHub ...'
 $zipPath     = Join-Path $env:TEMP 'orion-installer.zip'
 $extractPath = Join-Path $env:TEMP ('orion-extract-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing
 Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
 $inner = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
-if (-not $inner) { throw 'Hasil unduhan tidak berisi folder repository.' }
+if (-not $inner) { throw 'The download does not contain a repository folder.' }
 
-# Selamatkan .env lama (berisi API key pengguna) sebelum menimpa kode
+# Rescue the old .env (it holds the user's API keys) before overwriting code
 $backendDir = Join-Path $InstallDir 'backend'
 $envFile    = Join-Path $backendDir '.env'
 $savedEnv   = $null
 if (Test-Path $envFile) {
     $savedEnv = Get-Content $envFile -Raw
-    Write-Ok '.env lama ditemukan — API key Anda akan dipertahankan'
+    Write-Ok 'Existing .env found — your API keys will be preserved'
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Copy-Item -Path (Join-Path $inner.FullName '*') -Destination $InstallDir -Recurse -Force
 Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
 Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
-Write-Ok "Kode Orion terpasang di: $InstallDir"
+Write-Ok "Orion code installed at: $InstallDir"
 
 Push-Location $backendDir
 try {
     # --- 3/6 Virtual environment --------------------------------------------
-    Write-Step '3/6  Membuat virtual environment (.venv) ...'
+    Write-Step '3/6  Creating the virtual environment (.venv) ...'
     if (Test-Path (Join-Path $backendDir '.venv\Scripts\python.exe')) {
-        Write-Ok '.venv sudah ada — dipakai ulang'
+        Write-Ok '.venv already exists — reusing it'
     } else {
         Invoke-Expression "& $pythonCmd -m venv .venv"
         if (-not (Test-Path (Join-Path $backendDir '.venv\Scripts\python.exe'))) {
-            throw 'Pembuatan .venv gagal.'
+            throw 'Creating the .venv failed.'
         }
-        Write-Ok '.venv dibuat'
+        Write-Ok '.venv created'
     }
     $venvPython = Join-Path $backendDir '.venv\Scripts\python.exe'
 
-    # --- 4/6 Dependensi -------------------------------------------------------
-    Write-Step '4/6  Install dependensi Python (2-5 menit, hanya sekali) ...'
+    # --- 4/6 Dependencies -----------------------------------------------------
+    Write-Step '4/6  Installing Python dependencies (2-5 minutes, once) ...'
     & $venvPython -m pip install --upgrade pip --quiet --disable-pip-version-check
     & $venvPython -m pip install -r requirements.txt --quiet --disable-pip-version-check
-    if ($LASTEXITCODE -ne 0) { throw 'pip install -r requirements.txt gagal (cek koneksi internet).' }
-    Write-Ok 'Semua dependensi terpasang'
+    if ($LASTEXITCODE -ne 0) { throw 'pip install -r requirements.txt failed (check your internet connection).' }
+    Write-Ok 'All dependencies installed'
 
-    # --- 5/6 .env + API key ----------------------------------------------------
-    Write-Step '5/6  Konfigurasi API key (backend\.env) ...'
+    # --- 5/6 .env + API keys ----------------------------------------------------
+    Write-Step '5/6  Configuring API keys (backend\.env) ...'
     if ($savedEnv) {
         Set-Content -Path $envFile -Value $savedEnv -NoNewline
-        Write-Ok '.env lama dipulihkan (tidak ditimpa)'
+        Write-Ok 'Existing .env restored (not overwritten)'
     } elseif (-not (Test-Path $envFile)) {
         Copy-Item (Join-Path $backendDir '.env.example') $envFile
         Write-Host ''
-        Write-Host '    Ambil API key Gemini GRATIS (boleh beberapa akun):'
+        Write-Host '    Get FREE Gemini API keys (several accounts are fine):'
         Write-Host '      https://aistudio.google.com/apikey' -ForegroundColor White
-        Write-Host '    Tempel key ke-1, Enter; key ke-2, Enter; dst.'
-        Write-Host '    Tekan ENTER kosong untuk selesai / lewati.'
+        Write-Host '    Paste key 1, Enter; key 2, Enter; and so on.'
+        Write-Host '    Press EMPTY ENTER to finish / skip Gemini.'
         $keys = @()
         for ($i = 1; $i -le 10; $i++) {
             $k = Read-Host "    Gemini API key #$i"
@@ -152,53 +153,78 @@ try {
             }
             for ($i = 2; $i -le $keys.Count; $i++) { $out += "GEMINI_API_KEY_$i=$($keys[$i - 1])" }
             Set-Content -Path $envFile -Value $out
-            Write-Ok "$($keys.Count) API key tersimpan di backend\.env"
+            Write-Ok "$($keys.Count) API key(s) saved to backend\.env"
         } else {
-            Write-Note 'Tidak ada key dimasukkan. Isi nanti: backend\.env -> GEMINI_API_KEY_1=...'
+            # >>> UPDATE-020: skipping Gemini is a FIRST-CLASS path now.
+            # Offer one OpenAI-compatible provider group right here so a
+            # provider-only install can chat on day one; both questions
+            # accept EMPTY ENTER and everything can still be added later
+            # in the Setup Wizard (step 4).
+            Write-Note 'No Gemini key entered — skipping Gemini is fine.'
+            Write-Host '    Optional: add ONE OpenAI-compatible provider now'
+            Write-Host '    (DeepSeek, OpenRouter, Qwen, Groq, ...). Press ENTER'
+            Write-Host '    on the first question to skip providers too.'
+            $pName = Read-Host '    Provider name (empty = skip)'
+            if (-not [string]::IsNullOrWhiteSpace($pName)) {
+                $pKey    = Read-Host '    API key'
+                $pBase   = Read-Host '    Base URL (empty = https://openrouter.ai/api/v1)'
+                $pModels = Read-Host '    Models, comma-separated'
+                if (-not [string]::IsNullOrWhiteSpace($pKey) -and -not [string]::IsNullOrWhiteSpace($pModels)) {
+                    if ([string]::IsNullOrWhiteSpace($pBase)) { $pBase = 'https://openrouter.ai/api/v1' }
+                    Add-Content -Path $envFile -Value "PROVIDER_1_NAME=$($pName.Trim())"
+                    Add-Content -Path $envFile -Value "PROVIDER_1_API_KEY=$($pKey.Trim())"
+                    Add-Content -Path $envFile -Value "PROVIDER_1_BASE_URL=$($pBase.Trim())"
+                    Add-Content -Path $envFile -Value "PROVIDER_1_MODELS=$($pModels.Trim())"
+                    Write-Ok "Provider '$($pName.Trim())' saved to backend\.env"
+                } else {
+                    Write-Note 'Provider skipped (both an API key and a model list are required).'
+                }
+            }
+            Write-Note 'No credentials yet? The backend needs at least one group (Gemini or a provider) before the first chat — Setup Wizard step 4 adds them later.'
         }
     } else {
-        Write-Ok '.env sudah ada — dibiarkan'
+        Write-Ok '.env already exists — left untouched'
     }
 
-    # --- 6/6 Uji asap -----------------------------------------------------------
-    Write-Step '6/6  Uji impor backend ...'
-    & $venvPython -c "import app.main; print('    [OK] backend siap')"
-    if ($LASTEXITCODE -ne 0) { throw 'Uji impor backend gagal — lihat pesan error di atas.' }
+    # --- 6/6 Smoke test -----------------------------------------------------------
+    Write-Step '6/6  Backend import smoke test ...'
+    & $venvPython -c "import app.main; print('    [OK] backend ready')"
+    if ($LASTEXITCODE -ne 0) { throw 'Backend import smoke test failed — see the error above.' }
 }
 finally {
     Pop-Location
 }
 
-# --- Langkah terakhir --------------------------------------------------------
+# --- Final steps -------------------------------------------------------------
 Write-Host ''
 Write-Host '==============================================' -ForegroundColor Green
-Write-Host '  INSTALASI SELESAI!' -ForegroundColor Green
+Write-Host '  INSTALLATION COMPLETE!' -ForegroundColor Green
 Write-Host '==============================================' -ForegroundColor Green
 Write-Host ''
-Write-Host 'Langkah terakhir (sekali saja):'
+Write-Host 'Final steps (one-time):'
 Write-Host ''
-Write-Host '  1. Install extension VS Code "Orion - AI Software Engineer"'
-Write-Host '     (publisher: grenitho) dari Extensions panel, atau jalankan:'
+Write-Host '  1. Install the VS Code extension "Orion - AI Software Engineer"'
+Write-Host '     (publisher: grenitho) from the Extensions panel, or run:'
 Write-Host '         code --install-extension grenitho.orion-ai'
 Write-Host ''
-Write-Host '  2. Beri tahu VS Code lokasi backend:'
-Write-Host '     Ctrl+, -> cari "orion.backendPath" -> isi dengan:'
+Write-Host '  2. Tell VS Code where the backend lives:'
+Write-Host '     Ctrl+, -> search "orion.backendPath" -> set it to:'
 Write-Host "         $backendDir" -ForegroundColor White
 Write-Host ''
 Write-Host '  3. Reload VS Code (Ctrl+Shift+P -> "Developer: Reload Window").'
-Write-Host '     Klik ikon Orion di activity bar -> ikuti walkthrough'
-Write-Host '     "Get Started with Orion" -> kirim tugas pertama Anda!'
+Write-Host '     Click the Orion icon in the activity bar -> follow the'
+Write-Host '     "Get Started with Orion" walkthrough -> send your first task!'
 Write-Host ''
-Write-Host 'Panduan lengkap + solusi masalah umum:'
+Write-Host 'Full guide + troubleshooting:'
 Write-Host '  https://github.com/grenitho/orion/blob/main/docs/PANDUAN_SETUP.md'
 Write-Host ''
 
-# Bonus: coba install extension otomatis bila CLI `code` tersedia
+# Bonus: try installing the extension automatically when the `code` CLI exists
 try {
     $null = Get-Command code -ErrorAction Stop
-    Write-Step 'Bonus: mencoba install extension lewat CLI "code" ...'
+    Write-Step 'Bonus: trying to install the extension via the "code" CLI ...'
     & code --install-extension grenitho.orion-ai
-    if ($LASTEXITCODE -eq 0) { Write-Ok 'Extension terpasang' } else { Write-Note 'Install otomatis gagal — pasang manual dari Extensions panel' }
+    if ($LASTEXITCODE -eq 0) { Write-Ok 'Extension installed' } else { Write-Note 'Automatic install failed — install it manually from the Extensions panel' }
 } catch {
-    Write-Note 'CLI "code" tidak ada di PATH — install extension lewat Extensions panel VS Code'
+    Write-Note 'The "code" CLI is not on PATH — install the extension from the VS Code Extensions panel'
 }

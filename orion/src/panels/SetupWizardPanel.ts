@@ -813,6 +813,14 @@ export class SetupWizardPanel {
         });
 
         fs.writeFileSync(envPath, kept.join('\n') + block.join('\n') + '\n', 'utf-8');
+        // >>> UPDATE-020: saving with ZERO credentials must say so loudly —
+        // a silent "Saved 0 key(s)" used to leave beginners with a backend
+        // that boots but answers every chat with "No models configured".
+        if (!geminiFinal.length && !groups.length) {
+            return 'Saved to ' + envPath + ' — but NO credentials: no Gemini key and no provider group. '
+                + 'Chat will fail with "No models configured" until you add at least one group here (step 4) '
+                + '— restart the backend (step 5) after adding.';
+        }
         return 'Saved ' + geminiFinal.length + ' Gemini key(s) and ' + groups.length + ' provider group(s) to ' + envPath
             + ' — restart the backend (step 5) to apply.';
     }
@@ -953,7 +961,8 @@ export class SetupWizardPanel {
     <div class="body">
         <p class="desc">Paste one or more <b>free</b> Gemini keys — Orion rotates them automatically when a quota runs out.
         Get keys at <a id="keyLink">aistudio.google.com/apikey</a>.
-        Stored keys are shown <b>masked</b>; leave a field empty to keep the stored key, type a new value to replace it.</p>
+        Stored keys are shown <b>masked</b>; leave a field empty to keep the stored key (empty ENTER never wipes a saved key), type a new value to replace it.
+        <b>No Gemini keys?</b> Skip them entirely and add an OpenAI-compatible provider group under <i>Advanced</i> instead — Orion runs on providers alone.</p>
         <div id="geminiKeys"></div>
         <button class="secondary" id="btnAddKey">+ Add key</button>
         <div class="row" style="margin-top:10px">
