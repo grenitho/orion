@@ -491,6 +491,48 @@ export async function detectEnvironment(): Promise<BackendEnvironment> {
 
 /** Forcefully free port 8000 so a fresh backend can bind to it.
  *  Returns true when the port is free afterwards. */
+
+// >>> UPDATE-020: runtime stale watchdog ==================================
+// ensureBackendRunning() only fingerprints port 8000 at activation / start.
+// A `git pull` or an extension update DURING a session silently left the
+// OLD backend answering (the exact confusion UPDATE-013 killed at boot,
+// still alive mid-session). The watchdog re-classifies every 10 minutes
+// and on window focus, and toasts ONCE per backend boot (keyed by
+// started_at) with the same Restart action the boot-time dialog offers.
+let staleWatchTimer: NodeJS.Timeout | undefined;
+let notifiedStaleStartedAt = 0;
+
+export function startStaleWatchdog(): void {
+    if (staleWatchTimer) { return; }
+    const check = async (): Promise<void> => {
+        try {
+            const folders = vscode.workspace.workspaceFolders;
+            const workspacePath = folders && folders.length > 0 ? folders[0].uri.fsPath : '';
+            const inspection = await inspectPort8000(workspacePath);
+            if (inspection.kind !== 'stale') { return; }
+            const startedAt = inspection.health ? (inspection.health.started_at || 0) : 0;
+            if (notifiedStaleStartedAt === startedAt) { return; }  // already toasted for this boot
+            notifiedStaleStartedAt = startedAt;
+            const pick = await vscode.window.showWarningMessage(
+                inspection.message + ' (Detected while you were working — the backend was fresh when this session started.)',
+                'Restart backend now',
+                'Keep using it'
+            );
+            if (pick === 'Restart backend now') {
+                notifiedStaleStartedAt = 0;
+                await restartBackend();
+            }
+        } catch (e: unknown) {
+            console.warn('[BACKEND] stale watchdog check failed (non-fatal):', e);
+        }
+    };
+    staleWatchTimer = setInterval(() => { void check(); }, 10 * 60 * 1000);
+    vscode.window.onDidChangeWindowState((st) => {
+        if (st.focused) { void check(); }
+    });
+}
+// >>> END OF UPDATE-020 stale watchdog ====================================
+
 export async function killPort8000(): Promise<boolean> {
     // 1. If WE spawned the backend, kill our own child first (cleanest).
     if (backendProcess && !backendProcess.killed) {

@@ -5,7 +5,7 @@ import { PerformancePanel } from './panels/PerformancePanel';
 import { ActivityProvider } from './panels/ActivityProvider';
 import { SetupWizardPanel } from './panels/SetupWizardPanel';
 import { McpPanel } from './panels/McpPanel';
-import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl } from './services/backendManager';
+import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl, startStaleWatchdog } from './services/backendManager';
 
 
 const backend = new BackendService();
@@ -39,6 +39,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	// >>> UPDATE-010: manual controls for the onboarding walkthrough and for
 	// recovering when the auto-start failed (error dialogs link to these too).
 	const startBackend = vscode.commands.registerCommand('orion.startBackend', () => ensureBackendRunning());
+	// >>> UPDATE-020: a backend that goes stale MID-SESSION (git pull,
+	// extension update) now toasts once per backend boot instead of waiting
+	// for the next VS Code restart to be noticed.
+	startStaleWatchdog();
 	context.subscriptions.push(startBackend);
 
 	const openSetupGuide = vscode.commands.registerCommand('orion.openSetupGuide', async () => {
