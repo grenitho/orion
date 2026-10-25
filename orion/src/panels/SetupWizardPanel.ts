@@ -910,7 +910,14 @@ export class SetupWizardPanel {
              font-size: .9em; margin: 2px 6px 2px 0; }
     button:hover { background: var(--vscode-button-hoverBackground); }
     button.secondary { background: var(--vscode-button-secondaryBackground, #3a3d41);
-                       color: var(--vscode-button-secondaryForeground, #fff); }
+                       color: var(--vscode-button-secondaryForeground, #fff);
+                       /* >>> UPDATE-021: some themes resolve the secondary
+                          background to transparent, which made secondary
+                          buttons look like floating text (owner mistook a
+                          real button for a label, 2026-10-25). A visible
+                          border keeps every secondary button readable as
+                          a button in ALL themes. */
+                       border: 1px solid var(--vscode-button-border, var(--vscode-panel-border, #5a5a5a)); }
     button:disabled { opacity: .5; cursor: default; }
     input[type=text], input[type=password] { background: var(--vscode-input-background);
         color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #555);
@@ -977,7 +984,7 @@ export class SetupWizardPanel {
             <button class="secondary" id="btnBrowse">Browse…</button>
         </div>
         <button id="btnDownload">Download &amp; install</button>
-        <button class="secondary" id="btnConnectBackend">Connect existing backend…</button>
+        <button id="btnConnectBackend">Connect existing backend…</button>
         <pre class="log" id="log2"></pre>
     </div>
 </div>
