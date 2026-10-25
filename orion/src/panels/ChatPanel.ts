@@ -277,6 +277,9 @@ export class ChatPanel {
     // the backend re-checks anyway (defence in depth, same numbers).
     private static readonly ATTACH_MAX_IMAGE_BYTES = 7 * 1024 * 1024;
     private static readonly ATTACH_MAX_TEXT_BYTES = 512 * 1024;
+    // >>> UPDATE-021: documents ride the inbox cap (20 MB); extraction caps
+    // (pages/tables/rows/chars) live backend-side in inbox_manager.
+    private static readonly ATTACH_MAX_DOC_BYTES = 20 * 1024 * 1024;
     private static readonly ATTACH_MAX_IMAGES = 4;
     private static readonly ATTACH_MAX_TOTAL = 8;
 
@@ -289,6 +292,7 @@ export class ChatPanel {
             filters: {
                 'Images': ['png', 'jpg', 'jpeg', 'webp'],
                 'Text & code': ['txt', 'md', 'csv', 'tsv', 'log', 'json', 'py', 'ts', 'tsx', 'js', 'jsx', 'html', 'css', 'sql', 'sh', 'ps1', 'yaml', 'yml', 'toml', 'ini', 'cfg'],
+                'Documents': ['pdf', 'docx', 'xlsx'],
             },
         });
         if (!picked || !picked.length) { return; }
@@ -302,11 +306,14 @@ export class ChatPanel {
                 const stat = await vscode.workspace.fs.stat(uri);
                 const lower = name.toLowerCase();
                 const isImage = /\.(png|jpe?g|webp)$/.test(lower);
+                const isDoc = /\.(pdf|docx|xlsx)$/.test(lower);
                 const cap = isImage
                     ? ChatPanel.ATTACH_MAX_IMAGE_BYTES
-                    : ChatPanel.ATTACH_MAX_TEXT_BYTES;
+                    : isDoc
+                        ? ChatPanel.ATTACH_MAX_DOC_BYTES
+                        : ChatPanel.ATTACH_MAX_TEXT_BYTES;
                 if (stat.size > cap) {
-                    rejected.push(`${name}: exceeds the ${isImage ? '7 MB image' : '512 KB text'} limit`);
+                    rejected.push(`${name}: exceeds the ${isImage ? '7 MB image' : isDoc ? '20 MB document' : '512 KB text'} limit`);
                     continue;
                 }
                 if (isImage && images >= ChatPanel.ATTACH_MAX_IMAGES) {
@@ -322,7 +329,9 @@ export class ChatPanel {
                     ? (lower.endsWith('.png') ? 'image/png'
                         : lower.endsWith('.webp') ? 'image/webp'
                             : 'image/jpeg')
-                    : 'text/plain';
+                    : isDoc
+                        ? 'application/octet-stream'  // backend routes by extension
+                        : 'text/plain';
                 if (isImage) { images++; }
                 items.push({
                     name,

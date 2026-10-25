@@ -3,6 +3,20 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-10-25
+
+### Added
+- **Documents through the 📎 button** (companion backend 0.9.3): pdf, docx
+  and xlsx can now be attached to a message; the backend extracts them
+  with the same engine as the inbox drop-zone (pypdf / python-docx /
+  openpyxl, 20 MB cap, announced page/table/row truncations) and injects
+  the text for that turn only. Images and plain text unchanged.
+- **Setup Wizard: "Connect existing backend…"** — the fix for the
+  multi-folder daily driver: opening VS Code outside the orion repo no
+  longer forces a re-download; one dialog validates an existing backend
+  folder (repo root or backend folder), writes the GLOBAL
+  `orion.backendPath`, restarts the backend and reports readiness.
+
 ## [0.3.3] - 2026-10-25
 
 ### Changed

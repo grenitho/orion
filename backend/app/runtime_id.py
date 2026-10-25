@@ -66,7 +66,10 @@ from pathlib import Path
 # applied live). The switch STATE was already machine-visible since 0.8.1
 # (/mcp/status 'enabled'), so a patch bump is the honest signal — same
 # precedent as 0.8.1 itself.
-BACKEND_VERSION = "0.9.2"
+# Bumped 0.9.2 -> 0.9.3 for UPDATE-021: the attachment pipeline accepts
+# pdf/docx/xlsx and extracts them through the inbox engine (new behaviour
+# on an existing route, /chat; no new surface, hence a patch bump).
+BACKEND_VERSION = "0.9.3"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

@@ -413,6 +413,42 @@ export class SetupWizardPanel {
             case 'downloadBackend':
                 await this.runTask('downloadBackend', (onLine) => this.taskDownload(msg, onLine));
                 return;
+            // >>> UPDATE-021: the owner's pain point — opening VS Code in a
+            // folder that is not the orion repo left the wizard offering
+            // only a re-download, even when a backend folder already
+            // existed. 'Connect existing backend…' points the GLOBAL
+            // orion.backendPath at a validated folder (repo root or the
+            // backend folder itself) and restarts the backend: no download,
+            // no .env touch, works from any workspace.
+            case 'connectBackend':
+                await this.runTask('connectBackend', async () => {
+                    const picked = await vscode.window.showOpenDialog({
+                        canSelectFiles: false,
+                        canSelectFolders: true,
+                        canSelectMany: false,
+                        openLabel: 'Use this backend folder',
+                    });
+                    if (!picked || !picked[0]) {
+                        throw new Error('No folder selected — nothing was changed.');
+                    }
+                    const sel = picked[0].fsPath;
+                    const candidates = [sel, path.join(sel, 'backend')];
+                    const backendDir = candidates.find((c) =>
+                        fs.existsSync(path.join(c, 'app', 'main.py')));
+                    if (!backendDir) {
+                        throw new Error(
+                            'No backend found in the selected folder (looked for app/main.py in it and in its backend/ subfolder). Point at the repo root or at the backend folder itself.');
+                    }
+                    await vscode.workspace.getConfiguration('orion').update(
+                        'backendPath', backendDir, vscode.ConfigurationTarget.Global);
+                    await restartBackend();
+                    const env = await detectEnvironment();
+                    return env.backendRunning
+                        ? `Connected: orion.backendPath = ${backendDir} (global) and the backend answers on port 8000.`
+                        : `orion.backendPath set to ${backendDir}; the backend did not answer yet — give it a few seconds, then Re-check (step 1) or Restart (step 5).`;
+                });
+                await this.pushState();
+                return;
             case 'installDeps':
                 await this.runTask('installDeps', (onLine) => this.taskInstallDeps(onLine));
                 return;
@@ -934,13 +970,14 @@ export class SetupWizardPanel {
 <div class="card" id="card2">
     <div class="head"><span class="num">2</span><h2>Download the backend</h2><span class="badge" id="badge2">checking…</span></div>
     <div class="body">
-        <p class="desc">Downloads the latest Orion from GitHub (no git needed). An existing <b>.env with your API keys is always preserved</b>, and the setting <code>orion.backendPath</code> is updated automatically.</p>
+        <p class="desc">Downloads the latest Orion from GitHub (no git needed). An existing <b>.env with your API keys is always preserved</b>, and the setting <code>orion.backendPath</code> is updated automatically. Already have a backend folder (this repo or another install)? Use <b>Connect existing backend…</b>: it validates the folder (<code>app/main.py</code>), points the GLOBAL <code>orion.backendPath</code> at it and restarts the backend — no download, no .env change, works from any workspace.</p>
         <div class="row">
             <span class="muted">Install folder:</span>
             <input type="text" id="installDir" style="flex:2 1 260px">
             <button class="secondary" id="btnBrowse">Browse…</button>
         </div>
         <button id="btnDownload">Download &amp; install</button>
+        <button class="secondary" id="btnConnectBackend">Connect existing backend…</button>
         <pre class="log" id="log2"></pre>
     </div>
 </div>
@@ -1024,7 +1061,7 @@ export class SetupWizardPanel {
     var formDirty = false;
     var envSignature = '';
     var removedProviderNs = [];
-    var TASK_STEP = { detectPython: 1, installPython: 1, downloadBackend: 2, installDeps: 3, saveEnv: 4, restartBackend: 5,
+    var TASK_STEP = { detectPython: 1, installPython: 1, downloadBackend: 2, connectBackend: 2, installDeps: 3, saveEnv: 4, restartBackend: 5,
                       loadModelOptions: 'Models', testModelProfile: 'Models', saveModelProfiles: 'Models' };
 
     function el(id) { return document.getElementById(id); }
@@ -1329,6 +1366,7 @@ export class SetupWizardPanel {
     el('btnBrowse').addEventListener('click', function () { post({ cmd: 'pickInstallDir' }); });
     el('installDir').addEventListener('change', function () { post({ cmd: 'setInstallDir', dir: el('installDir').value }); });
     el('btnDownload').addEventListener('click', function () { post({ cmd: 'downloadBackend', dir: el('installDir').value }); });
+    el('btnConnectBackend').addEventListener('click', function () { post({ cmd: 'connectBackend' }); });
     el('btnInstallDeps').addEventListener('click', function () { post({ cmd: 'installDeps' }); });
     el('btnAddKey').addEventListener('click', function () {
         var inputs = document.querySelectorAll('#geminiKeys input');
