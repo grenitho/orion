@@ -40,13 +40,31 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
+
+# >>> UPDATE-021: pdf/docx/xlsx attachments are extracted with the SAME
+# engine as the inbox drop-zone (soft-imported parsers, announced caps).
+# A broken inbox_manager must not kill the whole attachment pipeline, so
+# the import is guarded: without it, documents degrade to a per-file
+# rejection note exactly like an unsupported type.
+try:
+    from app.services import inbox_manager as _inbox
+except Exception:  # pragma: no cover - depends on env
+    _inbox = None
 
 # Limits from the Gemini documentation + a safe margin
 MAX_GAMBAR = 4                    # per message (3,000 is the API limit, but wasteful of quota)
 MAX_BYTE_GAMBAR = 7 * 1024 * 1024  # 7 MB — Gemini inline limit
 MAX_BYTE_TEKS = 512 * 1024         # 512 KB for text files
 MAX_CHAR_TEKS = 60_000             # cap text content so it cannot blow up the context
+# >>> UPDATE-021: document families (pdf/docx/xlsx) ride the inbox caps:
+# 20 MB per file; extraction caps (pages/tables/rows/chars) live in
+# inbox_manager and announce themselves inside the extracted text.
+EKSTENSI_DOKUMEN = {".pdf", ".docx", ".xlsx"}
+MAX_BYTE_DOKUMEN = 20 * 1024 * 1024
 
 MIME_GAMBAR = {
     "image/png", "image/jpeg", "image/jpg", "image/webp",
@@ -126,6 +144,32 @@ def _tebak_mime(nama: str) -> str:
     return ""
 
 
+def _ekstrak_dokumen(nama: str, ekstensi: str, mentah: bytes) -> tuple[str | None, str]:
+    """UPDATE-021: extract pdf/docx/xlsx bytes via the inbox engine.
+
+    Returns (text, '') on success or (None, reason) on skip/error. The
+    bytes go through a temp file because inbox_manager.extract_file works
+    on paths (size checks, parser APIs); the file is removed afterwards.
+    """
+    if _inbox is None:
+        return None, "document support unavailable (inbox_manager failed to import)"
+    fd, path = tempfile.mkstemp(suffix=ekstensi, prefix="orion-lampiran-")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(mentah)
+        kind, payload = _inbox.extract_file(Path(path))
+    except Exception as exc:  # noqa: BLE001 - never raise into the route
+        return None, f"extraction crashed: {type(exc).__name__}: {str(exc)[:120]}"
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    if kind == "text":
+        return payload, ""
+    return None, str(payload)
+
+
 def build_user_content(message: str, attachments: list | None = None) -> tuple[list, str]:
     """
     Turn the user message + attachments into (content_parts, history_summary).
@@ -195,8 +239,31 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
             )
             continue
 
-        # ---------------- TEXT FILE ----------------
+        # ---------------- DOCUMENT (UPDATE-021) ----------------
         ekstensi = ("." + nama.rsplit(".", 1)[-1].lower()) if "." in nama else ""
+        if ekstensi in EKSTENSI_DOKUMEN:
+            if len(mentah) > MAX_BYTE_DOKUMEN:
+                out.catatan_gagal.append(
+                    f"{nama}: document too large ({len(mentah) / 1024 / 1024:.1f} MB > 20 MB)"
+                )
+                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — larger than 20 MB]")
+                continue
+            teks_dok, alasan = _ekstrak_dokumen(nama, ekstensi, mentah)
+            if teks_dok is None:
+                out.catatan_gagal.append(f"{nama}: {alasan}")
+                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — {alasan}]")
+                continue
+            bagian_teks.append(
+                f"\n\n----- ATTACHED DOCUMENT CONTENTS: {nama} (extracted) -----\n{teks_dok}"
+                + f"\n----- END OF {nama} -----"
+            )
+            baris_ringkasan.append(
+                f"[DOCUMENT ATTACHMENT: {nama} ({len(mentah) // 1024} KB, "
+                f"{len(teks_dok)} chars extracted) — its text is in this message]"
+            )
+            continue
+
+        # ---------------- TEXT FILE ----------------
         if ekstensi in EKSTENSI_TEKS or mime.startswith("text/"):
             if len(mentah) > MAX_BYTE_TEKS:
                 out.catatan_gagal.append(f"{nama}: text file too large ({len(mentah)} bytes)")

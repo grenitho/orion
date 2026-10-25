@@ -15,6 +15,7 @@ Finishes in < 1 second.
 from __future__ import annotations
 
 import base64
+import os
 
 import pytest
 
@@ -161,3 +162,124 @@ def test_payload_kosong_tidak_membuat_crash():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# --------------------------------------------------------------------------
+# UPDATE-021: pdf/docx/xlsx lewat pipeline lampiran (mesin ekstrak inbox)
+# --------------------------------------------------------------------------
+
+def _docx_bytes(paragraph: str) -> bytes:
+    import io
+
+    docx = pytest.importorskip("docx")
+    buf = io.BytesIO()
+    d = docx.Document()
+    d.add_paragraph(paragraph)
+    d.save(buf)
+    return buf.getvalue()
+
+
+def _xlsx_bytes(baris: list) -> bytes:
+    import io
+
+    openpyxl = pytest.importorskip("openpyxl")
+    buf = io.BytesIO()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for r in baris:
+        ws.append(r)
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_lampiran_docx_diekstrak_ke_teks():
+    from app.services.attachments import proses
+
+    data = base64.b64encode(_docx_bytes("Baris perjanjian: sewa gudang diperpanjang dua tahun.")).decode()
+    hasil = proses("ringkas dokumen ini", [{"name": "surat.docx", "mime": "", "data": data}])
+    assert hasil.parts == []  # dokumen = teks, bukan vision parts
+    assert "sewa gudang diperpanjang" in hasil.ringkasan
+    assert "[DOCUMENT ATTACHMENT: surat.docx" in hasil.ringkasan
+    assert not hasil.catatan_gagal
+
+
+def test_lampiran_xlsx_diekstrak_per_baris():
+    from app.services.attachments import proses
+
+    data = base64.b64encode(_xlsx_bytes([["sku", "qty"], ["A-1", 7]])).decode()
+    hasil = proses("tabel ini", [{"name": "stok.xlsx", "data": data}])
+    assert "sku | qty" in hasil.ringkasan and "A-1 | 7" in hasil.ringkasan
+
+
+def test_lampiran_pdf_lewat_mesin_inbox(monkeypatch):
+    from app.services import attachments as att
+
+    class _Page:
+        def extract_text(self):
+            return "invoice 42: widget x 100"
+
+    class _Reader:
+        def __init__(self, path):
+            self.pages = [_Page()]
+
+    monkeypatch.setattr(att._inbox, "_PdfReader", _Reader)
+    data = base64.b64encode(b"%PDF-1.4 palsu").decode()
+    hasil = att.proses("baca", [{"name": "inv.pdf", "data": data}])
+    assert "invoice 42" in hasil.ringkasan
+    assert "[DOCUMENT ATTACHMENT: inv.pdf" in hasil.ringkasan
+
+
+def test_lampiran_dokumen_raksasa_ditolak():
+    data = base64.b64encode(b"\x00" * 1024).decode()  # isi tak penting
+    lamp = {"name": "b.pdf", "data": data}
+    # simulasi ukuran lewat batas kecil sementara
+    import app.services.attachments as att
+
+    old = att.MAX_BYTE_DOKUMEN
+    att.MAX_BYTE_DOKUMEN = 10
+    try:
+        hasil = att.proses("x", [lamp])
+    finally:
+        att.MAX_BYTE_DOKUMEN = old
+    assert hasil.catatan_gagal and "too large" in hasil.catatan_gagal[0]
+    assert "[ATTACHMENT REJECTED: b.pdf" in hasil.ringkasan
+
+
+def test_lampiran_dokumen_parser_hilang_ditolak_jujur(monkeypatch):
+    from app.services import attachments as att
+
+    monkeypatch.setattr(att._inbox, "_DocxDocument", None)
+    data = base64.b64encode(_docx_bytes("x")).decode()
+    hasil = att.proses("x", [{"name": "s.docx", "data": data}])
+    assert hasil.catatan_gagal and "python-docx" in hasil.catatan_gagal[0]
+
+
+def test_lampiran_zip_tetap_ditolak():
+    from app.services.attachments import proses
+
+    hasil = proses("x", [{"name": "a.zip", "data": base64.b64encode(b"PK\x03\x04").decode()}])
+    assert hasil.catatan_gagal and "not supported" in hasil.catatan_gagal[0]
+
+
+def test_file_tanpa_tempfile_bocor(monkeypatch, tmp_path):
+    """Temp file ekstrak harus dibersihkan walau parser melempar."""
+    from app.services import attachments as att
+
+    dibuat = []
+    asli = att.tempfile.mkstemp
+
+    def _rekam(*a, **kw):
+        fd, path = asli(*a, **kw)
+        dibuat.append(path)
+        return fd, path
+
+    monkeypatch.setattr(att.tempfile, "mkstemp", _rekam)
+
+    class _Boom:
+        def __init__(self, path):
+            raise ValueError("boom")
+
+    monkeypatch.setattr(att._inbox, "_PdfReader", _Boom)
+    hasil = att.proses("x", [{"name": "r.pdf", "data": base64.b64encode(b"%PDF").decode()}])
+    assert hasil.catatan_gagal and "PDF parse failed" in hasil.catatan_gagal[0]
+    assert dibuat and not os.path.exists(dibuat[0])
