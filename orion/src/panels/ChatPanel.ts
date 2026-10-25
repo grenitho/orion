@@ -52,10 +52,15 @@ export class ChatPanel {
             <html>
             <head>
                 <meta charset="UTF-8">
-                <!-- 1. Load Markdown & Syntax Highlighting from the CDN -->
-                <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+                <!-- >>> UPDATE-020 adendum: the CDN scripts/style used to sit
+                     HERE, before the inline script. A hanging CDN request
+                     (proxy / offline / blackhole) blocked the HTML parser
+                     and the inline script never ran - Send and the attach
+                     button died SILENTLY, no console error (owner incident
+                     2026-10-25). They now load AFTER the inline script (end
+                     of body), so the panel always boots; markdown and
+                     highlighting upgrade themselves when the CDN arrives,
+                     with safe fallbacks until then. -->
                 
                 <style>
                     body { 
@@ -162,6 +167,10 @@ export class ChatPanel {
                 </div>
                 <script>
                     const vscode = acquireVsCodeApi();
+                    // >>> UPDATE-020 adendum: boot beacon - proves in the
+                    // Extension Host log that this inline script executed
+                    // (the 2026-10-25 silent-death incident had no signal).
+                    vscode.postMessage({ command: 'webviewBoot' });
                     const input = document.getElementById('msg-input');
                     const btn = document.getElementById('send-btn');
                     const cancelBtn = document.getElementById('cancel-btn'); // >>> NEW
@@ -169,15 +178,35 @@ export class ChatPanel {
                     let isProcessing = false;
                     let currentAiText = "";
 
-                    // Function to render a message with Markdown & highlighting
+                    // >>> UPDATE-020 adendum: CDN-independent rendering.
+                    // marked/highlight.js may be absent (offline) or arrive
+                    // late (they load after this script now); the panel must
+                    // render either way, so both are guarded with honest
+                    // fallbacks (escaped preformatted text / no coloring).
+                    function escapeHtml(t) {
+                        return String(t).replace(/[&<>]/g, function (c) {
+                            return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
+                        });
+                    }
                     function renderMarkdown(text) {
-                        let html = marked.parse(text);
+                        let html;
+                        if (typeof marked !== 'undefined' && marked.parse) {
+                            try {
+                                html = marked.parse(text);
+                            } catch (e) {
+                                html = '<pre style="white-space:pre-wrap">' + escapeHtml(text) + '</pre>';
+                            }
+                        } else {
+                            html = '<pre style="white-space:pre-wrap">' + escapeHtml(text) + '</pre>';
+                        }
                         // Create a temporary div to apply highlight.js
                         let tempDiv = document.createElement('div');
                         tempDiv.innerHTML = html;
-                        tempDiv.querySelectorAll('pre code').forEach((block) => {
-                            hljs.highlightElement(block);
-                        });
+                        if (typeof hljs !== 'undefined' && hljs.highlightElement) {
+                            tempDiv.querySelectorAll('pre code').forEach((block) => {
+                                hljs.highlightElement(block);
+                            });
+                        }
                         return tempDiv.innerHTML;
                             }
 
@@ -357,6 +386,11 @@ export class ChatPanel {
                         }
                     });
                 </script>
+                <!-- >>> UPDATE-020 adendum: CDN enhancements load LAST, so a
+                     hanging request can never block the panel boot. -->
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+                <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
             </body>
             </html>
         `;
@@ -499,6 +533,15 @@ export class ChatPanel {
     // >>> END OF UPDATE-020 attach picker ==================================
 
     private async _handleMessage(message: any) {
+        // >>> UPDATE-020 adendum: boot beacon from the chat webview's inline
+        // script. If this line never appears in the Extension Host log while
+        // the chat panel is open, the webview script did not run — the
+        // exact signal the 2026-10-25 silent-death incident lacked.
+        if (message.command === 'webviewBoot') {
+            console.log('[ORION] chat webview inline script booted');
+            return;
+        }
+
         // >>> NEW: handler for the Cancel button
         if (message.command === 'cancel') {
             if (this._currentAbortController) {

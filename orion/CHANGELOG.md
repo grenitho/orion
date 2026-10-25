@@ -3,6 +3,21 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-10-25
+
+### Fixed
+- **Chat panel could die silently when a CDN request hung.** The webview
+  loaded marked.js / highlight.js (and a stylesheet) from CDNs in `<head>`,
+  BEFORE its inline script: a hanging request (offline, proxy, blackholed
+  DNS) blocked the HTML parser, so Send, 📎 and every binding never
+  existed — with no console error at all (real incident, 2026-10-25). The
+  CDN assets now load AFTER the inline script and every use is guarded
+  (escaped-pre markdown fallback, no-op highlighting), so the panel always
+  boots and upgrades itself when the CDN arrives.
+- New boot beacon: the inline script posts `webviewBoot` at load and the
+  extension host logs `[ORION] chat webview inline script booted` — the
+  missing diagnostic signal from the incident above.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added
