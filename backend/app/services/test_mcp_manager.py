@@ -911,9 +911,19 @@ def test_route_mcp_config_meneruskan_field_enabled(monkeypatch, tmp_path):
     monkeypatch.setenv("ORION_PID_FILE", str(tmp_path / "pid"))
     import app.main as main
 
+    # >>> UPDATE-020 ADENDUM (incident 2026-10-25, owner's Windows machine):
+    # on a developer machine the TestClient lifespan runs
+    # auto_restore_project(), which reads the REAL ~/.orion_last_project.json
+    # and re-points mcp_manager.project_path at the real project — the
+    # master_switch op then wrote mcp_enabled=false into the owner's REAL
+    # orion_config.json while this test looked for its tmp file and died
+    # with FileNotFoundError. Stub the restore away (same guard
+    # test_models_endpoints already had) and pin the pointer afterwards.
+    monkeypatch.setattr(main, "load_last_project", lambda: None)
     monkeypatch.setattr(main.mcp_manager, "project_path", str(tmp_path))
     (tmp_path / ".orion").mkdir(exist_ok=True)
     with TestClient(main.app) as client:
+        assert main.mcp_manager.project_path == str(tmp_path)  # no clobber
         r = client.post(
             "/mcp/config",
             headers={"X-Orion-Token": "s3cret"},
