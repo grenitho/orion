@@ -77,6 +77,31 @@ def klaim_perlu_ditantang(
     )
 
 
+def klaim_edit_gagal_perlu_ditantang(
+    is_task_complete: bool,
+    daftar_edit_gagal: list,
+    sudah_ditantang: int,
+    maks_tantangan: int,
+) -> bool:
+    """Failed-edit claim gate (UPDATE-022, InvoiceFlow M1 §2C).
+
+    A claim is challenged when the model claims completion while the edit
+    ledger still holds failures that never succeeded afterwards — EVEN IF
+    other files really were changed this turn. That partial-evidence case
+    is exactly what slipped through ORION-17b: the old gate counted the
+    PRESENCE of changes, not the match between the claim and the per-file
+    evidence, so one unrelated real edit laundered a no-op "fixed" claim.
+    `daftar_edit_gagal` is state.edit_gagal_belum_pulih(); the shared
+    challenge quota (maks_tantangan) keeps this gate from becoming a loop,
+    exactly like klaim_perlu_ditantang.
+    """
+    return (
+        bool(is_task_complete)
+        and bool(daftar_edit_gagal)
+        and sudah_ditantang < maks_tantangan
+    )
+
+
 def stream_perlu_done_susulan(sudah_mengirim_done: bool) -> bool:
     """ORION-28 wrapper decision: send 'done' only if the stream ended without one."""
     return not sudah_mengirim_done

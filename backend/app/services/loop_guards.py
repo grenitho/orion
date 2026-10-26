@@ -13,11 +13,15 @@ becomes a `match` on the decision; every side effect (storing messages,
 SSE yields, counter bumps) stays in the match arms, byte-for-byte the same
 code as before.
 
-Decision table (identical to the previous if/elif/else cascade):
+Decision table (identical to the previous if/elif/else cascade, plus the
+UPDATE-022 failed-edit gate inserted before the evidence gate):
 
   short reply (<50 chars, no claim keyword):
       at the iteration cap        -> PAUSE_ITERASI
       below the cap               -> TERUSKAN
+  claim + ledger holds failed edits that never recovered + quota left
+      (UPDATE-022 — fires even when OTHER files really changed):
+                                  -> TANTANG_EDIT_GAGAL
   claim + iterasi > 0 + files actually changed this turn:
       todos still pending & nudge quota left -> LANJUT_TODO
       otherwise                              -> CHECKPOINT
@@ -57,6 +61,12 @@ class Keputusan(Enum):
 
     LANJUT_TODO = auto()    # todos still pending: nudge the model, keep looping
     TANTANG_KLAIM = auto()  # completion claim with zero evidence: challenge, keep looping
+    # >>> UPDATE-022: completion claim while the edit ledger holds failures
+    # that never recovered — challenged by NAMING the failed files, even
+    # when other files really changed (InvoiceFlow M1: partial evidence
+    # must not launder a failed edit). Shares the TANTANG_KLAIM quota and
+    # the challenge mechanism; only the message/status text differs.
+    TANTANG_EDIT_GAGAL = auto()
     CHECKPOINT = auto()     # real work, nothing pending: report + ask_user, stop
     JAWAB_NORMAL = auto()   # ordinary answer: stream it, stop
     PAUSE_ITERASI = auto()  # short reply at the iteration cap: pause message, stop
@@ -76,8 +86,9 @@ def evaluasi_akhir_iterasi(
     """Decide how the agent loop ends this iteration. PURE: no side effects.
 
     `state` is a SessionState (reads files_changed_this_turn, nudge_count,
-    verifikasi_count). `iterasi` is the loop counter `_` (0-based); the
-    pause check mirrors the old `current_iter = _ + 1; current_iter >=
+    verifikasi_count, and — since UPDATE-022 — the edit ledger via
+    edit_gagal_belum_pulih()). `iterasi` is the loop counter `_` (0-based);
+    the pause check mirrors the old `current_iter = _ + 1; current_iter >=
     max_iter`. `sisa_todo` is precomputed by the caller via
     `state.sisa_todo(todo_manager)` so this function stays dependency-free.
     """
@@ -89,14 +100,26 @@ def evaluasi_akhir_iterasi(
             return Keputusan.PAUSE_ITERASI
         return Keputusan.TERUSKAN
 
-    # Gate 2: a completion claim WITH hard evidence may close the task —
+    # Gate 2 (UPDATE-022): a completion claim while the ledger still holds
+    # failed edits that NEVER succeeded afterwards gets challenged by name —
+    # BEFORE the evidence gate below, because genuinely-changed OTHER files
+    # must not excuse a failed edit of the file the claim is about.
+    if guard_rules.klaim_edit_gagal_perlu_ditantang(
+        is_task_complete,
+        state.edit_gagal_belum_pulih(),
+        state.verifikasi_count,
+        maks_verifikasi,
+    ):
+        return Keputusan.TANTANG_EDIT_GAGAL
+
+    # Gate 3: a completion claim WITH hard evidence may close the task —
     # but only after the remaining todos are dealt with.
     if is_task_complete and iterasi > 0 and state.files_changed_this_turn:
         if sisa_todo and state.nudge_count < maks_nudge:
             return Keputusan.LANJUT_TODO
         return Keputusan.CHECKPOINT
 
-    # Gate 3: a completion claim WITHOUT evidence gets challenged
+    # Gate 4: a completion claim WITHOUT evidence gets challenged
     # (bounded by maks_verifikasi so this cannot become a loop).
     if guard_rules.klaim_perlu_ditantang(
         is_task_complete,
@@ -106,5 +129,5 @@ def evaluasi_akhir_iterasi(
     ):
         return Keputusan.TANTANG_KLAIM
 
-    # Gate 4: an ordinary, sufficiently long answer.
+    # Gate 5: an ordinary, sufficiently long answer.
     return Keputusan.JAWAB_NORMAL

@@ -1197,6 +1197,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             )
                             if not path_ok:
                                 result = f"🚫 [REJECTED BY SYSTEM - UNSAFE PATH]: {path_reason}"
+                                # >>> UPDATE-022: a rejected write is a FAILED
+                                # edit — the ledger must see it, or the model
+                                # can claim "written" unchallenged.
+                                state.catat_edit_gagal(
+                                    file_path, "REJECTED BY SYSTEM - UNSAFE PATH"
+                                )
                                 yield deps.kirim_status('🚫 File operation denied (outside the project folder)')
                             elif is_sensitive_file(file_path):
                                 result = (
@@ -1205,20 +1211,28 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                     f"If this is really necessary, ask the user to do it manually or "
                                     f"get explicit confirmation via ask_user first."
                                 )
+                                state.catat_edit_gagal(
+                                    file_path, "REJECTED BY SYSTEM - SENSITIVE FILE"
+                                )
                                 yield deps.kirim_status('🚫 Denied: sensitive file')
                             else:
                                 yield deps.kirim_status(f'📝 Creating/overwriting file: {file_path}')
                                 result = deps.tool_executor.write_file(**func_args)
-                                print(
-                                    f"[ORION WRITE_FILE] Wrote successfully: {file_path}"
-                                )
                                 # Only record as proof of real work when it truly succeeded
                                 if isinstance(
                                     result, str
                                 ) and result.lower().startswith("success"):
+                                    # >>> UPDATE-022: the log line used to say
+                                    # "Wrote successfully" unconditionally — even
+                                    # when write_file returned an Error string
+                                    # (forensics noise, InvoiceFlow M1).
+                                    print(
+                                        f"[ORION WRITE_FILE] Wrote successfully: {file_path}"
+                                    )
                                     state.catat_file_berubah(
                                         f"- `{file_path}` (write_file)"
                                     )
+                                    state.catat_edit_sukses(file_path)
                                     # >>> NEW: AUTOMATIC POST-WRITE VERIFICATION <<<
                                     try:
                                         full_path = os.path.join(
@@ -1237,10 +1251,29 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                         print(
                                             f"[POST_EDIT_VERIFIER WARNING] {verify_err}"
                                         )
+                                else:
+                                    # >>> UPDATE-022: failure branch — record the
+                                    # attempt in the ledger so a later completion
+                                    # claim naming this file gets challenged.
+                                    state.catat_edit_gagal(
+                                        file_path,
+                                        str(result).splitlines()[0][:200] if result
+                                        else "tool returned no result",
+                                    )
+                                    print(
+                                        f"[ORION WRITE_FILE] FAILED for {file_path}: "
+                                        f"{str(result).splitlines()[0][:200] if result else 'no result'}"
+                                    )
                                 state.analyzed_files.discard(
                                     file_path
                                 )  # FIX: invalidate the cache so it can be re-read if needed
-                                yield deps.kirim_status(f'✅ File {file_path} created')
+                                # >>> UPDATE-022: the status frame used to claim
+                                # "✅ created" even when the write failed — the UI
+                                # layer of the same no-op-claim defect class.
+                                if isinstance(result, str) and result.lower().startswith("success"):
+                                    yield deps.kirim_status(f'✅ File {file_path} created')
+                                else:
+                                    yield deps.kirim_status(f'❌ File {file_path} NOT created (write failed)')
 
                         elif func_name == "edit_file":
                             file_path = func_args.get("file_path", "unknown")
@@ -1251,6 +1284,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             )
                             if not path_ok:
                                 result = f"🚫 [REJECTED BY SYSTEM - UNSAFE PATH]: {path_reason}"
+                                # >>> UPDATE-022: a rejected edit is a FAILED
+                                # edit — see the write_file branch.
+                                state.catat_edit_gagal(
+                                    file_path, "REJECTED BY SYSTEM - UNSAFE PATH"
+                                )
                                 yield deps.kirim_status('🚫 File operation denied (outside the project folder)')
                             elif is_sensitive_file(file_path):
                                 result = (
@@ -1259,20 +1297,27 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                     f"If this is really necessary, ask the user to do it manually or "
                                     f"get explicit confirmation via ask_user first."
                                 )
+                                state.catat_edit_gagal(
+                                    file_path, "REJECTED BY SYSTEM - SENSITIVE FILE"
+                                )
                                 yield deps.kirim_status('🚫 Denied: sensitive file')
                             else:
                                 yield deps.kirim_status(f'🔧 Editing file: {file_path}')
                                 result = deps.tool_executor.edit_file(**func_args)
-                                print(
-                                    f"[ORION EDIT_FILE] Edited successfully: {file_path}"
-                                )
                                 # Only record as proof of real work when it truly succeeded
                                 if isinstance(
                                     result, str
                                 ) and result.lower().startswith("success"):
+                                    # >>> UPDATE-022: honest log — this line used
+                                    # to print "Edited successfully" even when
+                                    # edit_file returned an Error string.
+                                    print(
+                                        f"[ORION EDIT_FILE] Edited successfully: {file_path}"
+                                    )
                                     state.catat_file_berubah(
                                         f"- `{file_path}` (edit_file)"
                                     )
+                                    state.catat_edit_sukses(file_path)
                                     # >>> NEW: AUTOMATIC POST-EDIT VERIFICATION <<<
                                     try:
                                         full_path = os.path.join(
@@ -1289,10 +1334,30 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                         print(
                                             f"[POST_EDIT_VERIFIER WARNING] {verify_err}"
                                         )
+                                else:
+                                    # >>> UPDATE-022: the InvoiceFlow M1 no-op —
+                                    # "SEARCH block not found" and friends land
+                                    # here; the ledger makes a later completion
+                                    # claim naming this file challengeable.
+                                    state.catat_edit_gagal(
+                                        file_path,
+                                        str(result).splitlines()[0][:200] if result
+                                        else "tool returned no result",
+                                    )
+                                    print(
+                                        f"[ORION EDIT_FILE] FAILED for {file_path}: "
+                                        f"{str(result).splitlines()[0][:200] if result else 'no result'}"
+                                    )
                                 state.analyzed_files.discard(
                                     file_path
                                 )  # FIX: invalidate the cache so it can be re-read if needed
-                                yield deps.kirim_status(f'✅ File {file_path} edited')
+                                # >>> UPDATE-022: failure-aware status frame —
+                                # "✅ edited" on a failed edit was the UI layer
+                                # of the no-op-claim defect class.
+                                if isinstance(result, str) and result.lower().startswith("success"):
+                                    yield deps.kirim_status(f'✅ File {file_path} edited')
+                                else:
+                                    yield deps.kirim_status(f'❌ File {file_path} NOT edited (edit failed)')
 
                         elif func_name == "run_terminal":
                             cmd_to_run = func_args.get("command", "")
@@ -1694,6 +1759,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
 
                         checkpoint_report += pending_warning
 
+                        # >>> UPDATE-022: when the edit ledger recorded ANY
+                        # failed attempt this turn, the checkpoint must show it
+                        # (per-file, with the recovery state) — the user sees
+                        # the same evidence the claim gate saw. Empty ledger →
+                        # empty string → the report stays byte-identical to the
+                        # pre-022 shape (SSE harness contract, §4 gate).
+                        checkpoint_report += state.ringkasan_ledger()
+
                         checkpoint_report += (
                             "\n\n**Next steps:**\n"
                             "Please review the changes above. Is there anything to adjust, or shall I continue to the next task?\n\n"
@@ -1746,6 +1819,54 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "justify yourself. Do not ask the user anything before steps 1-2 are done.",
                         )
                         yield deps.kirim_status('🔍 Verifying completion claim (0 files changed)...')
+                        continue
+                    case loop_guards.Keputusan.TANTANG_EDIT_GAGAL:
+                        # >>> UPDATE-022 (InvoiceFlow M1 §2C): the claim names
+                        # work whose edit FAILED this turn and never succeeded
+                        # afterwards. Other real edits do NOT excuse it — the
+                        # challenge names every unrecovered file so the model
+                        # cannot wave at the turn's successes in general.
+                        # Shares the TANTANG_KLAIM quota (bounded loop) and
+                        # mechanism; only the message and status text differ.
+                        state.verifikasi_count += 1
+                        _edit_gagal = state.edit_gagal_belum_pulih()
+                        _daftar_gagal = "\n".join(
+                            f"- `{g['path']}` — {g['alasan']}" for g in _edit_gagal
+                        )
+                        deps.logger.warning(
+                            "[CLAIM WITH FAILED EDITS] Orion claims completion but %d "
+                            "file edit(s) FAILED and never succeeded afterwards "
+                            "(verification %d/%d). Challenging the claim: %s",
+                            len(_edit_gagal), state.verifikasi_count, MAX_VERIFIKASI,
+                            ", ".join(g["path"] for g in _edit_gagal),
+                        )
+                        deps.context_manager.add_message(
+                            "assistant", content, reasoning_content=reasoning_content
+                        )
+                        deps.context_manager.add_message(
+                            "user",
+                            "[SYSTEM - YOUR CLAIM IS REJECTED]: You reported the work as complete, "
+                            "but YOUR OWN EDITS FAILED this turn and never succeeded afterwards:\n"
+                            f"{_daftar_gagal}\n\n"
+                            "A completion claim that contradicts the edit ledger is not accepted. "
+                            "Other files you DID change successfully do not excuse the failures above.\n\n"
+                            "You MUST do the following now, in order:\n"
+                            "1. For EACH failed file listed above: re-read its current content "
+                            "(`read_file_range`), identify why the edit failed (stale SEARCH block, "
+                            "wrong path, guard rejection), and retry with `edit_file`/`write_file`.\n"
+                            "2. Judge every retry ONLY by its tool result: only a result starting "
+                            "with 'Success' counts; an 'Error:' result means still failed.\n"
+                            "3. If a file genuinely cannot be changed, say so PLAINLY in your report "
+                            "(which file, which error) instead of claiming it is done.\n\n"
+                            "Do NOT repeat the completion claim while any file above is still "
+                            "unfixed. Do not ask the user anything before steps 1-2 are done.",
+                        )
+                        _nama_gagal = ", ".join(f"`{g['path']}`" for g in _edit_gagal[:5])
+                        if len(_edit_gagal) > 5:
+                            _nama_gagal += f" +{len(_edit_gagal) - 5} more"
+                        yield deps.kirim_status(
+                            f'🔍 Verifying completion claim (failed edits: {_nama_gagal})...'
+                        )
                         continue
                     case loop_guards.Keputusan.JAWAB_NORMAL:
                         # Not a task completion, just a normal response
