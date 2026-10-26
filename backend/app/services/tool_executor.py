@@ -206,6 +206,96 @@ class ToolExecutor:
         except Exception as e:
             return f" [WARNING: backup could not be created: {e}]"
 
+    # >>> UPDATE-022 Commit 2: PER-FILE EVIDENCE ==========================
+    # The InvoiceFlow M1 forensics showed a completion claim surviving
+    # because nothing in the tool result tied "success" to a change ON DISK.
+    # Every successful write/edit now carries an (mtime_ns, size) before ->
+    # after stamp, and a write that leaves the file byte-stale comes back as
+    # an explicit Error so the loop's ledger (Commit 1) records a FAILURE
+    # instead of evidence. The helpers below are static/pure so the contract
+    # is unit-testable without touching the filesystem twice.
+    # =====================================================================
+
+    @staticmethod
+    def _stat_bukti(full_path: str):
+        """(st_mtime_ns, st_size) of an existing file, else None."""
+        try:
+            st = os.stat(full_path)
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+    @staticmethod
+    def _bukti_string(sebelum, sesudah) -> str:
+        m0 = "-" if sebelum is None else str(sebelum[0])
+        s0 = "-" if sebelum is None else str(sebelum[1])
+        return f"(evidence: mtime_ns {m0} -> {sesudah[0]}, size {s0} -> {sesudah[1]} bytes)"
+
+    @staticmethod
+    def _tulis_ke_disk(full_path: str, content: str) -> None:
+        """The single disk-write seam (monkeypatched by the unchanged-file tests)."""
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    @staticmethod
+    def _baca_untuk_bukti(full_path: str):
+        """Current on-disk content, or None when unreadable (coarse-mtime fallback)."""
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            return None
+
+    def _putusan_bukti(self, file_path: str, full_path: str,
+                       content_baru: str, sebelum, sesudah):
+        """Classify a reported-successful write against the disk.
+
+        Returns None when the evidence is healthy (mtime moved), otherwise
+        the result STRING to return instead of a Success:
+          * stat unchanged but the file already holds EXACTLY the intended
+            content (coarse filesystem clocks can miss a same-tick rewrite)
+            -> Success with an honest 'already contained' note;
+          * stat unchanged and content differs -> Error 'file unchanged'
+            (the model can no longer misread a no-op as a fixed file).
+        """
+        if sesudah is not None and (sebelum is None or sesudah != sebelum):
+            return None
+        aktual = self._baca_untuk_bukti(full_path)
+        if aktual is not None and aktual == content_baru:
+            return (
+                f"Success: File '{file_path}' verified on disk with EXACTLY the "
+                f"intended content (mtime did not move — either the file already "
+                f"contained this content, or the filesystem clock granularity hid "
+                f"the rewrite; the content check is the stronger evidence)."
+            )
+        return (
+            f"Error: file unchanged on disk — '{file_path}' shows the SAME mtime/size "
+            f"after the write reported success, and its content is NOT what was asked "
+            f"for. Treat this edit as FAILED: re-read the file, then report honestly."
+        )
+
+    def _auto_syntax_py(self, file_path: str, full_path: str, content: str) -> str:
+        """Automatic SYNTAX check after a successful .py write/edit (UPDATE-022).
+
+        Appended to the tool-result string so a broken file is visible to the
+        model AND to session_history the instant it happens — no longer only
+        when someone remembers to call verify_code. Silent when the syntax is
+        clean (token economy); never fails the write itself.
+        """
+        if not file_path.lower().endswith(".py"):
+            return ""
+        try:
+            from app.services import code_verifier
+            temuan = code_verifier.cek_sintaks_py(full_path, content)
+        except Exception as e:  # noqa: BLE001 - advisory layer, never fatal
+            return f"\nAUTO SYNTAX CHECK could not run: {e!s}"
+        if temuan:
+            return (
+                "\nAUTO SYNTAX CHECK (ran immediately after this edit) — THE FILE "
+                "YOU JUST WROTE IS BROKEN:\n" + temuan
+            )
+        return ""
+
     def write_file(self, file_path: str, content: str) -> str:
         """Create a new file or overwrite an existing one."""
         full_path, err = self._resolve_safe_path(file_path)
@@ -214,9 +304,17 @@ class ToolExecutor:
         try:
             backup_warning = self._backup_before_overwrite(full_path, file_path)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            return f"Success: File '{file_path}' written/updated.{backup_warning}"
+            sebelum = self._stat_bukti(full_path)
+            self._tulis_ke_disk(full_path, content)
+            sesudah = self._stat_bukti(full_path)
+            vonis = self._putusan_bukti(file_path, full_path, content, sebelum, sesudah)
+            if vonis is not None:
+                return vonis
+            sintaks = self._auto_syntax_py(file_path, full_path, content)
+            return (
+                f"Success: File '{file_path}' written/updated.{backup_warning} "
+                f"{self._bukti_string(sebelum, sesudah)}{sintaks}"
+            )
         except Exception as e:
             return f"Error: Cannot write file. {e!s}"
 
@@ -269,17 +367,28 @@ class ToolExecutor:
 
         backup_warning = self._backup_before_overwrite(abs_path, file_path)
         try:
-            with open(abs_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            # >>> UPDATE-022 Commit 2: before/after disk evidence around the
+            # write; a stale file comes back as an explicit Error (see
+            # _putusan_bukti) instead of a Success the model could misread.
+            sebelum = self._stat_bukti(abs_path)
+            self._tulis_ke_disk(abs_path, new_content)
+            sesudah = self._stat_bukti(abs_path)
         except Exception as e:
             return f"Error writing file: {e!s}"
+        vonis = self._putusan_bukti(file_path, abs_path, new_content, sebelum, sesudah)
+        if vonis is not None:
+            return vonis
+        sintaks = self._auto_syntax_py(file_path, abs_path, new_content)
 
         # The success prefix is a CONTRACT: the agent loop records evidence of
         # real work (files_changed_this_turn) and runs the post-edit
         # verification ONLY for results starting with it. Before UPDATE-004
         # this message started with "Edited file", so pure-edit turns never
         # produced evidence and the post-edit verifier never ran at all.
-        return f"Success: edited file '{file_path}'. {success_count} block(s) replaced.{backup_warning}"
+        return (
+            f"Success: edited file '{file_path}'. {success_count} block(s) replaced."
+            f"{backup_warning} {self._bukti_string(sebelum, sesudah)}{sintaks}"
+        )
 
     def search_code(self, query: str, file_pattern: str = "*") -> str:
         import fnmatch

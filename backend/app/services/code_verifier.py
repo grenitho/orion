@@ -77,6 +77,30 @@ def _file_sementara(kode: str, suffix: str) -> str:
 # per-language checkers
 # ---------------------------------------------------------------------------
 
+def cek_sintaks_py(path: str, teks: str) -> str:
+    """FAST syntax-only Python check for the automatic post-edit run
+    (UPDATE-022 Commit 2). Returns '' when the text parses, otherwise the
+    same 'PYTHON SYNTAX line N: msg' + quoted-source-line shape cek_python
+    produces, so one vocabulary covers both the automatic check and the
+    explicit verify_code tool.
+
+    Deliberately ast.parse ONLY — no import probing, no ruff/pyflakes
+    subprocess: this runs after EVERY successful .py write/edit inside the
+    agent loop, so it must be instant, dependency-free and deterministic
+    across machines (the full report stays the job of verify_code).
+    """
+    try:
+        ast.parse(teks, filename=path)
+    except SyntaxError as e:
+        baris = [f"PYTHON SYNTAX line {e.lineno}: {e.msg}"]
+        if e.lineno:
+            baris.append(f"     -> {_kutipan(teks, e.lineno)}")
+        return "\n".join(baris)
+    except (ValueError, RecursionError) as e:  # e.g. embedded NUL bytes
+        return f"PYTHON SYNTAX unreadable: {e!s}"
+    return ""
+
+
 def cek_python(path: str, teks: str, interpreter: str | None = None) -> list[str]:
     """Syntax + uninstalled imports + linter when available."""
     temuan: list[str] = []
