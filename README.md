@@ -47,8 +47,9 @@ covered by tests — not with prompt wording alone.
 | **LLM routing** | primary Gemini with N-key rotation → OpenRouter fallback → Cloudflare fallback; per-tier temperature; retry with exponential backoff + jitter; `reasoning_effort` mapped to Gemini thinking levels |
 | **Context** | persistent session history with orphaned tool-call validation, atomic writes and backups; automatic summarization when approaching token budget; safe history splitting that never separates an assistant call from its tool response |
 | **Safety** | path-traversal guard on every file operation; confirmation modals for dangerous commands; destructive/remote git operations blocked at code level; automatic `.bak` before overwrite; reversible restores; SSRF protection on fetched URLs |
-| **UX** | streaming status events (including a "still thinking… Ns" heartbeat), markdown + syntax highlighting in the chat panel, activity view, performance dashboard, cancel button with real abort |
-| **Quality** | 116 automated tests, including regression guards for every safety mechanism; startup consistency check between declared tools and dispatched tools |
+| **UX** | streaming status events (including a "still thinking… Ns" heartbeat), markdown + syntax highlighting in the chat panel, per-bubble Copy button for the raw message text (0.4.1+), activity view, performance dashboard, cancel button with real abort |
+| **Claim integrity** | completion claims are gated on PER-FILE evidence: an edit ledger records every successful and failed write/edit attempt (guard rejections and worker sub-agent edits included); a claim that contradicts the ledger is challenged naming the failed files; every successful write/edit carries `(mtime_ns, size)` disk evidence, a reported-success write that left the file unchanged returns an explicit error, and `.py` edits get an instant automatic syntax verdict (UPDATE-022) |
+| **Quality** | 390 automated tests, including regression guards for every safety mechanism; startup consistency check between declared tools and dispatched tools |
 
 ---
 
@@ -195,7 +196,8 @@ the old behaviour. Full reference:
 **Attach & quality-of-life (extension 0.3.0+, documents since 0.4.0):** the
 chat panel's 📎 button attaches images, text/code AND pdf/docx/xlsx (extracted
 server-side by the inbox engine) to ONE message (same pipeline and caps as
-the inbox); the MCP panel carries the **master-switch button** (mcp_enabled,
+the inbox); since 0.4.1 every chat bubble carries a **Copy** button that
+copies that message's raw pre-markdown text; the MCP panel carries the **master-switch button** (mcp_enabled,
 applied live, mcp.json preserved); and a watchdog toasts once when the
 backend goes stale mid-session (git pull / extension update) with a
 Restart action.
@@ -208,10 +210,12 @@ Restart action.
 python -m pytest backend -q         # from the repo root
 ```
 
-342 tests cover the attachment pipeline, the inbox drop-zone, the model-profile
-router and endpoints, the sub-agent plumbing, the claim-verification gate, the
-loop-counter guard, the git-operation blocklist, the stream-completion wrapper,
-the research-query builder and the security posture (CORS, loopback bind, token
+390 tests cover the attachment pipeline, the inbox drop-zone, the model-profile
+router and endpoints, the sub-agent plumbing, the claim-verification gate and
+the failure-aware edit ledger (per-file claim evidence, UPDATE-022), the
+per-write disk evidence and automatic syntax check, the loop-counter guard,
+the git-operation blocklist, the stream-completion wrapper, the
+research-query builder and the security posture (CORS, loopback bind, token
 guard, absence of personal paths and private artifacts). Several of these tests
 exist because a real production incident proved the bug first; their docstrings
 say so.
@@ -239,7 +243,7 @@ backend/
       subagent_manager.py  Explorer/Verifier/Workers delegation (UPDATE-016)
       inbox_manager.py   .orion/inbox drop-zone: extract, cap, archive (UPDATE-018)
       permission_manager.py, dependency_scanner.py, post_edit_verifier.py
-      test_*.py          342 tests
+      test_*.py          390 tests
   examples/
     mcp_demo_server.py   dependency-free MCP server for E2E testing
 orion/                   VS Code extension (TypeScript, esbuild)

@@ -69,7 +69,15 @@ from pathlib import Path
 # Bumped 0.9.2 -> 0.9.3 for UPDATE-021: the attachment pipeline accepts
 # pdf/docx/xlsx and extracts them through the inbox engine (new behaviour
 # on an existing route, /chat; no new surface, hence a patch bump).
-BACKEND_VERSION = "0.9.3"
+# Bumped 0.9.3 -> 0.9.4 for UPDATE-022: the claim-integrity overhaul —
+# the failure-aware edit ledger (session_state) with the per-file claim
+# challenge TANTANG_EDIT_GAGAL (loop_guards), per-file disk evidence and
+# the unchanged-file Error in write_file/edit_file results plus automatic
+# syntax checking after .py edits (tool_executor/code_verifier), worker
+# edits feeding the main ledger (subagent_manager), and the proactive
+# delegation policy (prompts). Behaviour of existing routes changes
+# (honesty layer); no new route or surface, hence a patch bump.
+BACKEND_VERSION = "0.9.4"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

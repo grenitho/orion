@@ -13,6 +13,18 @@ evidenced** by the deterministic mock harness described in FASE_C_PLAN §5:
 What remains is the **client-side half** below. Run both before tagging a
 release; each takes about two minutes.
 
+> **UPDATE-022 naming note:** the original harness recordings
+> (`u014base`…`u021final3`) were lost in a sandbox reset and the harness was
+> REBUILT from the documented evidence (sandbox `baseline/harness/`,
+> see its README). The rebuild uses stable descriptive names — the letters
+> a–h had been re-used across updates (8006399-era `h` = broken file,
+> d87b70e-era `h` = no-project). Mapping for this runbook: scenario **h**
+> (gate c evidence) = `broken_file`; the **cancel** test (gate d) =
+> `cancel`; scenario **g** (edit-only claim guard) = `edit_only_claim`;
+> scenario **f** = `write_edit_claim`. Reference label: `u022base`
+> (16 scenarios, recorded at 5119f79 before any UPDATE-022 code change);
+> since Commit 1 the suite is 17 (`failed_edit_claim` added).
+
 ---
 
 ## Scenario c — broken file, quoted findings
@@ -63,10 +75,13 @@ release; each takes about two minutes.
 - [ ] scenario c passed (findings quoted with line numbers)
 - [ ] scenario d passed (clean cancel, healthy backend)
 - [ ] `python -m pytest backend/app/services/ -q` green on the release commit
-      (342 tests as of UPDATE-020)
+      (390 tests as of UPDATE-022; Windows: 389 passed + 1 by-design skip —
+      the non-windll probe test)
 - [ ] all pre-existing mock-SSE harness scenarios re-recorded
-      byte-identical (15 legacy + `inbox_txt` = 16 as of UPDATE-018;
-      harness owner)
+      byte-identical (16 legacy as rebuilt in `u022base` +
+      `failed_edit_claim` = 17 as of UPDATE-022; harness lives in the
+      sandbox `baseline/`, scripts + recordings ship in the update zip's
+      archive section so a future reset cannot lose them again)
 - [ ] when dependencies changed: `pip install -r backend/requirements.txt`
       re-run in the backend venv BEFORE the gates (UPDATE-018 added pypdf,
       python-docx, openpyxl), and the owner PANDUAN repeats the install
