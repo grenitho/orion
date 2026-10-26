@@ -20,10 +20,15 @@ the main loop as an ordinary tool result.
 | **Verifier** | `delegate_verifier` | read-only + verify_code, verify_html, run_tests, git_diff, git_status | verdict (PASS / PASS WITH NOTES / FAIL) + defect list |
 | **Workers** | `delegate_workers` | read-only + write_file/edit_file **inside assigned scopes only** | one report per worker, in submission order |
 
-When to expect them: the main model delegates on its own judgement —
-exploration that would flood its context, an independent second opinion
-before claiming completion, and mechanical multi-file work. You can also
-ask for it explicitly in chat ("kirim Verifier untuk cek ulang hasil edit").
+When to expect them: since UPDATE-022 the main model is instructed to
+delegate PROACTIVELY, on its own judgement, without waiting to be asked —
+exploration of unfamiliar code (roughly three files or more), an
+independent Verifier check before any non-trivial completion claim, and
+mechanical work across two or more disjoint files. Trivial single-file
+actions it still does itself, and the per-turn budget caps (§3) keep the
+initiative from burning quota. You can also ask for it explicitly in chat
+("kirim Verifier untuk cek ulang hasil edit"); an explicit user
+instruction — to delegate or not to — always wins.
 
 ## 2. Hard rules (v1)
 
@@ -41,15 +46,23 @@ ask for it explicitly in chat ("kirim Verifier untuk cek ulang hasil edit").
 * **Honest failure** — nothing raises into the main loop: budget, overlap,
   dead model or tool crashes all arrive as `[SUBAGENT ...]` strings the
   main model can read and react to.
+* **Worker edits feed the main ledger (UPDATE-022)** — every worker
+  `write_file`/`edit_file` outcome, INCLUDING scope rejections, is recorded
+  in the main turn's edit ledger (`session_state`). A completion claim
+  while a worker edit is still unrecovered gets challenged by name, exactly
+  like a failed edit by the main agent itself.
 
 ## 3. Budgets (per project, `.orion/orion_config.json`)
 
 Since UPDATE-017 the MAIN system prompt carries an explicit delegation
-policy (when delegating pays, how to scope workers, reports-as-evidence,
-budget honouring, built-ins-over-MCP-guests, claim-word discipline), and
-every role prompt ends with a claim-discipline sentence so sub-agent
-reports do not trip the main loop's completion-claim gate. Delegation is
-therefore taught, not just available.
+policy, and since UPDATE-022 that policy is PROACTIVE (delegate without
+being asked; triggers for Explorer/Verifier/Workers; budget caps as the
+quota guard rather than a reason to hesitate; an explicit user instruction
+always wins) — alongside the standing rules: how to scope workers,
+reports-as-evidence, budget honouring, built-ins-over-MCP-guests and
+claim-word discipline. Every role prompt ends with a claim-discipline
+sentence so sub-agent reports do not trip the main loop's completion-claim
+gate. Delegation is therefore taught, not just available.
 
 | Key | Default | Meaning |
 |---|---|---|

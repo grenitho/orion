@@ -246,6 +246,30 @@ def _schemas_for(role: str) -> list:
     return [t for t in TOOLS if t["function"]["name"] in allowed]
 
 
+def _catat_edit_ke_ledger(state: Any, tool: str, path: str, result: str) -> None:
+    """UPDATE-022: worker edits land in the MAIN turn's edit ledger.
+
+    A worker's failed write/edit (including a scope rejection) used to be
+    visible only inside the sub-agent report text — the main loop's claim
+    gate never saw it, the exact defect class of the InvoiceFlow M1
+    incident one layer down. Successes are recorded too, so a later retry
+    marks the path recovered. Never raises: the ledger must not be able to
+    kill a sub-run. ``state=None`` keeps every old call site valid.
+    """
+    if state is None or not hasattr(state, "catat_edit_gagal"):
+        return
+    try:
+        if isinstance(result, str) and result.lower().startswith("success"):
+            state.catat_edit_sukses(path)
+        else:
+            first_line = (
+                str(result).splitlines()[0][:200] if result else "no result"
+            )
+            state.catat_edit_gagal(path, f"[{tool} via sub-agent] {first_line}")
+    except Exception:  # noqa: BLE001 - bookkeeping must never break a run
+        pass
+
+
 # --------------------------------------------------------------------------
 # One sub-run
 # --------------------------------------------------------------------------
@@ -259,6 +283,7 @@ async def run_subagent(
     scope: list | None = None,
     project_map: str = "",
     logger: Any = None,
+    state: Any = None,
 ) -> dict:
     """Run ONE sub-agent to completion or cap. Never raises.
 
@@ -319,12 +344,24 @@ async def run_subagent(
                             )
                         else:
                             result = str(getattr(tool_executor, name)(**args))
+                        # >>> UPDATE-022: the main turn's ledger sees every
+                        # worker edit outcome — scope rejections included.
+                        _catat_edit_ke_ledger(state, name, target, result)
                     else:
                         method = getattr(tool_executor, name, None)
                         if method is None:
                             result = f"{PREFIX_GUARD} tool '{name}' does not exist here."
                         else:
                             result = str(method(**args))
+                            if name in ("write_file", "edit_file"):
+                                # Defensive: only workers hold write tools
+                                # today; if a toolset ever widens, the ledger
+                                # must not miss the edit.
+                                _catat_edit_ke_ledger(
+                                    state, name,
+                                    os.path.normpath(str(args.get("file_path", ""))),
+                                    result,
+                                )
                     ctx.add("tool", result)
                 continue
             last_content = (msg.content or "").strip()
@@ -440,6 +477,7 @@ async def dispatch(
                 scope=item.get("files") or [],
                 project_map=project_map,
                 logger=logger,
+                state=state,  # UPDATE-022: worker edits feed the main ledger
             )
             return f"--- worker {index + 1} ---\n{_format_report(WORKER, outcome)}"
 
@@ -463,5 +501,7 @@ async def dispatch(
         max_iter=cfg["max_iter"],
         project_map=project_map,
         logger=logger,
+        state=state,  # UPDATE-022: read-only roles never edit, but the
+        # ledger hook is uniform (and future-proof) for every role
     )
     return _format_report(role, outcome)

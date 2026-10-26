@@ -36,3 +36,23 @@ def test_prompt_statik_tanpa_placeholder():
     silently swallow literal text)."""
     assert "{" not in SYSTEM_PROMPT
     assert "}" not in SYSTEM_PROMPT
+
+
+def test_delegasi_proaktif_update_022():
+    """UPDATE-022 (owner directive): the policy must demand INITIATIVE.
+
+    Under the old 'Delegate ONLY when it pays' rule Orion never delegated
+    once during the whole InvoiceFlow M1 trial — it behaved as if waiting
+    for the user to ask. The proactive posture is now a tested contract,
+    and the old restrictive wording must never silently return.
+    """
+    assert "Delegate PROACTIVELY" in SYSTEM_PROMPT
+    assert "never wait for the user to ask" in SYSTEM_PROMPT
+    assert "Delegate ONLY when it pays" not in SYSTEM_PROMPT
+    # the three triggers, the budget framing and the user-override all stay
+    for frag in (
+        "EXPLORER", "VERIFIER", "WORKERS",
+        "already protect the user's quota",
+        "the user's instruction wins",
+    ):
+        assert frag in SYSTEM_PROMPT

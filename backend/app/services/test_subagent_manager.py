@@ -431,3 +431,77 @@ def test_role_prompts_disiplin_kata_klaim():
     for role, prompt in sa.ROLE_PROMPTS.items():
         assert "completion-claim words" in prompt, role
         assert "selesai" in prompt and "berhasil" in prompt, role
+
+
+# ------------------------------- UPDATE-022: worker edits feed the MAIN ledger
+
+def test_worker_edit_sukses_masuk_ledger():
+    state = SessionState()
+    llm = ScriptedLLM([
+        {"tool_calls": [tc("write_file", {"file_path": "a.txt", "content": "x"})]},
+        {"content": LONG},
+    ])
+    asyncio.run(sa.run_subagent(
+        sa.WORKER, "tulis a.txt", llm_call=llm, tool_executor=FakeExecutor(),
+        scope=["a.txt"], state=state,
+    ))
+    assert [e["path"] for e in state.edit_sukses] == ["a.txt"]
+    assert state.edit_gagal == []
+    assert state.edit_gagal_belum_pulih() == []
+
+
+def test_worker_edit_gagal_masuk_ledger_dan_menantang_klaim():
+    """The InvoiceFlow defect class one layer down: a worker's FAILED edit
+    must reach the main turn's claim gate, not just the report text."""
+    state = SessionState()
+    llm = ScriptedLLM([
+        {"tool_calls": [tc("edit_file", {"file_path": "a.txt", "diff": "d"})]},
+        {"content": LONG},
+    ])
+    executor = FakeExecutor()
+    executor.edit_file = lambda file_path="", **kw: (
+        "Error: SEARCH block not found in the original file."
+    )
+    asyncio.run(sa.run_subagent(
+        sa.WORKER, "edit a.txt", llm_call=llm, tool_executor=executor,
+        scope=["a.txt"], state=state,
+    ))
+    belum = state.edit_gagal_belum_pulih()
+    assert [g["path"] for g in belum] == ["a.txt"]
+    assert "via sub-agent" in belum[0]["alasan"]
+
+    # the main gate now challenges a claim despite an unrelated real edit
+    from app.services import loop_guards
+    state.catat_file_berubah("- `config.py` (edit_file)")
+    assert loop_guards.evaluasi_akhir_iterasi(
+        state, "The task is finished and every file has been written.",
+        iterasi=1, max_iter=20, sisa_todo=[], maks_nudge=10, maks_verifikasi=2,
+    ) is loop_guards.Keputusan.TANTANG_EDIT_GAGAL
+
+
+def test_worker_scope_ditolak_masuk_ledger():
+    state = SessionState()
+    llm = ScriptedLLM([
+        {"tool_calls": [tc("write_file", {"file_path": "luar.txt", "content": "x"})]},
+        {"content": LONG},
+    ])
+    asyncio.run(sa.run_subagent(
+        sa.WORKER, "tulis luar.txt", llm_call=llm, tool_executor=FakeExecutor(),
+        scope=["a.txt"], state=state,
+    ))
+    belum = state.edit_gagal_belum_pulih()
+    assert [g["path"] for g in belum] == ["luar.txt"]
+    assert sa.PREFIX_SCOPE in belum[0]["alasan"]
+
+
+def test_ledger_opsional_state_none_tetap_jalan():
+    """Old call sites (state=None) keep working — the hook is additive."""
+    llm = ScriptedLLM([
+        {"tool_calls": [tc("write_file", {"file_path": "a.txt", "content": "x"})]},
+        {"content": LONG},
+    ])
+    out = asyncio.run(sa.run_subagent(
+        sa.WORKER, "tulis a.txt", llm_call=llm, tool_executor=FakeExecutor(),
+        scope=["a.txt"],
+    ))
+    assert out["status"] == "ok"
