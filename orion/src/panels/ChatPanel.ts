@@ -119,7 +119,22 @@ export class ChatPanel {
                         margin: 8px 0; padding: 8px 12px; 
                         border-radius: 6px; max-width: 95%; 
                         word-wrap: break-word; line-height: 1.5; 
+                        position: relative; user-select: text; -webkit-user-select: text; 
                     }
+                    /* >>> UPDATE-022 Commit 3: per-bubble Copy button. The bar
+                       sits top-right inside the bubble, subtle until hover.
+                       The button is a SECONDARY action: transparent background
+                       + explicit border, because a theme can render
+                       secondaryBackground transparent (UI rule). */
+                    .msg-bar { display: flex; justify-content: flex-end; margin: -4px -4px 2px 0; }
+                    .copy-btn { padding: 1px 8px; font-size: 10px; font-weight: normal;
+                                background: transparent; color: var(--vscode-descriptionForeground);
+                                border: 1px solid var(--vscode-panel-border, #555); border-radius: 3px;
+                                opacity: 0.55; cursor: pointer; }
+                    .msg:hover .copy-btn, .copy-btn:focus { opacity: 1; }
+                    .copy-btn:hover { color: var(--vscode-foreground);
+                                      border-color: var(--vscode-focusBorder, #007fd4); }
+                    .msg-body { user-select: text; -webkit-user-select: text; }
                     .user { 
                         background-color: var(--vscode-input-background); 
                         color: var(--vscode-input-foreground); 

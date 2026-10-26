@@ -3,6 +3,19 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1] - 2026-10-26
+
+### Added
+- **Per-bubble Copy button in the chat panel** (companion backend 0.9.4):
+  every message bubble now carries a small `Copy` button that copies the
+  RAW pre-markdown text of that message — no more screenshots as a
+  substitute for copying. Streaming re-renders only the bubble body, so
+  the button never flickers away mid-answer; `navigator.clipboard` is
+  used when available with a `document.execCommand('copy')` fallback, and
+  message text is explicitly selectable (`user-select: text`). The button
+  is a secondary action with an explicit border fallback, per the UI rule
+  that themes may render secondary backgrounds transparent.
+
 ## [0.4.0] - 2026-10-25
 
 ### Added

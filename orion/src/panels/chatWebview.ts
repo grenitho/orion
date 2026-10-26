@@ -50,13 +50,76 @@
                         return tempDiv.innerHTML;
                             }
 
-                    function appendMsg(text, type) {
+                    // >>> UPDATE-022 Commit 3: per-bubble Copy button. The
+                    // owner was screenshotting answers because the raw text
+                    // could not be taken out of the panel. Every bubble is
+                    // now a bar (Copy) + a .msg-body; streaming re-renders
+                    // ONLY the body, so the button never flickers away, and
+                    // the RAW pre-markdown text stays on the bubble
+                    // (.__orionRaw) — Copy returns exactly what the backend
+                    // sent, not a DOM-reconstructed approximation.
+                    function copyFeedback(btn, ok) {
+                        btn.textContent = ok ? '\u2713 Copied' : 'Copy failed';
+                        setTimeout(function () { btn.textContent = 'Copy'; }, 1400);
+                    }
+                    function copyViaExecCommand(text, btn) {
+                        // Fallback for webviews where navigator.clipboard is
+                        // unavailable or rejects (focus/permission quirks).
+                        try {
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.style.cssText = 'position:fixed;top:-1000px;left:0;opacity:0';
+                            document.body.appendChild(ta);
+                            ta.focus();
+                            ta.select();
+                            const ok = document.execCommand('copy');
+                            document.body.removeChild(ta);
+                            copyFeedback(btn, ok);
+                        } catch (e) {
+                            copyFeedback(btn, false);
+                        }
+                    }
+                    function copyBubble(bubble, btn) {
+                        const body = bubble.querySelector('.msg-body');
+                        const raw = (typeof bubble.__orionRaw === 'string' && bubble.__orionRaw !== '')
+                            ? bubble.__orionRaw
+                            : ((body || bubble).innerText || '');
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(raw).then(
+                                function () { copyFeedback(btn, true); },
+                                function () { copyViaExecCommand(raw, btn); }
+                            );
+                        } else {
+                            copyViaExecCommand(raw, btn);
+                        }
+                    }
+                    function makeBubble(type) {
                         const div = document.createElement('div');
                         div.className = 'msg ' + type;
+                        div.__orionRaw = '';
+                        const bar = document.createElement('div');
+                        bar.className = 'msg-bar';
+                        const copyBtn = document.createElement('button');
+                        copyBtn.className = 'copy-btn';
+                        copyBtn.textContent = 'Copy';
+                        copyBtn.title = 'Copy the raw text of this message';
+                        copyBtn.addEventListener('click', function () { copyBubble(div, copyBtn); });
+                        bar.appendChild(copyBtn);
+                        const body = document.createElement('div');
+                        body.className = 'msg-body';
+                        div.appendChild(bar);
+                        div.appendChild(body);
+                        return div;
+                    }
+
+                    function appendMsg(text, type) {
+                        const div = makeBubble(type);
+                        const body = div.querySelector('.msg-body');
+                        div.__orionRaw = text;
                         if (type === 'user') {
-                            div.innerText = text;
+                            body.innerText = text;
                         } else {
-                            div.innerHTML = renderMarkdown(text);
+                            body.innerHTML = renderMarkdown(text);
                         }
                         container.appendChild(div);
                         container.scrollTop = container.scrollHeight;
@@ -66,14 +129,23 @@
                     function appendTokenToLastAi(token) {
                         let lastAi = container.querySelector('.msg.ai:last-child');
                         if (!lastAi) {
-                            lastAi = document.createElement('div');
-                            lastAi.className = 'msg ai';
+                            lastAi = makeBubble('ai');
                             container.appendChild(lastAi);
                             currentAiText = ""; // Reset the buffer for a new AI message
                         }
+                        let body = lastAi.querySelector('.msg-body');
+                        if (!body) {
+                            // Defensive: only reachable if a bubble from an
+                            // older shape survived; never crash the stream.
+                            body = document.createElement('div');
+                            body.className = 'msg-body';
+                            lastAi.appendChild(body);
+                        }
                         currentAiText += token;
-                        // Re-render in real time while streaming
-                        lastAi.innerHTML = renderMarkdown(currentAiText);
+                        lastAi.__orionRaw = currentAiText;
+                        // Re-render in real time while streaming — the body
+                        // only, so the Copy button in the bar stays put.
+                        body.innerHTML = renderMarkdown(currentAiText);
                         container.scrollTop = container.scrollHeight;
                     }
 
