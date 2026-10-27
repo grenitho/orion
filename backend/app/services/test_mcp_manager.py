@@ -934,3 +934,29 @@ def test_route_mcp_config_meneruskan_field_enabled(monkeypatch, tmp_path):
             (tmp_path / ".orion" / "orion_config.json").read_text(encoding="utf-8")
         )
         assert cfg["mcp_enabled"] is False
+
+
+# ------------------- UPDATE-024 Commit 5: service-role loan guard (warning)
+
+def _jwt(payload_obj):
+    import base64 as _b64
+    import json as _json
+    seg = lambda o: _b64.urlsafe_b64encode(
+        _json.dumps(o).encode()).decode().rstrip("=")
+    return f"eyJ.{seg(payload_obj)}.signaturepart"
+
+
+def test_service_role_supabase_memicu_peringatan():
+    spec, warns = build_server_spec(
+        "supabase",
+        {"command": "npx", "env": {"SUPABASE_KEY": _jwt({"role": "service_role"})}},
+    )
+    assert spec is not None                      # forgiving: starts, but loud
+    assert any("SERVICE-ROLE" in w for w in warns)
+
+
+def test_kunci_anon_dan_plain_tidak_memicu_peringatan():
+    for nilai in (_jwt({"role": "anon"}), "sk-biasa-bukan-jwt", 42, None):
+        _, warns = build_server_spec(
+            "supabase", {"command": "npx", "env": {"K": nilai}})
+        assert not any("SERVICE-ROLE" in w for w in warns), nilai

@@ -90,7 +90,11 @@ from pathlib import Path
 # field (owner directive: sub-run token usage is billing/trial data;
 # a silent sub-agent burning tokens was the same defect class as a
 # silent profile fallback). Additive logging only — patch bump.
-BACKEND_VERSION = "0.10.1"
+# Bumped 0.10.1 -> 0.10.2 for UPDATE-024 commits 2-5: hardened stdout
+# sink (the 707-block logging spam), pinned sub-run retry + budget
+# refund, the vibe-coder conversation clause, and the Supabase loan
+# package (docs, template, service-role warning, floor rule).
+BACKEND_VERSION = "0.10.2"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

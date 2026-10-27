@@ -107,6 +107,7 @@ def test_arsitektur_tiga_lapis_update_023():
         "PORT 8000 IS OCCUPIED BY THE ORION BACKEND ITSELF",
         "AUTO SYNTAX CHECK",
         "run the parser, not your eyes",
+        "Database loans (Supabase or similar via MCP) are borrowed, never owned",
         "believe the user",
         "first build the todo list from the remaining plan",
         "VERIFIED FACT",

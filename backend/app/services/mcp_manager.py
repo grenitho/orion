@@ -37,6 +37,7 @@ Design contract (see docs/24_Orion_MCP_Foundation.md):
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import re
@@ -269,6 +270,27 @@ class ServerSpec:
     disabled: bool = False
 
 
+def _mirip_service_role_supabase(value: Any) -> bool:
+    """Heuristic (UPDATE-024 Commit 5): a Supabase service-role key is a JWT
+    whose payload claims role=service_role. The loan design
+    (docs/SUPABASE_LOAN.md) forbids lending that key to Orion; detection
+    WARNS (never blocks — the forgiving-spec philosophy stands) so a unsafe
+    configuration is loud at startup instead of silent in production."""
+    if not isinstance(value, str):
+        return False
+    token = value.strip()
+    parts = token.split(".")
+    if len(parts) != 3 or not token.startswith("eyJ"):
+        return False
+    payload = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii")).decode(
+            "utf-8", "replace")
+    except Exception:  # noqa: BLE001 - not a JWT we can read, not our business
+        return False
+    return '"role"' in decoded and "service_role" in decoded
+
+
 _KNOWN_SPEC_KEYS = {"command", "args", "env", "timeoutSeconds", "disabled"}
 
 
@@ -295,6 +317,19 @@ def build_server_spec(name: str, raw: Any) -> tuple[ServerSpec | None, list[str]
         )
     if not isinstance(raw, dict):
         return None, [f"MCP server '{clean_name}' must be a JSON object; entry skipped"]
+
+    env_raw = raw.get("env")
+    if isinstance(env_raw, dict):
+        for kunci, nilai in env_raw.items():
+            if _mirip_service_role_supabase(nilai):
+                warnings.append(
+                    f"MCP server '{clean_name}': env key '{kunci}' is shaped like a "
+                    "Supabase SERVICE-ROLE key (JWT role=service_role). The loan "
+                    "design (docs/SUPABASE_LOAN.md) forbids lending that key: "
+                    "rebuild with a personal access token and the read-only "
+                    "flavour. The server still starts, but treat this "
+                    "configuration as unsafe for trials."
+                )
 
     unknown = sorted(set(raw) - _KNOWN_SPEC_KEYS)
     if unknown:

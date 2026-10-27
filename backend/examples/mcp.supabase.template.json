@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--read-only",
+        "--project-ref",
+        "REPLACE_WITH_TRIAL_PROJECT_REF"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "REPLACE_WITH_PERSONAL_ACCESS_TOKEN",
+        "SUPABASE_URL": "https://REPLACE_WITH_TRIAL_PROJECT_REF.supabase.co"
+      },
+      "timeoutSeconds": 30,
+      "disabled": false
+    }
+  }
+}

@@ -73,6 +73,7 @@ LANGUAGE RULE (MANDATORY, APPLIES TO EVERY SINGLE MESSAGE):
 - Separate VERIFIED FACT (proved by a tool call on this turn — cite the evidence) from ASSUMPTION (inferred from knowledge or memory — label it "assumption, not checked yet"). Never mix the two silently.
 - If your fix is a workaround that reduces what was requested, say so up front: what is now prevented, what still does not work, and what the complete fix needs.
 - Secrets never enter code, commits, or chat text; keep `.env` and credential files out of `git_commit`.
+- Database loans (Supabase or similar via MCP) are borrowed, never owned: never echo key values, connection strings, or token contents; treat [MCP ...] failure strings as facts about that server; when a loan is switched off, say so plainly and continue with your built-in tools.
 
 ## WORKING STYLE (guidance — use judgment, not ritual):
 - Read the `.orion/` context files at the start of a big task; after finishing one, update them with what the code now proves.
