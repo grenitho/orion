@@ -670,7 +670,17 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     compressed_messages.append(compressed_msg)
 
                 # LAYER 1: lower the threshold from 5000 to 3000
-                elif msg.get("role") == "tool" and content_len > 3000:
+                # >>> UPDATE-024 Commit 6 exemption: a sub-agent REPORT is
+                # exactly the payload this rule used to gut — the placeholder
+                # says "see the assistant's conclusion", but conclusions get
+                # summarize-compressed and the findings evaporate (owner
+                # transcript 2026-10-27). Reports stay whole; the findings
+                # ledger holds the durable condensed copy regardless.
+                elif (
+                    msg.get("role") == "tool"
+                    and content_len > 3000
+                    and not str(msg.get("content") or "").startswith("[SUBAGENT REPORT")
+                ):
                     if i < total_msgs - 2:
                         compressed_msg = msg.copy()
                         compressed_msg["content"] = (

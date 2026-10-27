@@ -42,6 +42,7 @@ import os
 import time
 from typing import Any, Callable
 
+from app.services import findings_ledger
 from app.services.perf_log import log_performance
 from app.services.tools_schema import TOOLS
 
@@ -548,6 +549,13 @@ async def dispatch(
         # eat the turn's budget — refund it so the main agent may retry once.
         if _semua_error(outcomes):
             state.subagent_calls = max(0, state.subagent_calls - 1)
+        else:
+            # >>> UPDATE-024 Commit 6: worker reports enter the findings
+            # ledger so next turn's context still knows what they found.
+            for _idx, _rep in enumerate(outcomes):
+                findings_ledger.simpan_temuan(
+                    getattr(tool_executor, "project_path", "."),
+                    f"workers#{_idx + 1}", _rep)
         return "\n\n".join(outcomes)
 
     # explorer / verifier: single sequential sub-run
@@ -570,4 +578,11 @@ async def dispatch(
     )
     if outcome.get("status") == "error":
         state.subagent_calls = max(0, state.subagent_calls - 1)
+    else:
+        # >>> UPDATE-024 Commit 6: the report becomes durable conversation
+        # memory (findings ledger), immune to history pruning/summarize —
+        # the fix for "Orion forgot its own explorer findings next turn".
+        findings_ledger.simpan_temuan(
+            getattr(tool_executor, "project_path", "."),
+            role, _format_report(role, outcome))
     return _format_report(role, outcome)

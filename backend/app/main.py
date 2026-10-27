@@ -169,7 +169,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app.services import auth, sse, stream_utils
+from app.services import auth, findings_ledger, sse, stream_utils
 from app.services import tool_dispatch
 from app.services.agent_loop import Deps, aliran_agent
 from app.services.session_state import SessionState
@@ -1065,7 +1065,11 @@ async def chat_with_orion(request: ChatRequest):
         # loop rebuilds api_messages from deps.context_message), absent
         # from the persisted history — "visible THIS TURN ONLY". Empty
         # string when the inbox brought nothing (byte-identical stream).
-        + _inbox_block,
+        + _inbox_block
+        # >>> UPDATE-024 Commit 6: the findings ledger rides the per-turn
+        # context message exactly like the inbox block — present every
+        # iteration, never summarized away, empty string when unused.
+        + findings_ledger.blok_konteks(context_manager.project_path),
     }
 
     # >>> END OF CACHE OPTIMIZATION <<<
