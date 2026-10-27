@@ -101,3 +101,52 @@ def test_writer_mewakili_attribut_file(tmp_path, monkeypatch):
     finally:
         w.close()
     assert log.read_text(encoding="utf-8") == "hello\n"
+
+
+# ------------------------- UPDATE-024 Commit 2: the unkillable, race-free sink
+
+def test_flush_pada_handle_mati_tidak_meledak(tmp_path):
+    """Owner forensics 2026-10-27: 707 x 60-line 'Logging error OSError
+    EINVAL' blocks because a flush on a disturbed handle escaped into
+    logging's error printer. flush() must swallow it and self-heal."""
+    w = RotatingFileWriter(tmp_path / "orion_stdout.log")
+    w._file.close()                       # simulate the dead handle
+    w.flush()                             # must NOT raise
+    w.write("setelah sembuh\n")           # self-heal on next use
+    w.flush()
+    assert "setelah sembuh" in (tmp_path / "orion_stdout.log").read_text(encoding="utf-8")
+
+
+def test_write_ke_handle_mati_degradasi_senyap(tmp_path):
+    w = RotatingFileWriter(tmp_path / "orion_stdout.log")
+    w._file.close()
+    n = w.write("baris yang hilang wajar\n")   # swallowed, returns len
+    assert n == len("baris yang hilang wajar\n")
+    w.write("baris berikutnya hidup\n")        # reopened by the heal path
+    assert "baris berikutnya hidup" in (tmp_path / "orion_stdout.log").read_text(encoding="utf-8")
+
+
+def test_writer_tahan_banjir_multithread(tmp_path, monkeypatch):
+    """Rotation from one thread while others write/flush: no exception may
+    escape (the old unlocked sink raced exactly here)."""
+    import threading
+
+    _shrink(monkeypatch, max_bytes=400)
+    w = RotatingFileWriter(tmp_path / "orion_stdout.log")
+    errors = []
+
+    def pekerja(idx):
+        try:
+            for i in range(60):
+                w.write(f"t{idx} baris {i} cukup panjang untuk memaksa rotasi\n")
+                w.flush()
+        except Exception as e:  # noqa: BLE001 - the test IS the guard
+            errors.append(e)
+
+    threads = [threading.Thread(target=pekerja, args=(i,)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert (tmp_path / "orion_stdout.log").exists()

@@ -24,6 +24,7 @@ after this update.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 MAX_BYTES = 5 * 1024 * 1024   # same cap as backend.log (RotatingFileHandler)
@@ -67,24 +68,38 @@ class RotatingFileWriter:
     def __init__(self, path: Path | str, encoding: str = "utf-8"):
         self._path = Path(path)
         self._encoding = encoding
+        # >>> UPDATE-024 Commit 2: one lock for the whole write/rotate/flush
+        # path. Owner log forensics (2026-10-27): 707 copies of a 60-line
+        # "Logging error / OSError EINVAL" block — ~75% of a 56k-line log —
+        # because uvicorn's access logger flushes this sink from request
+        # threads while rotation could swap the underlying file from
+        # another thread. The sink must be unkillable AND race-free.
+        self._lock = threading.Lock()
         # Reclaim an already-oversized legacy log on open (the pre-013 file
         # was unbounded, so the first start after the update should shrink it).
         rotate_now(self._path)
         self._file = open(self._path, "a", encoding=encoding, buffering=1)
 
-    # -- the write path ------------------------------------------------------
+    # -- write path ------------------------------------------------------
 
     def write(self, s) -> int:
         if not isinstance(s, str):
             s = str(s)
-        try:
-            # character count as a byte estimate — good enough for a cap, and
-            # far cheaper than encoding every line just to measure it
-            if self._file.tell() + len(s) >= MAX_BYTES:
-                self._rotate()
-        except (OSError, ValueError):
-            pass  # a closed/odd underlying file must never kill a print()
-        return self._file.write(s)
+        with self._lock:
+            try:
+                # character count as a byte estimate — good enough for a cap, and
+                # far cheaper than encoding every line just to measure it
+                if self._file.tell() + len(s) >= MAX_BYTES:
+                    self._rotate()
+            except (OSError, ValueError):
+                pass  # a closed/odd underlying file must never kill a print()
+            try:
+                return self._file.write(s)
+            except (OSError, ValueError):
+                # >>> UPDATE-024: a dead handle must degrade to silence, not
+                # into a 60-line logging-error block per request.
+                self._reopen_quietly()
+                return len(s)
 
     def writelines(self, lines) -> None:
         for line in lines:
@@ -99,10 +114,33 @@ class RotatingFileWriter:
         rotate_now(self._path, force=True)
         self._file = open(self._path, "a", encoding=self._encoding, buffering=1)
 
+    def _reopen_quietly(self) -> None:
+        """Self-heal after a write/flush hit a dead handle (UPDATE-024).
+
+        Called WITH the lock held. Never raises: if even the reopen fails
+        the sink keeps a closed file and swallows output — losing log
+        lines is always better than flooding the log with the complaint
+        about losing log lines.
+        """
+        try:
+            self._file.close()
+        except (OSError, ValueError):
+            pass
+        try:
+            self._file = open(self._path, "a", encoding=self._encoding, buffering=1)
+        except OSError:
+            pass
+
     # -- passthroughs that matter for sys.stdout ------------------------------
 
     def flush(self) -> None:
-        self._file.flush()
+        # >>> UPDATE-024 Commit 2: guarded + locked. This exact call is where
+        # the OSError EINVAL escaped into logging's error printer 707 times.
+        with self._lock:
+            try:
+                self._file.flush()
+            except (OSError, ValueError):
+                self._reopen_quietly()
 
     def close(self) -> None:
         self._file.close()
