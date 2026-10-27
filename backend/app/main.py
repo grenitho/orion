@@ -65,6 +65,17 @@ except OSError:  # pragma: no cover - last resort: historical home location
     sys.stdout = _open_stdout_sink(_STDOUT_LOG_PATH)
 sys.stderr = sys.stdout
 
+# >>> UPDATE-024 Commit 8: uvicorn's loggers may already exist (built against
+# the pre-redirect stderr handle, which goes invalid on console-less
+# Windows). Re-point them at the guarded sink NOW; the lifespan hook repeats
+# it for anything constructed between import and serve.
+try:
+    from app.stdout_rotation import repoint_handlers as _repoint_handlers
+
+    _repoint_handlers(sys.stderr)
+except Exception:  # noqa: BLE001 - logging hygiene must never block boot
+    pass
+
 # >>> CRITICAL FIX: load_dotenv() MUST be called HERE, FIRST, BEFORE any
 # module below is imported. Previously load_dotenv() was called far below
 # (after `from app.services.llm_router import get_ai_response`).
@@ -283,6 +294,12 @@ async def lifespan(_app: FastAPI):
     UPDATE-019: the OLD claim is read BEFORE it is overwritten (incident-013
     forensics): evidence of a racing or uncleanly-dead predecessor belongs
     in the log, not silently clobbered."""
+    try:
+        from app.stdout_rotation import repoint_handlers
+
+        repoint_handlers(sys.stderr)
+    except Exception:  # noqa: BLE001
+        pass
     _klaim_lama = runtime_id.read_pid_file()
     pid_path = runtime_id.write_pid_file()
     if _klaim_lama["exists"] and _klaim_lama["error"] is None:

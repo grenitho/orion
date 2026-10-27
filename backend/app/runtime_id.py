@@ -99,7 +99,16 @@ from pathlib import Path
 # exemption for sub-agent reports) and the memory-honesty contract
 # rule (name your source; re-derive or admit, never hallucinate
 # compliance, never search disk for conversation content).
-BACKEND_VERSION = "0.10.3"
+# Bumped 0.10.3 -> 0.10.4 for UPDATE-024 Commit 8: the REAL fix for the
+# logging-error spam. The 0.10.2 sink hardening guarded the wrong
+# object — uvicorn's access/error loggers hold the stderr handle
+# captured at uvicorn import time (pre-redirect; invalid on
+# console-less Windows), so their flush failures never touched the
+# guarded writer. repoint_handlers() now moves exactly the uvicorn*
+# StreamHandlers onto the guarded sink, at import and again at
+# lifespan startup; the owner growth-check (707 -> 719 blocks) is
+# what disproved the first fix.
+BACKEND_VERSION = "0.10.4"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

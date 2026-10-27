@@ -150,3 +150,26 @@ def test_writer_tahan_banjir_multithread(tmp_path, monkeypatch):
         t.join()
     assert errors == []
     assert (tmp_path / "orion_stdout.log").exists()
+
+
+def test_repoint_handlers_memindahkan_stream_handler():
+    """UPDATE-024 Commit 8: uvicorn's access logger held the PRE-redirect
+    stderr handle (invalid on console-less Windows -> EINVAL spam). Every
+    StreamHandler must move to the guarded sink."""
+    import io
+    import logging
+
+    logger = logging.getLogger("uvicorn.access")
+    lama = logging.StreamHandler(io.StringIO())
+    logger.handlers.append(lama)
+    try:
+        sentinel = RotatingFileWriter(__import__("tempfile").mktemp())
+        n = stdout_rotation.repoint_handlers(sentinel)
+        assert n >= 1
+        assert lama.stream is sentinel
+        # idempotent: second call re-points nothing new for this handler
+        sebelum = n
+        assert stdout_rotation.repoint_handlers(sentinel) <= sebelum
+    finally:
+        logger.handlers.remove(lama)
+        lama.close()

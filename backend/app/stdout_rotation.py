@@ -57,6 +57,39 @@ def rotate_now(path: Path | str, *, force: bool = False) -> bool:
         return False
 
 
+def repoint_handlers(stream) -> int:
+    """Point EVERY existing logging StreamHandler at ``stream`` (UPDATE-024 Commit 8).
+
+    Root cause of the 707-then-719-block spam, corrected after the owner's
+    growth check disproved the first fix: uvicorn builds its access/error
+    loggers with the sys.stderr captured at *uvicorn's* import time — on a
+    console-less Windows child that handle later fails flush with
+    OSError EINVAL, per request. Guarding the rotating writer could not
+    help because the failing stream was never the writer. Re-pointing every
+    StreamHandler at the guarded sink makes all log lines flow through the
+    one writer that swallows handle faults. Idempotent; returns the count
+    re-pointed. Handlers created later inherit sys.stderr, which main.py
+    has already replaced with the same sink.
+    """
+    import logging
+
+    count = 0
+    # Deliberately NOT the root logger: third-party StreamHandlers there
+    # (pytest capture, embedded apps) may rely on their own stream type.
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error", "watchfiles"):
+        for handler in list(logging.getLogger(name).handlers):
+            if (
+                isinstance(handler, logging.StreamHandler)
+                and getattr(handler, "stream", None) is not stream
+            ):
+                try:
+                    handler.setStream(stream)
+                    count += 1
+                except (OSError, ValueError):
+                    pass
+    return count
+
+
 class RotatingFileWriter:
     """Line-buffered append-mode text sink that rotates at MAX_BYTES.
 
