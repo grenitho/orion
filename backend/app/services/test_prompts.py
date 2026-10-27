@@ -95,6 +95,8 @@ def test_arsitektur_tiga_lapis_update_023():
         "2-3 concrete options",           # absence + options + recommendation
         "enumerates EVERY item",          # audits list per-item status
         "Keep internal machinery internal",  # no ritual dumps at the user
+        "Translate the user's everyday language",  # vibe-coder clause (024)
+        "I read this as:",  # interpretation stated, then acted on
     ):
         assert anchor in SYSTEM_PROMPT
 
