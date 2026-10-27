@@ -85,7 +85,12 @@ from pathlib import Path
 # A minor bump is the honest signal: existing chat behaviour changes
 # substantially (deliberately — one harness scenario re-registered), even
 # though no route or field changed shape.
-BACKEND_VERSION = "0.10.0"
+# Bumped 0.10.0 -> 0.10.1 for UPDATE-024 Commit 1: sub-agent LLM calls
+# are recorded in .orion/performance_log.jsonl with an additive "role"
+# field (owner directive: sub-run token usage is billing/trial data;
+# a silent sub-agent burning tokens was the same defect class as a
+# silent profile fallback). Additive logging only — patch bump.
+BACKEND_VERSION = "0.10.1"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

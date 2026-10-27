@@ -505,3 +505,75 @@ def test_ledger_opsional_state_none_tetap_jalan():
         scope=["a.txt"],
     ))
     assert out["status"] == "ok"
+
+
+# ------------------------- UPDATE-024 Commit 1: sub-run usage accounting
+
+def _llm_dengan_usage(script):
+    """ScriptedLLM variant whose responses carry usage + model (perf log)."""
+    state = {"i": 0}
+
+    async def _call(messages=None, tools=None):
+        await asyncio.sleep(0)
+        entry = script[state["i"]] if state["i"] < len(script) else {"content": LONG}
+        state["i"] += 1
+        msg = SimpleNamespace(
+            content=entry.get("content"),
+            tool_calls=entry.get("tool_calls"),
+            reasoning_content=None,
+        )
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=msg)],
+            usage=SimpleNamespace(prompt_tokens=11, completion_tokens=5),
+            model="mock-model",
+        )
+    return _call
+
+
+def _baris_perf(tmp_path):
+    import json as _json
+    path = tmp_path / ".orion" / "performance_log.jsonl"
+    assert path.exists(), "sub-run usage must land in performance_log.jsonl"
+    return [_json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def test_perf_log_subrun_mencatat_pemakaian_dengan_role(tmp_path):
+    llm = _llm_dengan_usage([
+        {"tool_calls": [tc("read_file", {"file_path": "a.txt"})]},
+        {"content": LONG},
+    ])
+    asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "petakan modul", llm_call=llm,
+        tool_executor=FakeExecutor(project_path=str(tmp_path)),
+    ))
+    baris = _baris_perf(tmp_path)
+    assert len(baris) == 2                      # one line per sub LLM call
+    for b in baris:
+        assert b["role"] == "explorer"
+        assert b["model"] == "mock-model"
+        assert b["input_tokens"] == 11 and b["output_tokens"] == 5
+        assert b["status"] == "success"
+
+
+def test_perf_log_role_worker_untuk_workers(tmp_path):
+    llm = _llm_dengan_usage([{"content": LONG}])
+    asyncio.run(sa.run_subagent(
+        sa.WORKER, "tulis a.txt", llm_call=llm,
+        tool_executor=FakeExecutor(project_path=str(tmp_path)),
+        scope=["a.txt"],
+    ))
+    assert _baris_perf(tmp_path)[0]["role"] == "worker"
+
+
+def test_perf_log_panggilan_gagal_tetap_tercatat(tmp_path):
+    async def llm_meledak(**kwargs):
+        raise RuntimeError("pin mati mendadak")
+
+    out = asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "petakan modul", llm_call=llm_meledak,
+        tool_executor=FakeExecutor(project_path=str(tmp_path)),
+    ))
+    assert out["status"] == "error"
+    baris = _baris_perf(tmp_path)
+    assert len(baris) == 1 and baris[0]["status"] == "error"
+    assert baris[0]["role"] == "explorer"

@@ -32,7 +32,6 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
 from typing import AsyncIterator, Callable
 
 import tiktoken
@@ -40,6 +39,11 @@ import tiktoken
 from app.services import loop_guards, research_rules, sse, tool_dispatch
 from app.services import subagent_manager
 from app.services.llm_router import get_ai_response
+# >>> UPDATE-024 Commit 1: the jsonl writer moved to perf_log.py so
+# subagent_manager can record sub-run usage without a circular import.
+# Re-exported here for backwards compatibility with any caller that
+# imported it from agent_loop since Phase C.
+from app.services.perf_log import log_performance
 from app.services.prompts import SYSTEM_PROMPT
 from app.services.session_state import SessionState
 from app.services.tools_schema import TOOLS
@@ -210,45 +214,6 @@ async def summarize_old_history(old_messages: list) -> str:
         messages=[{"role": "user", "content": prompt}], tools=None
     )
     return response.choices[0].message.content
-
-
-def log_performance(
-    project_path: str,
-    model: str,
-    input_tokens: int,
-    output_tokens: int,
-    duration_ms: float,
-    status: str,
-):
-    """Record API usage statistics to the .orion/performance_log.jsonl file"""
-    try:
-        orion_dir = os.path.join(project_path, ".orion")
-        os.makedirs(orion_dir, exist_ok=True)
-        log_file = os.path.join(orion_dir, "performance_log.jsonl")
-
-        # >>> REALISTIC PRICING (DeepSeek V3/R1 via API) <<<
-        price_input_per_million = 0.14
-        price_output_per_million = 0.28
-
-        estimated_cost_usd = (input_tokens / 1_000_000) * price_input_per_million + (
-            output_tokens / 1_000_000
-        ) * price_output_per_million
-
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "model": model,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "estimated_cost_usd": round(estimated_cost_usd, 6),
-            "duration_ms": round(duration_ms, 2),
-            "status": status,
-        }
-
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(log_entry) + "\n")
-
-    except Exception as e:
-        print(f"[ORION PERF LOG WARNING] Failed to record log: {e}")
 
 
 async def execute_summarize(context_manager, history, threshold=15):

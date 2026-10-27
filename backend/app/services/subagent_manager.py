@@ -39,8 +39,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from typing import Any, Callable
 
+from app.services.perf_log import log_performance
 from app.services.tools_schema import TOOLS
 
 # --------------------------------------------------------------------------
@@ -241,6 +243,36 @@ class MiniContext:
         return list(self.history)
 
 
+def _catat_perf_subrun(tool_executor: Any, response: Any, role: str,
+                       mulai: float) -> None:
+    """Record ONE sub-run LLM call into .orion/performance_log.jsonl
+    (UPDATE-024 Commit 1, owner directive: sub-run token usage is user data).
+
+    Entries carry the additive ``role`` field ("explorer"/"verifier"/
+    "worker") so per-role accounting is possible; the main loop's entries
+    keep their exact old shape. ``response=None`` records the failed-call
+    shape (status "error", zero tokens). Never raises: bookkeeping must
+    not kill a sub-run — same rule as the ledger hook.
+    """
+    try:
+        proj = getattr(tool_executor, "project_path", None) or "."
+        if response is None:
+            log_performance(proj, "sub-run-failed", 0, 0, 0.0, "error", role=role)
+            return
+        usage = getattr(response, "usage", None)
+        log_performance(
+            proj,
+            getattr(response, "model", None) or "auto_rotated_model",
+            getattr(usage, "prompt_tokens", 0) or 0,
+            getattr(usage, "completion_tokens", 0) or 0,
+            (time.perf_counter() - mulai) * 1000,
+            "success",
+            role=role,
+        )
+    except Exception:  # noqa: BLE001 - bookkeeping never breaks a run
+        pass
+
+
 def _schemas_for(role: str) -> list:
     allowed = ROLE_TOOLSETS[role]
     return [t for t in TOOLS if t["function"]["name"] in allowed]
@@ -314,7 +346,11 @@ async def run_subagent(
 
     try:
         for i in range(max_iter):
+            _mulai_panggilan = time.perf_counter()
             response = await llm_call(messages=ctx.messages(), tools=tools)
+            # >>> UPDATE-024 Commit 1: record the call BEFORE interpreting it
+            # — tokens were spent whether or not the answer is usable.
+            _catat_perf_subrun(tool_executor, response, role, _mulai_panggilan)
             choices = getattr(response, "choices", None)
             if not choices:
                 _log("empty model response; ending sub-run")
@@ -381,6 +417,9 @@ async def run_subagent(
         }
     except Exception as exc:  # the loop must never die because of a sub-run
         _log(f"sub-run failed: {type(exc).__name__}: {exc}")
+        # >>> UPDATE-024 Commit 1: a failed sub-call still belongs in the
+        # usage log (status "error"), so trial data never hides a dead pin.
+        _catat_perf_subrun(tool_executor, None, role, 0.0)
         return {
             "summary": f"{PREFIX_ERROR} {role} sub-run failed: {type(exc).__name__}: {str(exc)[:200]}",
             "iterations": 0,
