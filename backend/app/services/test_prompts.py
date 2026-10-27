@@ -56,3 +56,57 @@ def test_delegasi_proaktif_update_022():
         "the user's instruction wins",
     ):
         assert frag in SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------- UPDATE-023
+
+def test_arsitektur_tiga_lapis_update_023():
+    """The prompt is a contract-shaped tool, not a junk drawer.
+
+    UPDATE-023 rebuilt 22 intimidation-heavy sections (~6.1k tokens, 41 MUST,
+    16 MANDATORY, 7 STRICTLY, and ZERO rules about answering the user) into
+    three layers: conversation contract, non-negotiable floor, working style.
+    These ratchets stop the old rot from creeping back one incident-rule at
+    a time; the anchors pin the behaviours the owner's InvoiceFlow
+    transcripts proved missing.
+    """
+    import re
+
+    import tiktoken
+
+    # --- anti-bloat ratchets (measured at rewrite: 2941 tok / 5 sections) ---
+    enc = tiktoken.get_encoding("cl100k_base")
+    assert len(enc.encode(SYSTEM_PROMPT)) <= 3400, (
+        "system prompt re-bloated past the UPDATE-023 budget — every new "
+        "rule needs a deleted one, or belongs in code, not in prose"
+    )
+    assert len(re.findall(r"^## ", SYSTEM_PROMPT, re.M)) <= 7
+    assert len(re.findall(r"\bMUST\b", SYSTEM_PROMPT)) <= 6
+    assert "STRICTLY" not in SYSTEM_PROMPT
+    # the old intimidation vocabulary and stale project residue stay out
+    for gone in ("MOST CRITICAL", "STRICTLY MANDATORY", "TIE-BREAKER",
+                 "bob-assistant"):
+        assert gone not in SYSTEM_PROMPT
+
+    # --- layer 1: the conversation contract (the layer that was missing) ---
+    for anchor in (
+        "CONVERSATION CONTRACT",
+        "Answer the question that was actually asked",
+        "2-3 concrete options",           # absence + options + recommendation
+        "enumerates EVERY item",          # audits list per-item status
+        "Keep internal machinery internal",  # no ritual dumps at the user
+    ):
+        assert anchor in SYSTEM_PROMPT
+
+    # --- layer 2: the honesty floor keeps its teeth ---
+    for anchor in (
+        "Never claim a scope wider than your evidence",
+        "delegate the VERIFIER sub-agent and act on its verdict",
+        "PORT 8000 IS OCCUPIED BY THE ORION BACKEND ITSELF",
+        "AUTO SYNTAX CHECK",
+        "run the parser, not your eyes",
+        "believe the user",
+        "first build the todo list from the remaining plan",
+        "VERIFIED FACT",
+    ):
+        assert anchor in SYSTEM_PROMPT
