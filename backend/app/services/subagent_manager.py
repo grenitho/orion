@@ -125,6 +125,9 @@ CFG_MODELS = "subagent_models"
 ROLE_PROFILE_KEYS = {EXPLORER: "explorer", VERIFIER: "verifier", WORKER: "workers"}
 
 DEFAULT_MAX_ITER = 6
+# >>> UPDATE-024 Commit 3: backoff for the single quiet retry a pinned
+# profile call gets on failure (see _llm_with_profile).
+PROFILE_RETRY_BACKOFF_SEC = 1.5
 DEFAULT_MAX_PER_TURN = 3
 DEFAULT_WORKERS_MAX = 3
 
@@ -199,12 +202,23 @@ def _llm_with_profile(llm_call: Callable, profile: dict | None) -> Callable:
     Returns the ORIGINAL callable when there is no profile, so the default
     path (no subagent_models configured) is bit-for-bit the pre-018
     behaviour — existing fakes in tests keep working untouched.
+
+    >>> UPDATE-024 Commit 3: one quiet retry on failure. A pinned profile
+    is a SINGLE-TARGET queue by design, so a transient provider timeout
+    used to kill the whole sub-run (owner log 2026-10-27: glm TIMEOUT ->
+    'sub-run-failed' -> the explorer report never arrived). The main loop
+    retries across tiers; a pin has no tiers, so it gets one backoff retry
+    instead — pin fidelity preserved (same model), flakiness absorbed.
     """
     if not profile:
         return llm_call
 
     async def _call(messages, tools=None):
-        return await llm_call(messages=messages, tools=tools, profile=profile)
+        try:
+            return await llm_call(messages=messages, tools=tools, profile=profile)
+        except Exception:
+            await asyncio.sleep(PROFILE_RETRY_BACKOFF_SEC)
+            return await llm_call(messages=messages, tools=tools, profile=profile)
 
     return _call
 
@@ -428,6 +442,13 @@ async def run_subagent(
         }
 
 
+def _semua_error(outcomes) -> bool:
+    """True when EVERY worker report string carries the error prefix —
+    the delegation produced nothing at all (UPDATE-024 Commit 3)."""
+    reports = [o for o in outcomes if isinstance(o, str)]
+    return bool(reports) and all(PREFIX_ERROR in o for o in reports)
+
+
 def _format_report(role: str, outcome: dict) -> str:
     return (
         f"{PREFIX_REPORT} • {role} • {outcome['iterations']} iterations, "
@@ -523,6 +544,10 @@ async def dispatch(
         outcomes = await asyncio.gather(
             *[_one(i, t) for i, t in enumerate(tasks) if isinstance(t, dict)]
         )
+        # >>> UPDATE-024 Commit 3: a delegation that died wholesale must not
+        # eat the turn's budget — refund it so the main agent may retry once.
+        if _semua_error(outcomes):
+            state.subagent_calls = max(0, state.subagent_calls - 1)
         return "\n\n".join(outcomes)
 
     # explorer / verifier: single sequential sub-run
@@ -543,4 +568,6 @@ async def dispatch(
         state=state,  # UPDATE-022: read-only roles never edit, but the
         # ledger hook is uniform (and future-proof) for every role
     )
+    if outcome.get("status") == "error":
+        state.subagent_calls = max(0, state.subagent_calls - 1)
     return _format_report(role, outcome)

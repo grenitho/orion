@@ -343,7 +343,35 @@ def test_dispatch_tidak_raise_saatu_llm_mati_di_worker():
         {"tasks": [{"task": "a", "files": ["a.txt"]}]},
         state=state, llm_call=boom, tool_executor=FakeExecutor(),
     ))
-    assert sa.PREFIX_ERROR in out and state.subagent_calls == 1
+    assert sa.PREFIX_ERROR in out
+    # UPDATE-024 Commit 3 (contract change): a delegation that died
+    # wholesale REFUNDS the turn budget so the main agent may retry once;
+    # the pre-024 behaviour (budget eaten by a dead provider) is exactly
+    # what blocked retries after a flaky pin timeout.
+    assert state.subagent_calls == 0
+
+
+def test_budget_tetap_terpakai_bila_sebagian_worker_hidup():
+    """Partial success keeps the budget spent — the refund is only for
+    delegations that produced nothing at all."""
+    state = SessionState()
+    urutan = {"i": 0}
+
+    async def setengah(**kw):
+        urutan["i"] += 1
+        if urutan["i"] == 1:
+            raise RuntimeError("mati")
+        msg = SimpleNamespace(content=LONG, tool_calls=None, reasoning_content=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)], usage=None, model="mock")
+
+    out = asyncio.run(sa.dispatch(
+        sa.TOOL_WORKERS,
+        {"tasks": [{"task": "a", "files": ["a.txt"]}, {"task": "b", "files": ["b.txt"]}]},
+        state=state, llm_call=setengah, tool_executor=FakeExecutor(),
+    ))
+    assert sa.PREFIX_ERROR in out          # one worker died...
+    assert sa.PREFIX_REPORT in out         # ...one worker delivered
+    assert state.subagent_calls == 1       # budget stays spent
 
 
 # ------------------------------------------------------------- agent-loop branch
@@ -577,3 +605,68 @@ def test_perf_log_panggilan_gagal_tetap_tercatat(tmp_path):
     baris = _baris_perf(tmp_path)
     assert len(baris) == 1 and baris[0]["status"] == "error"
     assert baris[0]["role"] == "explorer"
+
+
+# --------------------- UPDATE-024 Commit 3: pin retry + budget refund
+
+def test_profil_pin_retry_sekali_kala_gagal_transien(monkeypatch):
+    """A transient provider timeout must not kill a pinned sub-run: one
+    quiet retry on the SAME model (pin fidelity), then success."""
+    monkeypatch.setattr(sa, "PROFILE_RETRY_BACKOFF_SEC", 0.0)
+    state = {"n": 0}
+
+    async def llm_raw(messages=None, tools=None, profile=None):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise RuntimeError("TIMEOUT simulasi")
+        msg = SimpleNamespace(content=LONG, tool_calls=None, reasoning_content=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)], usage=None, model="mock")
+
+    terpaket = sa._llm_with_profile(llm_raw, {"group": "fallback", "model": "m"})
+    out = asyncio.run(terpaket(messages=[]))
+    assert state["n"] == 2
+    assert out.choices[0].message.content == LONG
+
+
+def test_profil_pin_gagal_total_tetap_meledak_ke_run_subagent(monkeypatch):
+    """Retry is ONE, not a loop: persistent failure still ends the sub-run
+    honestly (error outcome), never hangs."""
+    monkeypatch.setattr(sa, "PROFILE_RETRY_BACKOFF_SEC", 0.0)
+    state = {"n": 0}
+
+    async def llm_mati(messages=None, tools=None, profile=None):
+        state["n"] += 1
+        raise RuntimeError("provider mati total")
+
+    terpaket = sa._llm_with_profile(llm_mati, {"group": "fallback", "model": "m"})
+    out = asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "t", llm_call=terpaket, tool_executor=FakeExecutor(),
+    ))
+    assert state["n"] == 2                 # exactly one retry
+    assert out["status"] == "error"
+
+
+def test_budget_dikembalikan_bila_delegasi_mati_total():
+    """A delegation that produced nothing must not eat the turn's budget —
+    otherwise one flaky provider blocks every later delegation that turn."""
+    state = SessionState()
+
+    async def llm_mati(**kwargs):
+        raise RuntimeError("provider mati total")
+
+    hasil = asyncio.run(sa.dispatch(
+        sa.TOOL_EXPLORER, {"task": "petakan modul"},
+        state=state, llm_call=llm_mati, tool_executor=FakeExecutor(),
+    ))
+    assert sa.PREFIX_ERROR in hasil
+    assert state.subagent_calls == 0      # refunded
+
+
+def test_budget_tetap_terpakai_bila_subrun_sukses():
+    state = SessionState()
+    llm = ScriptedLLM([{"content": LONG}])
+    asyncio.run(sa.dispatch(
+        sa.TOOL_EXPLORER, {"task": "petakan modul"},
+        state=state, llm_call=llm, tool_executor=FakeExecutor(),
+    ))
+    assert state.subagent_calls == 1
