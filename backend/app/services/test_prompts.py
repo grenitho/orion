@@ -97,6 +97,7 @@ def test_arsitektur_tiga_lapis_update_023():
         "Keep internal machinery internal",  # no ritual dumps at the user
         "Translate the user's everyday language",  # vibe-coder clause (024)
         "I read this as:",  # interpretation stated, then acted on
+        "This conversation itself is a source of truth",  # memory-honesty clause (024)
     ):
         assert anchor in SYSTEM_PROMPT
 

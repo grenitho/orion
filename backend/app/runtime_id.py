@@ -94,7 +94,12 @@ from pathlib import Path
 # sink (the 707-block logging spam), pinned sub-run retry + budget
 # refund, the vibe-coder conversation clause, and the Supabase loan
 # package (docs, template, service-role warning, floor rule).
-BACKEND_VERSION = "0.10.2"
+# Bumped 0.10.2 -> 0.10.3 for UPDATE-024 commits 6-7: the FINDINGS
+# LEDGER (durable conversation memory injected per turn, pruning
+# exemption for sub-agent reports) and the memory-honesty contract
+# rule (name your source; re-derive or admit, never hallucinate
+# compliance, never search disk for conversation content).
+BACKEND_VERSION = "0.10.3"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

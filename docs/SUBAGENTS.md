@@ -46,6 +46,11 @@ instruction — to delegate or not to — always wins.
 * **Honest failure** — nothing raises into the main loop: budget, overlap,
   dead model or tool crashes all arrive as `[SUBAGENT ...]` strings the
   main model can read and react to.
+* **Reports outlive the turn (UPDATE-024)** — every sub-agent report is
+  stored in the project's FINDINGS LEDGER (`.orion/findings.json`) and
+  re-shown condensed in every later turn's context; report tool-results
+  are also exempt from the long-output placeholder pruning. 'Orion
+  forgot its own findings next turn' is now structurally impossible.
 * **Worker edits feed the main ledger (UPDATE-022)** — every worker
   `write_file`/`edit_file` outcome, INCLUDING scope rejections, is recorded
   in the main turn's edit ledger (`session_state`). A completion claim
