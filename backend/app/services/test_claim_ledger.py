@@ -389,3 +389,63 @@ def test_loop_edit_gagal_tanpa_pemulihan_ditantang_dua_kali(tmp_path):
     assert len(tantangan) == 2, tantangan          # quota = 2, then degrade
     assert "ask_user" not in types                 # no checkpoint: nothing succeeded
     assert types.count("done") == 1 and types[-1] == "done"
+
+
+def test_loop_klaim_tanpa_edit_ditantang_sekali_answer_first(tmp_path):
+    """UPDATE-023 soft challenge, end-to-end: a pure Q&A-turn claim (zero
+    edits, empty ledger) is corrected ONCE with the answer-first message;
+    the second claim passes through as a normal answer. The old double
+    numbered ritual must never come back."""
+    skrip = [
+        _respon_teks(KLAIM_ID),
+        _respon_teks(
+            "Semua pemeriksaan sudah selesai dan hasilnya baik; "
+            "silakan tinjau lalu beri tahu langkah berikutnya."
+        ),
+    ]
+    indeks = {"i": 0}
+
+    async def llm_palsu(**kwargs):
+        r = skrip[indeks["i"]]
+        indeks["i"] += 1
+        return r
+
+    from app.services import sse
+
+    executor = _ToolExecutorPalsu(tmp_path)
+    deps = Deps(
+        context_manager=_ContextManagerPalsu(),
+        todo_manager=None,
+        tool_executor=executor,
+        llm_call=llm_palsu,
+        kirim_status=lambda teks: sse.ev('status', text=teks),
+        config={"max_iterations": 10, "token_budget_threshold": 999999},
+        logger=logging.getLogger("test_claim_ledger"),
+        context_message={"role": "user", "content": "Current project structure:\n📁 src/x.py"},
+        lampiran_desc="",
+    )
+
+    async def _kumpul():
+        agen = aliran_agent(SessionState(), deps)
+        try:
+            return [frame async for frame in agen]
+        finally:
+            await agen.aclose()
+
+    frames = [_frame(f) for f in asyncio.run(_kumpul())]
+    types = [f["type"] for f in frames]
+    statuses = [f["text"] for f in frames if f["type"] == "status"]
+
+    assert statuses.count("🔍 Verifying completion claim (0 files changed)...") == 1
+    assert types.count("done") == 1 and types[-1] == "done"
+    assert "token" in types                     # the second claim answers normally
+    assert executor.panggilan == 0              # no edits happened at all
+    suntikan = [
+        m for m in deps.context_manager.messages
+        if m["role"] == "user" and isinstance(m.get("content"), str)
+        and "EVIDENCE CHECK" in m["content"]
+    ]
+    assert len(suntikan) == 1
+    assert "Answer the user's actual question FIRST" in suntikan[0]["content"]
+    # the old ritual wording must never return
+    assert "State the file name + line number" not in suntikan[0]["content"]

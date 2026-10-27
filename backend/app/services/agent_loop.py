@@ -1794,29 +1794,37 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         state.verifikasi_count += 1
                         deps.logger.warning(
                             "[CLAIM WITHOUT EVIDENCE] Orion claims completion but 0 files changed "
-                            "(verification %d/%d). Challenging the claim.",
-                            state.verifikasi_count, MAX_VERIFIKASI,
+                            "(soft one-shot challenge, UPDATE-023).",
                         )
                         deps.context_manager.add_message(
                             "assistant", content, reasoning_content=reasoning_content
                         )
+                        # >>> UPDATE-023: answer-first soft challenge. The old
+                        # ORION-17b message forced a numbered evidence ritual
+                        # ("1. state file+line 2. prove it 3. report it was
+                        # done previously") and forbade asking the user
+                        # anything — which produced two turns of ceremony
+                        # that never answered the user's actual question
+                        # (owner transcript, InvoiceFlow). The correction now
+                        # (a) puts the user's question first, (b) teaches the
+                        # fact-vs-claim wording that prevents re-triggering,
+                        # and (c) fires at most ONCE per turn (loop_guards
+                        # gate 4). Genuine failed-work claims are Gate 2's
+                        # job (TANTANG_EDIT_GAGAL), which keeps full quota.
                         deps.context_manager.add_message(
                             "user",
-                            "[SYSTEM - YOUR CLAIM IS REJECTED]: You reported the work as complete, "
-                            "but on this turn NOT A SINGLE file was successfully "
-                            "changed or created by you. Your report cannot be accepted as truth.\n\n"
-                            "You MUST do the following now, in order:\n"
-                            "0. If your claim concerns .html/.js files, RUN the `verify_html` tool "
-                            "on that file NOW and quote its results verbatim, including when "
-                            "the results contain errors. Do not say 'validated' without this tool's output.\n"
-                            "1. State the file name + line number you claim already contains that feature.\n"
-                            "2. Prove it with `search_code` or `read_file_range` on that file.\n"
-                            "3. If the evidence EXISTS: quote the lines, then report that this work "
-                            "turns out to have been done previously (not by you just now).\n"
-                            "4. If the evidence DOES NOT exist: say plainly 'this feature does not exist yet', "
-                            "then CREATE it now with `edit_file`/`write_file`.\n\n"
-                            "Do NOT repeat the claim without evidence. Do NOT re-audit to "
-                            "justify yourself. Do not ask the user anything before steps 1-2 are done.",
+                            "[SYSTEM - EVIDENCE CHECK]: You used completion wording, but NO file "
+                            "changed on this turn. Answer the user's actual question FIRST, "
+                            "directly, in their language. Then, inside that same answer:\n"
+                            "- If you were describing the EXISTING state of the project: cite the "
+                            "concrete evidence inline (file + line, or the tool output) and use "
+                            "factual wording ('the code exists at …', '7 tests pass') instead of "
+                            "completion claims.\n"
+                            "- If you were claiming work you should have done THIS turn: it did "
+                            "not happen. Either do it now with edit_file/write_file, or say "
+                            "plainly that it is not done yet.\n"
+                            "Do not repeat completion wording without either the evidence or "
+                            "the work, and do not perform numbered evidence rituals at the user.",
                         )
                         yield deps.kirim_status('🔍 Verifying completion claim (0 files changed)...')
                         continue
@@ -1850,7 +1858,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             f"{_daftar_gagal}\n\n"
                             "A completion claim that contradicts the edit ledger is not accepted. "
                             "Other files you DID change successfully do not excuse the failures above.\n\n"
-                            "You MUST do the following now, in order:\n"
+                            "Answer the user's actual question directly FIRST. Then do the following, "
+                            "in order:\n"
                             "1. For EACH failed file listed above: re-read its current content "
                             "(`read_file_range`), identify why the edit failed (stale SEARCH block, "
                             "wrong path, guard rejection), and retry with `edit_file`/`write_file`.\n"
@@ -1859,7 +1868,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "3. If a file genuinely cannot be changed, say so PLAINLY in your report "
                             "(which file, which error) instead of claiming it is done.\n\n"
                             "Do NOT repeat the completion claim while any file above is still "
-                            "unfixed. Do not ask the user anything before steps 1-2 are done.",
+                            "unfixed.",
                         )
                         _nama_gagal = ", ".join(f"`{g['path']}`" for g in _edit_gagal[:5])
                         if len(_edit_gagal) > 5:

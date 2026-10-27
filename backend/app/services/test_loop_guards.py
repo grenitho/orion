@@ -97,3 +97,17 @@ def test_kuota_verifikasi_habis_klaim_jadi_jawaban_normal():
     state.verifikasi_count = 2
     assert _evaluasi(state, KLAIM_PANJANG,
                      maks_verifikasi=2) is Keputusan.JAWAB_NORMAL
+
+
+def test_tantang_klaim_soft_hanya_sekali_update_023():
+    """UPDATE-023: a zero-evidence claim is challenged SOFT, once per turn.
+
+    The old ORION-17b behaviour fired the numbered evidence ritual up to
+    2x per turn; two consecutive user questions both got the same ceremony
+    and never an answer (owner transcript, InvoiceFlow). One answer-first
+    correction is the whole budget now — the hard, full-quota challenge is
+    reserved for the failed-edit ledger (TANTANG_EDIT_GAGAL).
+    """
+    state = SessionState()
+    state.verifikasi_count = 1  # already soft-challenged once this turn
+    assert _evaluasi(state, KLAIM_PANJANG) is Keputusan.JAWAB_NORMAL

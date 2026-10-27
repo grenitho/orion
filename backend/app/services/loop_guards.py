@@ -25,8 +25,8 @@ UPDATE-022 failed-edit gate inserted before the evidence gate):
   claim + iterasi > 0 + files actually changed this turn:
       todos still pending & nudge quota left -> LANJUT_TODO
       otherwise                              -> CHECKPOINT
-  claim that needs challenging (guard_rules.klaim_perlu_ditantang:
-  claim, zero changed files, challenge quota left) -> TANTANG_KLAIM
+  claim, zero changed files, not yet challenged this turn
+      (SOFT one-shot since UPDATE-023)       -> TANTANG_KLAIM
   everything else                                  -> JAWAB_NORMAL
 
 Deviation from FASE_C_PLAN.md, documented deliberately: the plan lists five
@@ -119,13 +119,24 @@ def evaluasi_akhir_iterasi(
             return Keputusan.LANJUT_TODO
         return Keputusan.CHECKPOINT
 
-    # Gate 4: a completion claim WITHOUT evidence gets challenged
-    # (bounded by maks_verifikasi so this cannot become a loop).
+    # Gate 4: a completion claim WITHOUT evidence gets challenged — but since
+    # UPDATE-023 only ONCE per turn (soft one-shot), with an answer-first
+    # message (see the loop's TANTANG_KLAIM arm). History: ORION-17b fired
+    # this up to 2× per turn with a numbered evidence ritual; the ritual
+    # hijacked the conversation (owner transcript, InvoiceFlow: two user
+    # questions answered with the same "1. file+line 2. bukti 3. sudah
+    # dikerjakan sebelumnya" ceremony, never the actual answer). Word
+    # discipline in the prompt (layer 1) now prevents most false triggers;
+    # this gate is the backstop for genuine claim-without-work, and one
+    # answer-first correction is enough — a second identical ritual only
+    # taught the model to perform compliance instead of answering.
+    # The HARD challenge (Gate 2, failed edits in the ledger) keeps the full
+    # maks_verifikasi quota: that one guards real integrity, not wording.
     if guard_rules.klaim_perlu_ditantang(
         is_task_complete,
         bool(state.files_changed_this_turn),
         state.verifikasi_count,
-        maks_verifikasi,
+        min(1, maks_verifikasi),
     ):
         return Keputusan.TANTANG_KLAIM
 
