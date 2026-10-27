@@ -75,13 +75,15 @@ release; each takes about two minutes.
 - [ ] scenario c passed (findings quoted with line numbers)
 - [ ] scenario d passed (clean cancel, healthy backend)
 - [ ] `python -m pytest backend/app/services/ -q` green on the release commit
-      (390 tests as of UPDATE-022; Windows: 389 passed + 1 by-design skip —
+      (393 tests as of UPDATE-023; Windows: 392 passed + 1 by-design skip —
       the non-windll probe test)
 - [ ] all pre-existing mock-SSE harness scenarios re-recorded
-      byte-identical (16 legacy as rebuilt in `u022base` +
-      `failed_edit_claim` = 17 as of UPDATE-022; harness lives in the
-      sandbox `baseline/`, scripts + recordings ship in the update zip's
-      archive section so a future reset cannot lose them again)
+      byte-identical (suite of 17 since UPDATE-022; reference labels:
+      `u023base` pre-023 and `u023final` post-023. UPDATE-023 moved ONE
+      scenario BY DESIGN — `claim_no_evidence`: 7 → 5 frames, the double
+      evidence ritual became one soft answer-first challenge; registered
+      §4, owner-approved. The harness scripts + recordings ship in the
+      update zip's archive section so a future reset cannot lose them)
 - [ ] when dependencies changed: `pip install -r backend/requirements.txt`
       re-run in the backend venv BEFORE the gates (UPDATE-018 added pypdf,
       python-docx, openpyxl), and the owner PANDUAN repeats the install

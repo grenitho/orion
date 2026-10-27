@@ -77,7 +77,15 @@ from pathlib import Path
 # edits feeding the main ledger (subagent_manager), and the proactive
 # delegation policy (prompts). Behaviour of existing routes changes
 # (honesty layer); no new route or surface, hence a patch bump.
-BACKEND_VERSION = "0.9.4"
+# Bumped 0.9.4 -> 0.10.0 for UPDATE-023: the behaviour architecture change
+# ("bebas tapi tidak ngawur") — SYSTEM_PROMPT rebuilt from 22 sections
+# (~6.1k tokens, 41 MUST) into 3 layers (~3.0k, conversation contract
+# first), and the ORION-17b claim challenge became a SOFT one-shot
+# answer-first correction (hard ledger-backed challenge keeps full quota).
+# A minor bump is the honest signal: existing chat behaviour changes
+# substantially (deliberately — one harness scenario re-registered), even
+# though no route or field changed shape.
+BACKEND_VERSION = "0.10.0"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

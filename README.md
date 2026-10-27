@@ -48,7 +48,8 @@ covered by tests — not with prompt wording alone.
 | **Context** | persistent session history with orphaned tool-call validation, atomic writes and backups; automatic summarization when approaching token budget; safe history splitting that never separates an assistant call from its tool response |
 | **Safety** | path-traversal guard on every file operation; confirmation modals for dangerous commands; destructive/remote git operations blocked at code level; automatic `.bak` before overwrite; reversible restores; SSRF protection on fetched URLs |
 | **UX** | streaming status events (including a "still thinking… Ns" heartbeat), markdown + syntax highlighting in the chat panel, per-bubble Copy button for the raw message text (0.4.1+), activity view, performance dashboard, cancel button with real abort |
-| **Claim integrity** | completion claims are gated on PER-FILE evidence: an edit ledger records every successful and failed write/edit attempt (guard rejections and worker sub-agent edits included); a claim that contradicts the ledger is challenged naming the failed files; every successful write/edit carries `(mtime_ns, size)` disk evidence, a reported-success write that left the file unchanged returns an explicit error, and `.py` edits get an instant automatic syntax verdict (UPDATE-022) |
+| **Assistant behaviour** | three-layer system prompt (conversation contract · non-negotiable floor · working style) with test-enforced anti-bloat ratchets: answer the question that was asked, name absent things plainly with options, facts over victory words, per-item audits — UPDATE-023 |
+| **Claim integrity** | completion claims are gated on PER-FILE evidence: an edit ledger records every successful and failed write/edit attempt (guard rejections and worker sub-agent edits included); a claim that contradicts the ledger is challenged naming the failed files (hard challenge, full quota); a completion claim with zero changed files gets ONE soft answer-first correction instead of the old double evidence ritual (UPDATE-023); every successful write/edit carries `(mtime_ns, size)` disk evidence, a reported-success write that left the file unchanged returns an explicit error, and `.py` edits get an instant automatic syntax verdict (UPDATE-022) |
 | **Quality** | 390 automated tests, including regression guards for every safety mechanism; startup consistency check between declared tools and dispatched tools |
 
 ---
@@ -210,9 +211,10 @@ Restart action.
 python -m pytest backend -q         # from the repo root
 ```
 
-390 tests cover the attachment pipeline, the inbox drop-zone, the model-profile
+393 tests cover the attachment pipeline, the inbox drop-zone, the model-profile
 router and endpoints, the sub-agent plumbing, the claim-verification gate and
 the failure-aware edit ledger (per-file claim evidence, UPDATE-022), the
+prompt-architecture ratchets and the one-shot soft challenge (UPDATE-023), the
 per-write disk evidence and automatic syntax check, the loop-counter guard,
 the git-operation blocklist, the stream-completion wrapper, the
 research-query builder and the security posture (CORS, loopback bind, token
@@ -243,7 +245,7 @@ backend/
       subagent_manager.py  Explorer/Verifier/Workers delegation (UPDATE-016)
       inbox_manager.py   .orion/inbox drop-zone: extract, cap, archive (UPDATE-018)
       permission_manager.py, dependency_scanner.py, post_edit_verifier.py
-      test_*.py          390 tests
+      test_*.py          393 tests
   examples/
     mcp_demo_server.py   dependency-free MCP server for E2E testing
 orion/                   VS Code extension (TypeScript, esbuild)
