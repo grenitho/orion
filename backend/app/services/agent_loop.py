@@ -335,6 +335,61 @@ NAMA_TOOL_AKTIF = {
 }
 
 
+# >>> UPDATE-025 hotfix (InvoiceFlow todo-hijack incident, 2026-10-28) <<<
+# Two PURE helpers for the per-turn re-anchor state. The incident: a stale
+# todo list from an earlier session ("fix line_total precision with
+# Decimal") hijacked a turn whose actual user request was a frontend
+# pricing question — the forced LANJUT_TODO nudge pushed the model into
+# the old work, the soft limit then paused the turn with the literal
+# template placeholder "[mention the last task]", and the owner's
+# "lanjut" resumed blind: Orion reported Decimal work instead of
+# answering the question. Both helpers are deterministic (no wall-clock
+# values) so harness recordings stay byte-identical across runs.
+def _permintaan_pengguna_terakhir(history) -> str:
+    """The user's genuine request of the current turn.
+
+    Walks the history newest-first and returns the first user message
+    that is not a system injection ("[SYSTEM ...]" — warnings, nudges,
+    continuations). Vision-parts content (a list of typed parts) is
+    flattened to its text parts. '' when nothing qualifies; callers
+    display a "(not captured)" fallback rather than guessing.
+    """
+    for msg in reversed(history or []):
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            content = " ".join(
+                str(part.get("text", ""))
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+        content = str(content or "").strip()
+        if not content or content.startswith("[SYSTEM"):
+            continue
+        return content
+    return ""
+
+
+def _catatan_tool(nama: str, args) -> str:
+    """Deterministic one-line "tool key='value'" note for the soft-limit
+    status. Shows only the FIRST argument, whitespace-normalized and
+    truncated at 60 chars, so a write_file body can never blow up the
+    warning frame. Never raises: a malformed args object degrades to the
+    bare tool name."""
+    try:
+        if isinstance(args, dict) and args:
+            kunci = next(iter(args))
+            nilai = " ".join(str(args[kunci]).split())
+            if len(nilai) > 60:
+                nilai = nilai[:60] + "…"
+            return f"{nama} {kunci}={nilai!r}"
+        return str(nama)
+    except Exception:
+        return str(nama)
+# >>> END OF UPDATE-025 hotfix helpers <<<
+
+
 @dataclass
 class Deps:
     """Explicit dependencies of the agent loop (Phase C step 4).
@@ -453,6 +508,22 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # Used to challenge a model that claims completion without changing files.
         MAX_VERIFIKASI = int(os.getenv("ORION_MAX_VERIFIKASI", "2"))
 
+        # >>> UPDATE-025 hotfix: per-turn re-anchor state, captured BEFORE
+        # the first iteration. `permintaan_turn_ini` = the user's genuine
+        # request (main.py stores it in the history before the loop runs);
+        # `todo_ids_awal_turn` = which pending todo ids ALREADY existed
+        # before this turn. The LANJUT_TODO arm below uses the snapshot to
+        # tell "todos of this task" (force-continue, PATCH ORION-1
+        # protection) from "stale todos of older sessions" (re-anchor to
+        # the current request instead of hijacking the turn). <<<
+        state.permintaan_turn_ini = _permintaan_pengguna_terakhir(
+            deps.context_manager.get_history()
+        )
+        state.todo_ids_awal_turn = {
+            str(t.get("id")) for t in state.sisa_todo(deps.todo_manager)
+        }
+        # >>> END OF UPDATE-025 hotfix re-anchor state <<<
+
         # >>> CONVENTION: `_` below is the agent LOOP COUNTER.
         # Never use `_` as a throwaway variable inside this loop
         # (see test_loop_counter_guard.py which guards this).
@@ -476,13 +547,52 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # Once 80% of max_iter is reached, force Orion to report and ask permission
             soft_limit = int(max_iter * 0.8)
             if _ == soft_limit:
+                # >>> UPDATE-025 hotfix (InvoiceFlow incident 2026-10-28):
+                # the old template shipped the literal placeholder
+                # "[mention the last task]" to the user — it was written as
+                # if the model would fill it in, but this message is
+                # composed by the BACKEND and streamed verbatim, so the
+                # placeholder leaked on EVERY soft limit since the feature
+                # existed (born as "[sebutkan task terakhir]", translated
+                # as-is in phase D). Worse: the same blind text was stored
+                # into the history, so the "lanjut" resume had no anchor
+                # and the model reported unrelated work. The status is now
+                # composed from REAL state: the request this turn must
+                # answer, the last tool executed, and the pending todos.
+                # The stored copy re-anchors the resume turn. <<<
+                _permintaan = state.permintaan_turn_ini.strip()
+                if len(_permintaan) > 300:
+                    _permintaan = _permintaan[:300] + " …"
+                _status_permintaan = (
+                    f'"{_permintaan}"' if _permintaan else "(not captured)"
+                )
+                _status_aksi = (
+                    state.last_tool_note or "(no tool executed yet this turn)"
+                )
+                _todo_pending = state.sisa_todo(deps.todo_manager)
+                if _todo_pending:
+                    _baris_todo = [
+                        f"[{t.get('id', '?')}] {str(t.get('text', ''))[:80]}"
+                        for t in _todo_pending[:4]
+                    ]
+                    if len(_todo_pending) > 4:
+                        _baris_todo.append(f"+{len(_todo_pending) - 4} more")
+                    _status_todo = (
+                        f"{len(_todo_pending)} pending — " + "; ".join(_baris_todo)
+                    )
+                else:
+                    _status_todo = "none"
                 warning_msg = (
                     f"\n\n**[SYSTEM WARNING - SOFT LIMIT]**\n"
                     f"I have reached {_} iterations (80% of the {max_iter} iteration limit).\n"
                     f"To avoid burning tokens, I will pause here for a moment.\n\n"
-                    f"**Current status:** I was working on [mention the last task].\n"
+                    f"**Current status:**\n"
+                    f"- Request I am answering this turn: {_status_permintaan}\n"
+                    f"- Last action: {_status_aksi}\n"
+                    f"- Todo list: {_status_todo}\n\n"
                     f"**Your options:**\n"
-                    f"1. Type **'lanjut'** / **'continue'** if I am on the right track.\n"
+                    f"1. Type **'lanjut'** / **'continue'** if I am on the right track — "
+                    f"when I resume, the request quoted above comes first.\n"
                     f"2. Give new instructions if I seem to be going in circles or off track.\n"
                 )
 
@@ -1016,6 +1126,13 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     except Exception as e:
                         print(f"[ORION] Error parsing args: {e}")
                         func_args = {}
+
+                    # >>> UPDATE-025 hotfix: remember the most recent tool
+                    # call (deterministic one-liner) so the soft-limit
+                    # warning can name what this turn was actually doing.
+                    # Recorded for EVERY tool, before dispatch — a failing
+                    # tool is still the last action taken. <<<
+                    state.last_tool_note = _catatan_tool(func_name, func_args)
 
                     # >>> CRITICAL FIX #2: ask_user MUST FLUSH the tool_results
                     # collected so far BEFORE returning, otherwise the earlier
@@ -1678,20 +1795,58 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "assistant", content,
                             reasoning_content=reasoning_content,
                         )
-                        deps.context_manager.add_message(
-                            "user",
-                            "[SYSTEM - CONTINUE]: The first part has been done, but "
-                            f"the user's task is NOT finished. There are still {_sisa} items on the todo list.\n"
-                            f"Next item: `[{_next_id}]` {_next_text}\n\n"
-                            "INSTRUCTION: do NOT conclude the task is complete and do NOT ask "
-                            f"the user anything. Work on item `[{_next_id}]` NOW. Once it is truly "
-                            "done, call the `update_todos` tool to mark it 'completed', "
-                            "then continue to the next item.",
-                        )
-                        yield deps.kirim_status(f'Continuing with todo [{_next_id}]...')
+                        # >>> UPDATE-025 hotfix (todo-hijack incident):
+                        # a pending todo that ALREADY existed before this
+                        # turn is NOT automatically the user's current task.
+                        # Forcing "Work on item NOW" on such a stale item
+                        # hijacked a frontend-pricing question into old
+                        # Decimal work (owner transcript + [ORION NUDGE
+                        # 1/10] log line, InvoiceFlow 2026-10-28). Stale
+                        # next-item -> RE-ANCHOR notice: answer the current
+                        # request first, surface the old todos, let the
+                        # user decide. Todos created THIS turn keep the
+                        # original forced continuation, byte-identical
+                        # (PATCH ORION-1 "only does the first task"
+                        # protection). <<<
+                        if _next_id in state.todo_ids_awal_turn:
+                            deps.context_manager.add_message(
+                                "user",
+                                "[SYSTEM - RE-ANCHOR]: The next pending todo item "
+                                f"(`[{_next_id}]` {_next_text}) was ALREADY pending before "
+                                "this turn started — it is not automatically the user's "
+                                "current task.\n"
+                                "The user's CURRENT request this turn is: "
+                                f'"{state.permintaan_turn_ini[:300]}".\n'
+                                "If that request is a continuation instruction "
+                                "('lanjut'/'lanjutkan'/'continue'/'ya'), work on item "
+                                f"`[{_next_id}]` now. Otherwise: answer the CURRENT request "
+                                f"FIRST, then mention the {_sisa} older pending todo item(s) "
+                                "and ASK the user whether to resume them. Do NOT silently "
+                                "work on old todo items.",
+                            )
+                            yield deps.kirim_status(
+                                f'🧭 Re-anchoring to your request (older todo [{_next_id}] deferred)...'
+                            )
+                            deps.logger.info(
+                                "[ORION RE-ANCHOR %d/%d] next todo [%s] predates this turn; "
+                                "re-anchoring to the current request instead of forcing it.",
+                                state.nudge_count, MAX_TODO_NUDGE, _next_id,
+                            )
+                        else:
+                            deps.context_manager.add_message(
+                                "user",
+                                "[SYSTEM - CONTINUE]: The first part has been done, but "
+                                f"the user's task is NOT finished. There are still {_sisa} items on the todo list.\n"
+                                f"Next item: `[{_next_id}]` {_next_text}\n\n"
+                                "INSTRUCTION: do NOT conclude the task is complete and do NOT ask "
+                                f"the user anything. Work on item `[{_next_id}]` NOW. Once it is truly "
+                                "done, call the `update_todos` tool to mark it 'completed', "
+                                "then continue to the next item.",
+                            )
+                            yield deps.kirim_status(f'Continuing with todo [{_next_id}]...')
+                            deps.logger.info("[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
+                                        state.nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
                         yield sse.ev('todo_update', markdown=deps.todo_manager.render_markdown(), todos=deps.todo_manager.get_todos())
-                        deps.logger.info("[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
-                                    state.nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
                         continue
                     case loop_guards.Keputusan.CHECKPOINT:
                         checkpoint_report = (

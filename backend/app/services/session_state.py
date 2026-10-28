@@ -85,6 +85,24 @@ class SessionState:
     # Iteration progress marker used by the short-reply pause path.
     current_iter: int = 0
 
+    # >>> UPDATE-025 hotfix (InvoiceFlow todo-hijack incident, 2026-10-28):
+    # per-turn re-anchor state, captured at loop start in agent_loop.
+    #   permintaan_turn_ini : the user's genuine request this turn (last
+    #       non-"[SYSTEM" user message in history). Quoted by the soft-limit
+    #       warning and the RE-ANCHOR nudge so a paused or nudged turn can
+    #       never lose sight of what the user actually asked.
+    #   last_tool_note      : deterministic "tool key='value'" one-liner of
+    #       the most recent tool call this turn (soft-limit status line).
+    #   todo_ids_awal_turn  : ids of pending/in_progress todos that existed
+    #       BEFORE this turn. A LANJUT_TODO nudge whose next item is in this
+    #       set re-anchors to the current request instead of force-feeding
+    #       the stale item — todos created this turn keep the old forced
+    #       continuation (PATCH ORION-1 protection stays intact).
+    permintaan_turn_ini: str = ""
+    last_tool_note: str = ""
+    todo_ids_awal_turn: set = field(default_factory=set)
+    # >>> END OF UPDATE-025 hotfix fields <<<
+
     def catat_file_berubah(self, entri: str) -> None:
         """Record one piece of real-work evidence (a successfully changed file)."""
         self.files_changed_this_turn.append(entri)
