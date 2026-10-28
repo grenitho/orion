@@ -561,3 +561,31 @@ export async function restartBackend(): Promise<void> {
     await killPort8000();
     await ensureBackendRunning();
 }
+
+// >>> UPDATE-025 commit 2: ".env newer than the running boot" detector.
+// The backend reads .env ONCE at boot (load_dotenv in the startup fix
+// block). An .env edited afterwards — notepad, the wizard's own save,
+// a git pull — is INVISIBLE to the live process: new keys and changed
+// values silently do nothing until a restart. The PID file carries
+// STARTED_AT (epoch seconds, written by the backend lifespan right
+// after uvicorn binds 8000), so the comparison is pure filesystem
+// math: mtime(.env) > started_at => a restart is owed. +1s grace so
+// a wizard save-then-restart sequence never flags itself.
+export function envNewerThanBoot(backendPath: string):
+    { newer: boolean; envAt: number; startedAt: number; minutes: number } | null {
+    const pidInfo = readPidFile(backendPath);
+    if (!pidInfo || typeof pidInfo.started_at !== 'number') { return null; }
+    let envAt: number;
+    try {
+        envAt = fs.statSync(path.join(backendPath, '.env')).mtimeMs / 1000;
+    } catch {
+        return null; // no .env yet => nothing newer than the boot
+    }
+    const newer = envAt > pidInfo.started_at + 1;
+    return {
+        newer,
+        envAt,
+        startedAt: pidInfo.started_at,
+        minutes: Math.max(0, Math.round((envAt - pidInfo.started_at) / 60)),
+    };
+}

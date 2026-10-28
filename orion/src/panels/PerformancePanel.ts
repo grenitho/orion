@@ -93,6 +93,19 @@ export class PerformancePanel {
                         color: #f44336; 
                         font-weight: bold; 
                     }
+                    /* >>> UPDATE-025 commit 2: per-call role badge. Entries
+                       without a role field are main-loop calls (the field
+                       is additive, shipped for sub-runs in UPDATE-024). */
+                    .role-badge {
+                        padding: 2px 8px;
+                        border-radius: 10px;
+                        font-size: 0.85em;
+                        font-weight: bold;
+                    }
+                    .role-main { color: #9e9e9e; }
+                    .role-explorer { color: #b388ff; }
+                    .role-verifier { color: #4caf50; }
+                    .role-worker { color: #2196f3; }
                     .loading { 
                         text-align: center; 
                         padding: 20px; 
@@ -133,12 +146,14 @@ export class PerformancePanel {
 
                             if (logs.length > 0) {
                                 html += '<h3>Last 10 Requests</h3>';
-                                html += '<table><thead><tr><th>Time</th><th>Model</th><th>Input/Output (chars)</th><th>Time (ms)</th><th>Status</th></tr></thead><tbody>';
+                                html += '<table><thead><tr><th>Time</th><th>Role</th><th>Model</th><th>Input/Output (chars)</th><th>Time (ms)</th><th>Status</th></tr></thead><tbody>';
                                 logs.reverse().forEach(log => {
                                     const time = new Date(log.timestamp).toLocaleTimeString();
                                     const statusClass = log.status === 'success' ? 'status-success' : 'status-error';
+                                    const role = log.role || 'main';
                                     html += '<tr>';
                                     html += '<td>' + time + '</td>';
+                                    html += '<td><span class="role-badge role-' + role + '">' + role + '</span></td>';
                                     html += '<td>' + log.model + '</td>';
                                     html += '<td>' + log.input_chars + ' / ' + log.output_chars + '</td>';
                                     html += '<td>' + log.duration_ms + '</td>';

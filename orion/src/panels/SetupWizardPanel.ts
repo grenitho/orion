@@ -6,6 +6,8 @@ import * as path from 'path';
 import * as https from 'https';
 import {
     detectEnvironment,
+    envNewerThanBoot,
+    findBackendFolderWithSource,
     findVenvPython,
     getRepoBaseUrl,
     getRepoZipUrl,
@@ -863,8 +865,38 @@ export class SetupWizardPanel {
 
     // ------------------------------------------------------------------- html
 
+    /** >>> UPDATE-025 commit 2: top-of-wizard banner when backend/.env is
+     *  newer than the live backend's boot (env debt = restart owed).
+     *  Empty string keeps the page byte-identical when there is no debt. */
+    private envBannerHtml(): string {
+        const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+        const found = findBackendFolderWithSource(ws);
+        if (!found.path) { return ''; }
+        const info = envNewerThanBoot(found.path);
+        if (!info || !info.newer) { return ''; }
+        const boot = new Date(info.startedAt * 1000).toLocaleString();
+        const envAt = new Date(info.envAt * 1000).toLocaleString();
+        return [
+            '<div id="envBanner" style="border:1px solid #b26a00; background:rgba(255,152,0,0.14); ',
+            'border-radius:6px; padding:10px 14px; margin:0 0 14px 0;">',
+            '⚠️ <b>backend/.env berubah SETELAH backend menyala</b> (boot ',
+            boot, ' — .env disimpan ', envAt, ', ±', String(info.minutes),
+            ' menit kemudian). Nilai baru BELUM dimuat proses yang hidup: ',
+            'restart wajib agar berlaku. ',
+            '<button id="btnRestartEnv" style="margin-left:8px;">Restart Backend now</button>',
+            '</div>',
+        ].join('');
+    }
+
     private getHtml(webview: vscode.Webview): string {
         const nonce = getNonce();
+        // >>> UPDATE-025 commit 2: an .env edited AFTER the live backend
+        // booted is invisible to that process (load_dotenv runs once at
+        // startup). The wizard is the place owners land after editing
+        // keys, so the debt is surfaced HERE as a banner with a one-click
+        // restart — computed at render time from .env mtime vs the PID
+        // file's started_at (pure filesystem math, no backend call).
+        const envBanner = this.envBannerHtml();
         const csp = [
             "default-src 'none'",
             `img-src ${webview.cspSource} data:`,
@@ -960,6 +992,7 @@ export class SetupWizardPanel {
 <p class="sub">Install and configure Orion's local backend in five steps — no terminal needed. Your code and API keys never leave this computer.</p>
 
 <div class="info" id="infoBox"></div>
+${envBanner}
 
 <!-- STEP 1 -->
 <div class="card" id="card1">
@@ -1063,6 +1096,27 @@ export class SetupWizardPanel {
 <script nonce="${nonce}">
 (function () {
     var vscode = acquireVsCodeApi();
+    // >>> UPDATE-025 commit 2: the .env-debt banner's one-click restart.
+    // Reuses the existing 'restartBackend' task (kill 8000 + auto-start);
+    // a separate message listener hides the banner when the task lands,
+    // without touching the wizard's main message switch.
+    var btnRestartEnv = document.getElementById('btnRestartEnv');
+    if (btnRestartEnv) {
+        btnRestartEnv.addEventListener('click', function () {
+            btnRestartEnv.disabled = true;
+            vscode.postMessage({ command: 'restartBackend' });
+        });
+        window.addEventListener('message', function (event) {
+            var m = event.data || {};
+            if (m.type === 'taskDone' && m.task === 'restartBackend') {
+                btnRestartEnv.disabled = false;
+                if (m.ok) {
+                    var banner = document.getElementById('envBanner');
+                    if (banner) { banner.style.display = 'none'; }
+                }
+            }
+        });
+    }
     var state = null;
     var runningTask = null;
     var formDirty = false;

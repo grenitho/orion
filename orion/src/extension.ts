@@ -5,7 +5,7 @@ import { PerformancePanel } from './panels/PerformancePanel';
 import { ActivityProvider } from './panels/ActivityProvider';
 import { SetupWizardPanel } from './panels/SetupWizardPanel';
 import { McpPanel } from './panels/McpPanel';
-import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl, startStaleWatchdog } from './services/backendManager';
+import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl, startStaleWatchdog, restartBackend, detectEnvironment } from './services/backendManager';
 
 
 const backend = new BackendService();
@@ -39,11 +39,40 @@ export async function activate(context: vscode.ExtensionContext) {
 	// >>> UPDATE-010: manual controls for the onboarding walkthrough and for
 	// recovering when the auto-start failed (error dialogs link to these too).
 	const startBackend = vscode.commands.registerCommand('orion.startBackend', () => ensureBackendRunning());
+	// >>> UPDATE-025 commit 2: palette-level explicit restart. The owner
+	// ritual (kill port 8000 by hand, then Start Backend) existed because
+	// the backend outlives VS Code by design and deactivate() is empty;
+	// .env edits and patched code stay invisible until a REAL restart.
+	// One command now does kill-8000 + auto-start with a progress toast,
+	// so "restart" never again depends on remembering two manual steps.
+	const restartBackendCmd = vscode.commands.registerCommand('orion.restartBackend', async () => {
+		await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: 'Orion: restarting backend (kill port 8000, then auto-start)…',
+			},
+			async () => {
+				await restartBackend();
+			}
+		);
+		const env = await detectEnvironment();
+		if (env.backendRunning) {
+			const ver = env.backendHealth?.version ?? 'unknown';
+			void vscode.window.showInformationMessage(
+				`Orion: backend restarted — version ${ver} on port 8000.`
+			);
+		} else {
+			void vscode.window.showWarningMessage(
+				'Orion: restart finished but port 8000 did not answer yet — give it a few seconds, then run "Orion: Start Backend" if it stays silent.'
+			);
+		}
+	});
 	// >>> UPDATE-020: a backend that goes stale MID-SESSION (git pull,
 	// extension update) now toasts once per backend boot instead of waiting
 	// for the next VS Code restart to be noticed.
 	startStaleWatchdog();
 	context.subscriptions.push(startBackend);
+	context.subscriptions.push(restartBackendCmd);
 
 	const openSetupGuide = vscode.commands.registerCommand('orion.openSetupGuide', async () => {
 		const url = getSetupGuideUrl();
