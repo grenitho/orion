@@ -522,6 +522,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.todo_ids_awal_turn = {
             str(t.get("id")) for t in state.sisa_todo(deps.todo_manager)
         }
+        # >>> UPDATE-025 commit 1: a FRESH delegation ledger every turn, so
+        # a role dispatched last turn can never launder this turn's claim.
+        state.delegasi_terpakai = set()
         # >>> END OF UPDATE-025 hotfix re-anchor state <<<
 
         # >>> CONVENTION: `_` below is the agent LOOP COUNTER.
@@ -1975,6 +1978,39 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "terminal command and no sub-agent run. The work may "
                                 "exist from an earlier turn or outside Orion — verify "
                                 "these items manually before trusting this checkpoint."
+                            )
+
+                        # >>> UPDATE-025 commit 1 (InvoiceFlow round 2,
+                        # 2026-10-28): the user's OWN message named sub-agent
+                        # roles ("panggil delegate_verifier sebelum melaporkan
+                        # selesai") yet the turn ended with zero successful
+                        # dispatches to them, while the reply claimed
+                        # "diverifikasi" on the strength of self-run builds.
+                        # The checkpoint now discloses the gap: requested
+                        # roles minus the turn's delegation ledger.
+                        # Disclosure, not rejection — same v1 philosophy as
+                        # the zero-evidence block above. <<<
+                        _peran_diminta = subagent_manager.roles_diminta(
+                            state.permintaan_turn_ini
+                        )
+                        _peran_hilang = sorted(
+                            _peran_diminta - state.delegasi_terpakai
+                        )
+                        if _peran_hilang:
+                            _daftar_peran = "\n".join(
+                                f"- ⚠️ `{r}`" for r in _peran_hilang
+                            )
+                            checkpoint_report += (
+                                "\n\n**⚠️ Delegation requested but NOT "
+                                "dispatched this turn:**\n"
+                                f"{_daftar_peran}\n\n"
+                                "This turn's request named the role(s) above, "
+                                "but zero successful delegate_* calls reached "
+                                "them. Self-run checks (builds, verify_*, "
+                                "pytest) are NOT independent verification. "
+                                "Dispatch the missing role(s), or tell the "
+                                "user plainly why they were skipped, before "
+                                "claiming the work is verified."
                             )
 
                         checkpoint_report += (

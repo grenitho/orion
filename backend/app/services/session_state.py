@@ -102,6 +102,13 @@ class SessionState:
     last_tool_note: str = ""
     todo_ids_awal_turn: set = field(default_factory=set)
     # >>> END OF UPDATE-025 hotfix fields <<<
+    # >>> UPDATE-025 commit 1 (delegation-compliance disclosure, InvoiceFlow
+    # round 2): roles whose delegate_* call ACTUALLY ran a successful
+    # sub-run THIS turn. subagent_manager.dispatch records them; the
+    # checkpoint compares against the roles the user's own message named
+    # (subagent_manager.roles_diminta) and discloses the gap. Reset at
+    # loop start so last turn's dispatches can never launder this turn.
+    delegasi_terpakai: set = field(default_factory=set)
 
     # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow incident): a todo
     # can be marked 'completed' by the model with zero work behind it

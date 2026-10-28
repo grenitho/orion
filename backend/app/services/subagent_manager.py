@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import os
 import time
 from typing import Any, Callable
@@ -148,6 +149,45 @@ def is_subagent_tool(name: str) -> bool:
 
 def role_of_tool(name: str) -> str:
     return {TOOL_EXPLORER: EXPLORER, TOOL_VERIFIER: VERIFIER, TOOL_WORKERS: WORKER}[name]
+
+
+# >>> UPDATE-025 commit 1 (delegation-compliance disclosure): which
+# sub-agent roles did the USER's own message ask for? Two deterministic
+# patterns, deliberately narrow (v1): the explicit tool names, and a role
+# word in a sub-agent/delegation context ("sub agent verifier:",
+# "delegasikan ke worker", "delegate the fix to the explorer"). A bare
+# "verify"/"verification" must NOT match — verify_html is a tool, not a
+# verifier, and over-matching would cry wolf on every build check.
+_POLA_TOOL_DELEGASI = re.compile(r"\bdelegate_(explorer|verifier|workers)\b", re.I)
+_POLA_SUB_PERAN = re.compile(
+    r"(?:sub[\s_-]?agent|delegasi\w*|delegation|delegate)\b"
+    r"(?:\s+\w+){0,3}\s+(explorer|verifier|workers?)\b",
+    re.I,
+)
+
+
+def roles_diminta(teks: str) -> set:
+    """Roles the user's request named this turn (empty set = none)."""
+    if not teks:
+        return set()
+    peran = set()
+    for pola in (_POLA_TOOL_DELEGASI, _POLA_SUB_PERAN):
+        for m in pola.finditer(teks):
+            nama = m.group(1).lower()
+            peran.add(WORKER if nama == "workers" else nama)
+    return peran
+
+
+def _catat_peran(state: Any, role: str) -> None:
+    """Record a successful dispatch on the turn's delegation ledger.
+
+    Tolerates duck-typed states in tests that predate the field.
+    """
+    peran = getattr(state, "delegasi_terpakai", None)
+    if peran is None:
+        peran = set()
+        state.delegasi_terpakai = peran
+    peran.add(role)
 
 
 def read_config(config: dict | None) -> dict:
@@ -550,6 +590,9 @@ async def dispatch(
         if _semua_error(outcomes):
             state.subagent_calls = max(0, state.subagent_calls - 1)
         else:
+            # >>> UPDATE-025 commit 1: at least one worker really ran —
+            # the turn's delegation ledger records the role.
+            _catat_peran(state, WORKER)
             # >>> UPDATE-024 Commit 6: worker reports enter the findings
             # ledger so next turn's context still knows what they found.
             for _idx, _rep in enumerate(outcomes):
@@ -579,6 +622,11 @@ async def dispatch(
     if outcome.get("status") == "error":
         state.subagent_calls = max(0, state.subagent_calls - 1)
     else:
+        # >>> UPDATE-025 commit 1: the sub-run succeeded — record the role
+        # on the turn's delegation ledger (a crashed sub-run refunds the
+        # budget AND stays invisible here, so the checkpoint can disclose
+        # "requested but never really ran").
+        _catat_peran(state, role)
         # >>> UPDATE-024 Commit 6: the report becomes durable conversation
         # memory (findings ledger), immune to history pruning/summarize —
         # the fix for "Orion forgot its own explorer findings next turn".

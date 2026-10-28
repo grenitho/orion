@@ -140,7 +140,13 @@ from pathlib import Path
 # .gitignore patterns. (The ADENDUM-1 commit claimed this bump but its
 # scripted edit targeted a __version__ symbol that does not exist; the
 # version lives HERE. This commit is the real bump.)
-BACKEND_VERSION = "0.10.7"
+# Bumped 0.10.7 -> 0.10.8 for UPDATE-025 commit 1: delegation-compliance
+# disclosure. InvoiceFlow round 2 proved the gap reproducible even with
+# quota 6 and an explicit "panggil delegate_verifier" instruction: the
+# model self-verified (verify_html + npm build) and claimed "diverifikasi"
+# with zero delegate_verifier dispatches. The checkpoint now discloses
+# requested-minus-dispatched roles; per-turn ledger in SessionState.
+BACKEND_VERSION = "0.10.8"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
