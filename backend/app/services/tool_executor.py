@@ -764,14 +764,114 @@ class ToolExecutor:
         except OSError as e:
             return f"Error: failed to move: {e}"
 
+    # >>> UPDATE-025 hotfix-2 (InvoiceFlow incident 2026-10-28): the
+    # checkpoint tool used to be a blind `git add -A`. On a project
+    # without a .gitignore it committed the ENTIRE frontend/node_modules
+    # (thousands of files), frontend/dist, __pycache__ pyc files and —
+    # worst — .orion/session_history.json, i.e. a copy of the owner's
+    # conversation. Hygiene is now MECHANICAL (teeth in code, not a
+    # prompt rule the model may forget): ensure a baseline .gitignore,
+    # untrack already-tracked generated paths, then stage & commit, and
+    # REPORT what happened including the staged file count so a
+    # checkpoint can never again say "complete" while hiding that 99%
+    # of the commit was dependencies.
+    GITIGNORE_BASELINE = (
+        "node_modules/",
+        "dist/",
+        "build/",
+        "__pycache__/",
+        "*.pyc",
+        ".venv/",
+        "venv/",
+        ".orion/",
+    )
+    GENERATED_PREFIXES = (
+        "node_modules/",
+        "dist/",
+        "build/",
+        "__pycache__/",
+        ".venv/",
+        "venv/",
+        ".orion/",
+    )
+
+    def _git(self, args: list, timeout: int = 120):
+        return subprocess.run(
+            ["git", *args], cwd=self.project_path,
+            capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace",
+        )
+
+    def _hygiene_gitignore(self) -> str:
+        """Create or top-up the baseline .gitignore; report what changed."""
+        path = os.path.join(self.project_path, ".gitignore")
+        try:
+            if not os.path.exists(path):
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "# Baseline ignore file created automatically by "
+                        "Orion's git_commit hygiene (UPDATE-025 hotfix-2).\n"
+                        + "".join(f"{p}\n" for p in self.GITIGNORE_BASELINE)
+                    )
+                return ".gitignore created"
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                isi = f.read()
+            garis = {g.strip() for g in isi.splitlines()}
+            hilang = [p for p in self.GITIGNORE_BASELINE if p not in garis]
+            if hilang:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(
+                        "\n# Added by Orion's git_commit hygiene "
+                        "(UPDATE-025 hotfix-2).\n"
+                        + "".join(f"{p}\n" for p in hilang)
+                    )
+                return f".gitignore topped up (+{len(hilang)} pattern)"
+            return ""
+        except OSError as e:
+            return f".gitignore hygiene skipped ({e})"
+
+    def _hygiene_untrack(self) -> str:
+        """Untrack generated paths that earlier blind commits swallowed.
+
+        `git rm --cached` only touches the INDEX — files stay on disk.
+        The removal rides the next commit, which is exactly how the
+        InvoiceFlow repo heals without history rewriting.
+        """
+        r = self._git(["ls-files"], timeout=60)
+        if r.returncode != 0:
+            return ""
+        jalur = [
+            baris for baris in r.stdout.splitlines()
+            if baris.startswith(self.GENERATED_PREFIXES)
+            or baris.endswith(".pyc")
+        ]
+        if not jalur:
+            return ""
+        top = sorted(
+            {
+                next(
+                    p.rstrip("/") for p in self.GENERATED_PREFIXES
+                    if baris.startswith(p)
+                )
+                for baris in jalur
+                if baris.startswith(self.GENERATED_PREFIXES)
+            }
+        )
+        top += [b for b in jalur if not b.startswith(self.GENERATED_PREFIXES)]
+        r2 = self._git(["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", *top])
+        if r2.returncode != 0:
+            return f"untrack failed ({(r2.stderr or '').strip()[:200]})"
+        return f"{len(jalur)} generated file(s) untracked (kept on disk)"
+
     def git_commit(self, message: str) -> str:
         """Create a safe point (checkpoint) with git commit.
 
         Orion used to attempt `git commit` through run_terminal -- scary for
         the user because it triggered the shell-command confirmation modal.
-        This is a controlled dedicated path: only `git add -A` + `git commit`,
-        no shell, and it rejects with a clear message when the folder is not
-        a git repo.
+        This is a controlled dedicated path: no shell, and it rejects with a
+        clear message when the folder is not a git repo. Since UPDATE-025
+        hotfix-2 it also runs the mechanical hygiene steps (baseline
+        .gitignore, untrack generated paths, staged-count report).
         """
         pesan = (message or "").strip() or "Orion checkpoint"
         if not os.path.isdir(os.path.join(self.project_path, ".git")):
@@ -779,20 +879,34 @@ class ToolExecutor:
                     "commit. If you want a safe point without git, use the backups: "
                     "every write_file/edit_file already saves .orion/backups automatically.")
         try:
-            r = subprocess.run(["git", "add", "-A"], cwd=self.project_path,
-                               capture_output=True, text=True, timeout=120,
-                               encoding="utf-8", errors="replace")
+            laporan = [s for s in (self._hygiene_gitignore(), self._hygiene_untrack()) if s]
+            r = self._git(["add", "-A"])
             if r.returncode != 0:
                 return f"Error git add: {r.stderr.strip()[:300]}"
-            r2 = subprocess.run(["git", "commit", "-m", pesan], cwd=self.project_path,
-                                capture_output=True, text=True, timeout=120,
-                                encoding="utf-8", errors="replace")
+            hitung = self._git(["diff", "--cached", "--name-only"], timeout=60)
+            n_staged = len([b for b in hitung.stdout.splitlines() if b.strip()]) \
+                if hitung.returncode == 0 else -1
+            r2 = self._git(["commit", "-m", pesan])
             keluar = (r2.stdout or r2.stderr).strip()
             if r2.returncode != 0:
                 if "nothing to commit" in keluar.lower():
-                    return "Nothing to commit (working tree clean)."
+                    return (
+                        "Nothing to commit (working tree clean)."
+                        + (" Hygiene: " + "; ".join(laporan) + "." if laporan else "")
+                    )
                 return f"Error git commit: {keluar[:300]}"
-            return f"Success: git checkpoint created. {keluar.splitlines()[0] if keluar else ''}"
+            ringkas = f"Success: git checkpoint created. {keluar.splitlines()[0] if keluar else ''}"
+            if n_staged >= 0:
+                ringkas += f" Staged files in this commit: {n_staged}."
+                if n_staged > 200:
+                    ringkas += (
+                        " LARGE COMMIT: more than 200 files — generated dirs are "
+                        "already excluded by hygiene, so confirm with the user that "
+                        "this bulk is intended before relying on this checkpoint."
+                    )
+            if laporan:
+                ringkas += " Hygiene: " + "; ".join(laporan) + "."
+            return ringkas
         except (OSError, subprocess.SubprocessError) as e:
             return f"Error running git: {e}"
     # >>> END OF PATCH ORION-26a ========================================
