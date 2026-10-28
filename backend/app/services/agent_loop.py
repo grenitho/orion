@@ -1197,9 +1197,30 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             if deps.todo_manager is None:
                                 result = "Info: The todo-list feature is currently unavailable (module not installed); continue without update_todos."
                             else:
+                                # >>> UPDATE-025 hotfix-2: snapshot todo
+                                # statuses BEFORE the rewrite, so every item
+                                # that flips to 'completed' (or is created
+                                # already completed) gets an evidence
+                                # snapshot at that exact moment — see
+                                # SessionState.bukti_todo and the checkpoint
+                                # disclosure below. <<<
+                                _status_sebelum = {
+                                    str(t.get("id")): t.get("status")
+                                    for t in deps.todo_manager.get_todos()
+                                }
                                 rendered = deps.todo_manager.set_todos(
                                     func_args.get("todos", [])
                                 )
+                                for _t in deps.todo_manager.get_todos():
+                                    _tid = str(_t.get("id"))
+                                    if _t.get("status") == "completed" and (
+                                        _status_sebelum.get(_tid) != "completed"
+                                    ):
+                                        state.bukti_todo[_tid] = (
+                                            len(state.files_changed_this_turn),
+                                            state.terminal_ok,
+                                            state.subagent_calls,
+                                        )
                                 yield sse.ev('todo_update', markdown=rendered, todos=deps.todo_manager.get_todos())
                                 result = f"Todo list updated:\n{rendered}"
 
@@ -1238,6 +1259,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             _lm, _ls = tool_dispatch.label(func_name, func_args)
                             yield deps.kirim_status(_lm)
                             result = tool_dispatch.jalankan(func_name, deps.tool_executor, func_args)
+                            # >>> UPDATE-025 hotfix-2: count successful
+                            # terminal runs as work evidence for the
+                            # todo-evidence disclosure (a command that
+                            # errored or was rejected proves nothing). <<<
+                            if func_name == "run_terminal" and isinstance(result, str) and (
+                                not result.startswith(("Error", "❌", "[REJECTED"))
+                            ):
+                                state.terminal_ok += 1
                             if _ls:
                                 yield deps.kirim_status(_ls)
 
@@ -1920,6 +1949,33 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # empty string → the report stays byte-identical to the
                         # pre-022 shape (SSE harness contract, §4 gate).
                         checkpoint_report += state.ringkasan_ledger()
+
+                        # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow
+                        # incident): DISCLOSE todo items completed THIS turn
+                        # with zero work evidence at their completion moment
+                        # (no file change, no successful terminal run, no
+                        # sub-agent run). Disclosure, not rejection — the
+                        # user sees the same ledger the gates saw; hard
+                        # per-item rejection comes after the evidence model
+                        # proves itself in the field. <<<
+                        _nol_bukti = [
+                            tid for tid, ev in state.bukti_todo.items()
+                            if not any(ev)
+                        ]
+                        if _nol_bukti:
+                            _daftar_nol = "\n".join(
+                                f"- ⚠️ `[{tid}]`" for tid in _nol_bukti
+                            )
+                            checkpoint_report += (
+                                "\n\n**⚠️ Items marked complete with NO work "
+                                "evidence this turn:**\n"
+                                f"{_daftar_nol}\n\n"
+                                "At the moment each item above was marked completed, "
+                                "this turn had recorded no file change, no successful "
+                                "terminal command and no sub-agent run. The work may "
+                                "exist from an earlier turn or outside Orion — verify "
+                                "these items manually before trusting this checkpoint."
+                            )
 
                         checkpoint_report += (
                             "\n\n**Next steps:**\n"

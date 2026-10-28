@@ -108,18 +108,31 @@ from pathlib import Path
 # StreamHandlers onto the guarded sink, at import and again at
 # lifespan startup; the owner growth-check (707 -> 719 blocks) is
 # what disproved the first fix.
-# Bumped 0.10.4 -> 0.10.5 for the UPDATE-025 hotfix (InvoiceFlow
-# todo-hijack incident, owner transcript 2026-10-28): a stale todo
-# list from an earlier session hijacked a frontend-pricing question
-# into old Decimal work (forced LANJUT_TODO nudge), and the soft-limit
-# pause leaked the literal placeholder "[mention the last task]" —
-# born as "[sebutkan task terakhir]", never filled by anyone since
-# the backend composes that message itself. The soft-limit warning is
-# now composed from real state (the turn's request, last tool, pending
-# todos) and stored as the resume anchor; a nudge whose next todo
-# predates the turn re-anchors to the user's request instead of
-# forcing the stale item.
-BACKEND_VERSION = "0.10.5"
+# UPDATE-025 hotfix (InvoiceFlow todo-hijack incident, owner transcript
+# 2026-10-28): a stale todo list from an earlier session hijacked a
+# frontend-pricing question into old Decimal work (forced LANJUT_TODO
+# nudge), and the soft-limit pause leaked the literal placeholder
+# "[mention the last task]" - born as "[sebutkan task terakhir]", never
+# filled by anyone since the backend composes that message itself. The
+# soft-limit warning is now composed from real state (the turn's
+# request, last tool, pending todos) and stored as the resume anchor;
+# a nudge whose next todo predates the turn re-anchors to the user's
+# request instead of forcing the stale item.
+# Bumped 0.10.5 -> 0.10.6 for UPDATE-025 hotfix-2, three mechanical
+# teeth grown from the same field day: (1) tool_guards.pre_call_check,
+# the shared pre-call screening gate both dispatch branches pass
+# through (external review note: the mcp__ path bypassed every
+# built-in guard; logging-first notice for mutating-looking MCP
+# names); (2) git_commit hygiene - blind `git add -A` had committed
+# frontend/node_modules, dist, pyc files and .orion/session_history.json
+# on a project without .gitignore; the tool now creates/tops up a
+# baseline .gitignore, untracks generated paths (index only, files
+# stay on disk), and reports the staged file count with a >200 large-
+# commit warning; (3) checkpoint disclosure of todo items completed
+# this turn with zero work evidence at completion (the "Implementasikan
+# UI" todo completed on a turn whose only file change was a status
+# markdown) - commit 5 v1, disclosure before rejection.
+BACKEND_VERSION = "0.10.6"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

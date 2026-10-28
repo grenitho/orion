@@ -103,6 +103,20 @@ class SessionState:
     todo_ids_awal_turn: set = field(default_factory=set)
     # >>> END OF UPDATE-025 hotfix fields <<<
 
+    # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow incident): a todo
+    # can be marked 'completed' by the model with zero work behind it
+    # (incident: "Implementasikan UI interaktif ..." completed on a turn
+    # whose only file change was a status markdown). The checkpoint now
+    # DISCLOSES that: when an item flips to completed, the evidence
+    # present at that moment is snapshotted here (files changed /
+    # successful run_terminal calls / sub-agent runs THIS turn) and the
+    # checkpoint lists every item completed with NONE of them.
+    # Disclosure first (logging-first philosophy); hard rejection is a
+    # later step once the evidence model proves itself.
+    terminal_ok: int = 0
+    bukti_todo: dict = field(default_factory=dict)
+    # >>> END OF hotfix-2 fields <<<
+
     def catat_file_berubah(self, entri: str) -> None:
         """Record one piece of real-work evidence (a successfully changed file)."""
         self.files_changed_this_turn.append(entri)
