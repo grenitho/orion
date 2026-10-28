@@ -71,12 +71,18 @@ def test_gitignore_dibuat_dan_artefak_tak_masuk(repo):
 
 
 def test_repo_kotor_lama_disembuhkan_saat_checkpoint(repo):
-    # Simulate the InvoiceFlow state: node_modules + .orion ALREADY
-    # tracked by an earlier blind commit.
-    (repo / "node_modules" / "pkg").mkdir(parents=True)
-    (repo / "node_modules" / "pkg" / "i.js").write_text("x", encoding="utf-8")
+    # Simulate the InvoiceFlow state: GENERATED DIRS AT ANY DEPTH
+    # (frontend/node_modules, frontend/dist) plus root-level .orion,
+    # ALREADY tracked by an earlier blind commit. The first hotfix-2
+    # matcher was root-anchored and missed exactly the nested ones.
+    (repo / "frontend" / "node_modules" / "pkg").mkdir(parents=True)
+    (repo / "frontend" / "node_modules" / "pkg" / "i.js").write_text("x", encoding="utf-8")
+    (repo / "frontend" / "dist").mkdir()
+    (repo / "frontend" / "dist" / "index.html").write_text("x", encoding="utf-8")
     (repo / ".orion").mkdir()
     (repo / ".orion" / "session_history.json").write_text("{}", encoding="utf-8")
+    (repo / "app" / "__pycache__").mkdir()
+    (repo / "app" / "__pycache__" / "main.pyc").write_text("x", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "blind"], cwd=repo, check=True)
     assert any("node_modules" in b for b in _ls_files(repo))
@@ -86,8 +92,11 @@ def test_repo_kotor_lama_disembuhkan_saat_checkpoint(repo):
     assert "untracked (kept on disk)" in hasil
     terlacak = _ls_files(repo)
     assert not any("node_modules" in b for b in terlacak)
+    assert not any("/dist/" in b or b.startswith("dist/") for b in terlacak)
     assert not any(b.startswith(".orion/") for b in terlacak)
-    assert (repo / "node_modules" / "pkg" / "i.js").exists()
+    assert not any(b.endswith(".pyc") for b in terlacak)
+    assert (repo / "frontend" / "node_modules" / "pkg" / "i.js").exists()
+    assert (repo / "frontend" / "dist" / "index.html").exists()
 
 
 def test_gitignore_ada_ditambal_bukan_ditimpa(repo):

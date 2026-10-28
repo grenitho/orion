@@ -785,15 +785,30 @@ class ToolExecutor:
         "venv/",
         ".orion/",
     )
-    GENERATED_PREFIXES = (
-        "node_modules/",
-        "dist/",
-        "build/",
-        "__pycache__/",
-        ".venv/",
-        "venv/",
-        ".orion/",
+    # Directory NAMES that mark generated content at ANY depth. The
+    # first hotfix-2 version anchored prefixes at the repo root and
+    # therefore missed exactly the InvoiceFlow case: tracked paths like
+    # frontend/node_modules/... and frontend/dist/... never startswith
+    # "node_modules/". .gitignore patterns are unanchored (they match
+    # at any depth); the untrack matcher must be equally unanchored.
+    GENERATED_DIRS = (
+        "node_modules", "dist", "build", "__pycache__", ".venv", "venv", ".orion",
     )
+
+    def _generated_top(self, jalur_rel: str):
+        """The generated directory owning a tracked path, at any depth.
+
+        Returns the path of that directory (for `git rm -r --cached`),
+        the file itself for stray .pyc files, or None when the path is
+        legitimate content.
+        """
+        parts = jalur_rel.split("/")
+        for i, bagian in enumerate(parts):
+            if bagian in self.GENERATED_DIRS:
+                return "/".join(parts[: i + 1])
+        if jalur_rel.endswith(".pyc"):
+            return jalur_rel
+        return None
 
     def _git(self, args: list, timeout: int = 120):
         return subprocess.run(
@@ -835,33 +850,24 @@ class ToolExecutor:
 
         `git rm --cached` only touches the INDEX — files stay on disk.
         The removal rides the next commit, which is exactly how the
-        InvoiceFlow repo heals without history rewriting.
+        InvoiceFlow repo heals without history rewriting. Matches
+        generated directories at ANY depth (see GENERATED_DIRS).
         """
         r = self._git(["ls-files"], timeout=60)
         if r.returncode != 0:
             return ""
-        jalur = [
-            baris for baris in r.stdout.splitlines()
-            if baris.startswith(self.GENERATED_PREFIXES)
-            or baris.endswith(".pyc")
+        pasangan = [
+            (baris, self._generated_top(baris))
+            for baris in r.stdout.splitlines()
         ]
-        if not jalur:
+        pasangan = [(b, t) for b, t in pasangan if t]
+        if not pasangan:
             return ""
-        top = sorted(
-            {
-                next(
-                    p.rstrip("/") for p in self.GENERATED_PREFIXES
-                    if baris.startswith(p)
-                )
-                for baris in jalur
-                if baris.startswith(self.GENERATED_PREFIXES)
-            }
-        )
-        top += [b for b in jalur if not b.startswith(self.GENERATED_PREFIXES)]
+        top = sorted({t for _, t in pasangan})
         r2 = self._git(["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", *top])
         if r2.returncode != 0:
             return f"untrack failed ({(r2.stderr or '').strip()[:200]})"
-        return f"{len(jalur)} generated file(s) untracked (kept on disk)"
+        return f"{len(pasangan)} generated file(s) untracked (kept on disk)"
 
     def git_commit(self, message: str) -> str:
         """Create a safe point (checkpoint) with git commit.
