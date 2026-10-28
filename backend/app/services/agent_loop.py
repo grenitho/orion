@@ -37,7 +37,7 @@ from typing import AsyncIterator, Callable
 import tiktoken
 
 from app.services import loop_guards, research_rules, sse, tool_dispatch
-from app.services import subagent_manager
+from app.services import subagent_manager, tool_guards
 from app.services.llm_router import get_ai_response
 # >>> UPDATE-024 Commit 1: the jsonl writer moved to perf_log.py so
 # subagent_manager can record sub-run usage without a circular import.
@@ -1134,6 +1134,20 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     # tool is still the last action taken. <<<
                     state.last_tool_note = _catatan_tool(func_name, func_args)
 
+                    # >>> UPDATE-025 hotfix-2 (external review note,
+                    # 2026-10-28): the SHARED pre-call screening gate.
+                    # Computed once for every tool; built-ins return ''
+                    # (their teeth live inside tool_executor), MCP tools
+                    # with mutating-looking names return a notice that is
+                    # logged and prepended to the result below. Both
+                    # dispatch branches pass through this ONE function so
+                    # future shared teeth cannot drift apart again. <<<
+                    _pre_notice = tool_guards.pre_call_check(
+                        func_name,
+                        func_args,
+                        mcp=deps.mcp is not None and deps.mcp.has_tool(func_name),
+                    )
+
                     # >>> CRITICAL FIX #2: ask_user MUST FLUSH the tool_results
                     # collected so far BEFORE returning, otherwise the earlier
                     # tool_calls in the same batch would never get their
@@ -1202,6 +1216,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 f'🔌 MCP {deps.mcp.status_label(func_name)} ...'
                             )
                             result = await deps.mcp.call(func_name, func_args)
+                            # >>> UPDATE-025 hotfix-2: surface the shared
+                            # pre-call notice (logging-first, per the
+                            # reviewer's suggestion): log it AND prepend
+                            # it to the tool result so the unscreened
+                            # path is visible in the transcript. <<<
+                            if _pre_notice:
+                                deps.logger.info(
+                                    "[ORION PRE-CALL] %s", _pre_notice
+                                )
+                                result = _pre_notice + "\n" + str(result)
                         # >>> END OF UPDATE-014 MCP branch
 
                         elif deps.tool_executor is None:
