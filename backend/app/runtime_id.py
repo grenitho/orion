@@ -132,7 +132,15 @@ from pathlib import Path
 # this turn with zero work evidence at completion (the "Implementasikan
 # UI" todo completed on a turn whose only file change was a status
 # markdown) - commit 5 v1, disclosure before rejection.
-BACKEND_VERSION = "0.10.6"
+# Bumped 0.10.6 -> 0.10.7 for the hotfix-2 adendum: the hygiene
+# untrack matcher was root-anchored (startswith "node_modules/") and
+# therefore missed nested generated paths - frontend/node_modules,
+# frontend/dist, app/__pycache__ - the exact InvoiceFlow shape. It now
+# scans path segments at any depth, consistent with the unanchored
+# .gitignore patterns. (The ADENDUM-1 commit claimed this bump but its
+# scripted edit targeted a __version__ symbol that does not exist; the
+# version lives HERE. This commit is the real bump.)
+BACKEND_VERSION = "0.10.7"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
