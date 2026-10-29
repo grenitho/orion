@@ -36,7 +36,8 @@ from typing import AsyncIterator, Callable
 
 import tiktoken
 
-from app.services import guard_rules, loop_guards, research_rules, sse, tool_dispatch
+from app.services import guard_rules, loop_guards, project_facts, research_rules
+from app.services import sse, tool_dispatch
 from app.services import subagent_manager, tool_guards
 from app.services.llm_router import get_ai_response
 # >>> UPDATE-024 Commit 1: the jsonl writer moved to perf_log.py so
@@ -232,6 +233,34 @@ async def _keepalive(coro, hasil: list, interval: float | None = None):
         if not tugas.done():
             tugas.cancel()
         raise
+
+
+def _blok_persistensi_bila_perlu(state, tool_executor) -> str:
+    """UPDATE-025 commit 9: the deterministic persistence-fact rider.
+
+    Fires only when (a) an open failure thread exists, (b) it is about
+    stored/added data, (c) the bounded project scan finds NO persistence
+    marker at all, and (d) the block was not already delivered for this
+    thread. Fact, not guess: the block states exactly what was checked.
+    """
+    if not getattr(state, "utas_gagal", ""):
+        return ""
+    if getattr(state, "fakta_persistensi_disampaikan", False):
+        return ""
+    if not guard_rules.utas_tentang_data(state.utas_gagal):
+        return ""
+    proj = getattr(tool_executor, "project_path", ".")
+    if project_facts.ada_persistensi(proj):
+        return ""
+    state.fakta_persistensi_disampaikan = True
+    return project_facts.blok_persistensi(proj)
+
+
+def _tutup_utas_bila_disarankan(state, konten) -> None:
+    """The thread closes ONLY on demonstrated advisory wording in the
+    model's own text — boilerplate blocks never close it for it."""
+    if getattr(state, "utas_gagal", "") and guard_rules.kata_saran(konten):
+        state.utas_gagal = ""
 
 
 def _blok_pipeline_pecah(state, sebut_belum: bool = True) -> str:
@@ -617,6 +646,13 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # >>> UPDATE-025 commit 8: same freshness rule for the fate ledger —
         # a death recorded last turn must not colour this turn's disclosure.
         state.nasib_role = {}
+        # >>> UPDATE-025 commit 9: the advisory challenge is one-shot PER
+        # TURN (the failure THREAD itself stays sticky across turns).
+        state.saran_count = 0
+        _utas_baru = guard_rules.utas_gagal_dari(state.permintaan_turn_ini)
+        if _utas_baru:
+            state.utas_gagal = _utas_baru
+            state.fakta_persistensi_disampaikan = False
         # >>> END OF UPDATE-025 hotfix re-anchor state <<<
 
         # >>> CONVENTION: `_` below is the agent LOOP COUNTER.
@@ -2018,6 +2054,45 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                         state.nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
                         yield sse.ev('todo_update', markdown=deps.todo_manager.render_markdown(), todos=deps.todo_manager.get_todos())
                         continue
+                    case loop_guards.Keputusan.TANTANG_SARAN:
+                        # >>> UPDATE-025 commit 9 (owner: "Orion harus bisa
+                        # proaktif … tidak boleh seperti kuda yang ditutup
+                        # matanya"): an OPEN FAILURE THREAD is waiting for a
+                        # root cause + options, and this closing answer
+                        # carried neither. One answer-first challenge per
+                        # turn; the thread itself stays sticky across turns
+                        # until advisory wording actually appears.
+                        state.saran_count += 1
+                        deps.logger.warning(
+                            "[OPEN FAILURE THREAD] closing answer without "
+                            "root-cause/options wording; challenge %d/1: %s",
+                            state.saran_count, state.utas_gagal[:120],
+                        )
+                        deps.context_manager.add_message(
+                            "assistant", content, reasoning_content=reasoning_content
+                        )
+                        deps.context_manager.add_message(
+                            "user",
+                            "[SYSTEM - PROACTIVE ADVISORY]: the user has an "
+                            "OPEN FAILURE THREAD from an earlier message: "
+                            f"\"{state.utas_gagal[:200]}\". Before closing this "
+                            "turn, answer the current question FIRST in the "
+                            "user's language, and inside that same answer add:\n"
+                            "- the most likely ROOT CAUSE of that reported "
+                            "failure, with the concrete evidence you actually "
+                            "read (file + line, tool output, or an explicit "
+                            "'I checked X and found Y');\n"
+                            "- TWO or THREE concrete OPTIONS the user can pick, "
+                            "smallest first, including the honest 'do nothing' "
+                            "option where it applies.\n"
+                            "This is not a ritual: weave both into the answer "
+                            "as a senior engineer would. Do not defer with "
+                            "'let me know if you want me to look'.",
+                        )
+                        yield deps.kirim_status(
+                            '💡 Open failure thread: root cause + options owed...'
+                        )
+                        continue
                     case loop_guards.Keputusan.CHECKPOINT:
                         checkpoint_report = (
                             "\n\n---\n\n"
@@ -2132,6 +2207,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         checkpoint_report += _blok_pipeline_pecah(
                             state, sebut_belum=not _peran_hilang
                         )
+                        # >>> UPDATE-025 commit 9: same persistence fact and
+                        # same thread-closing rule on the checkpoint ending.
+                        checkpoint_report += _blok_persistensi_bila_perlu(
+                            state, deps.tool_executor
+                        )
+                        _tutup_utas_bila_disarankan(state, content)
 
                         checkpoint_report += (
                             "\n\n**Next steps:**\n"
@@ -2256,6 +2337,13 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # ride this frame too — same disclosure, no
                         # rejection. <<<
                         _teks_jawab = strip_thinking_blocks(content)
+                        # >>> UPDATE-025 commit 9: the persistence fact rides
+                        # BEFORE the thread can close; closing needs the
+                        # model's own advisory wording, checked on `content`.
+                        _teks_jawab += _blok_persistensi_bila_perlu(
+                            state, deps.tool_executor
+                        )
+                        _tutup_utas_bila_disarankan(state, content)
                         # >>> UPDATE-025 commit 8: the pipeline-broke block
                         # does NOT wait for claim keywords — a read-only
                         # turn whose ordered explorer died must disclose

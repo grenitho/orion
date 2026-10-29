@@ -15,6 +15,8 @@ hallucinated sentences that Orion once produced.
 
 from __future__ import annotations
 
+import re
+
 # Words/phrases that mark the model CLAIMING the work is complete.
 # Expanded in ORION-24 after the original 8-word list proved to miss
 # Indonesian claims such as "sudah tervalidasi" and "terimplementasi dengan baik".
@@ -105,3 +107,88 @@ def klaim_edit_gagal_perlu_ditantang(
 def stream_perlu_done_susulan(sudah_mengirim_done: bool) -> bool:
     """ORION-28 wrapper decision: send 'done' only if the stream ended without one."""
     return not sudah_mengirim_done
+
+
+# ---------------------------------------------------------------------------
+# >>> UPDATE-025 commit 9 (owner: "Orion harus bisa proaktif … tidak boleh
+# seperti kuda yang ditutup matanya"): the OPEN FAILURE THREAD. A user
+# report of a still-failing behaviour ("masih gagal", "tidak terhubung",
+# "still fails") opens a thread that STAYS OPEN across turns until an
+# assistant answer carries root-cause/options wording. While it is open,
+# gate 5.5 challenges plain closings (TANTANG_SARAN) and the
+# persistence-fact block (project_facts) may ride the final frame — so a
+# structural cause ("this project has no database at all") can no longer
+# sit invisible in plain sight while Orion answers only what was asked.
+POLA_UTAS_GAGAL = re.compile(
+    r"(?:masih|tetap|terus|still|keep|keeps)\s+(?:gagal|fail\w*|error\w*)"
+    r"|tidak terhubung|belum bisa terhubung|cannot connect|connection refused"
+    r"|could not connect|keeps failing|still fails?",
+    re.I,
+)
+KATA_SARAN = (
+    "penyebab",
+    "akar masalah",
+    "root cause",
+    "kemungkinan besar",
+    "hipotesis",
+    "opsi",
+    "pilihan",
+    "alternatif",
+    "rekomendasi",
+    "recommend",
+    "saran saya",
+    "saranku",
+)
+KATA_DATA = (
+    "data",
+    "pelanggan",
+    "customer",
+    "simpan",
+    "save",
+    "tambah",
+    "add",
+    "input",
+    "create",
+    "entry",
+    "record",
+)
+
+
+def utas_gagal_dari(teks: str) -> str:
+    """The failure-report snippet that opens/refreshes the thread, else ''."""
+    if not teks:
+        return ""
+    m = POLA_UTAS_GAGAL.search(teks)
+    if not m:
+        return ""
+    return teks[max(0, m.start() - 40): m.end() + 40].strip() or teks[:80]
+
+
+def utas_tentang_data(teks: str) -> bool:
+    """True when the open failure thread is about stored/added data — the
+    shape that makes the persistence-layer fact relevant."""
+    rendah = (teks or "").lower()
+    return any(k in rendah for k in KATA_DATA)
+
+
+def kata_saran(teks: str) -> bool:
+    """True when the reply carries root-cause/options wording — the
+    proactivity that CLOSES the failure thread. Deliberately lexical:
+    the thread closes on demonstrated advisory content, not on vibes."""
+    if not teks:
+        return False
+    rendah = teks.lower()
+    return any(k in rendah for k in KATA_SARAN)
+
+
+def saran_perlu_ditantang(
+    utas_aktif: bool,
+    ada_saran: bool,
+    sudah_ditantang: int,
+    maks_tantangan: int,
+) -> bool:
+    """Gate 5.5 (UPDATE-025 commit 9): an open failure thread whose closing
+    answer carries no root-cause/options wording gets ONE answer-first
+    challenge per turn — same one-shot philosophy as UPDATE-023's soft
+    claim challenge, so the gate cannot become a new loop."""
+    return utas_aktif and not ada_saran and sudah_ditantang < maks_tantangan

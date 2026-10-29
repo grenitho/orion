@@ -68,6 +68,12 @@ class Keputusan(Enum):
     # the challenge mechanism; only the message/status text differs.
     TANTANG_EDIT_GAGAL = auto()
     CHECKPOINT = auto()     # real work, nothing pending: report + ask_user, stop
+    # >>> UPDATE-025 commit 9 (owner: "Orion tidak boleh seperti kuda yang
+    # ditutup matanya"): an OPEN FAILURE THREAD (a user report of a
+    # still-failing behaviour, sticky across turns) whose closing answer
+    # carries no root-cause/options wording gets ONE answer-first
+    # challenge per turn. Proactivity as a gate, not a prompt wish.
+    TANTANG_SARAN = auto()
     JAWAB_NORMAL = auto()   # ordinary answer: stream it, stop
     PAUSE_ITERASI = auto()  # short reply at the iteration cap: pause message, stop
     TERUSKAN = auto()       # short reply below the cap: store it, keep looping silently
@@ -140,5 +146,20 @@ def evaluasi_akhir_iterasi(
     ):
         return Keputusan.TANTANG_KLAIM
 
-    # Gate 5: an ordinary, sufficiently long answer.
+    # Gate 5 (UPDATE-025 commit 9): an OPEN FAILURE THREAD demands
+    # proactivity before the turn may close plainly. The thread is sticky
+    # (set from any user message reporting a still-failing behaviour,
+    # cleared only when an assistant answer carries root-cause/options
+    # wording), so a port question asked while "add customer still fails"
+    # is unresolved still owes the owner a cause + options. One-shot per
+    # turn, same philosophy as UPDATE-023's soft claim challenge.
+    if guard_rules.saran_perlu_ditantang(
+        bool(getattr(state, "utas_gagal", "")),
+        guard_rules.kata_saran(konten),
+        int(getattr(state, "saran_count", 0)),
+        min(1, maks_verifikasi),
+    ):
+        return Keputusan.TANTANG_SARAN
+
+    # Gate 6: an ordinary, sufficiently long answer.
     return Keputusan.JAWAB_NORMAL

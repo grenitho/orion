@@ -118,6 +118,18 @@ class SessionState:
     # ran, the answer read as if nothing had happened). The turn-end
     # pipeline-broke block fires on this ledger.
     nasib_role: dict = field(default_factory=dict)
+    # >>> UPDATE-025 commit 9: the OPEN FAILURE THREAD. A user message
+    # reporting a still-failing behaviour ("masih gagal", "tidak
+    # terhubung", "still fails") stores its snippet here and the thread
+    # STAYS OPEN across turns until an assistant answer carries root-
+    # cause/options wording (guard_rules.kata_saran). While open: gate
+    # 5.5 challenges plain closings once per turn (TANTANG_SARAN) and
+    # the deterministic persistence-fact block may ride one final frame
+    # when the thread is about stored/added data. Proactivity with a
+    # memory, instead of a blindfolded horse.
+    utas_gagal: str = ""
+    saran_count: int = 0
+    fakta_persistensi_disampaikan: bool = False
 
     # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow incident): a todo
     # can be marked 'completed' by the model with zero work behind it

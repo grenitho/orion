@@ -177,7 +177,18 @@ from pathlib import Path
 # requested role visible even on read-only, claim-free turns (the shape
 # every older disclosure tooth missed: explorer died, worker/verifier
 # never ran, the report stayed silent).
-BACKEND_VERSION = "0.10.12"
+# Bumped 0.10.12 -> 0.10.13 for UPDATE-025 commit 9 (owner: "Orion harus
+# bisa proaktif … tidak boleh seperti kuda yang ditutup matanya"): the
+# OPEN FAILURE THREAD — a user report of a still-failing behaviour stays
+# sticky in SessionState.utas_gagal until an assistant answer carries
+# root-cause/options wording; gate 5.5 (TANTANG_SARAN) challenges plain
+# closings once per turn, and project_facts.ada_persistensi (bounded
+# scan: no *.db/*.sqlite*, no ORM in deps, no database/models module)
+# rides a deterministic "NO persistence layer" fact block onto one final
+# frame when the thread is about stored/added data. InvoiceFlow's
+# add-customer saga kept being investigated as code defects while the
+# structural candidate sat unnamed.
+BACKEND_VERSION = "0.10.13"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
