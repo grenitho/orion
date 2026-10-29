@@ -755,3 +755,90 @@ def test_dispatch_error_tanpa_jejak_tidak_mengotori_ledger(tmp_path):
         tool_executor=FakeExecutor(project_path=str(tmp_path)),
     ))
     assert findings_ledger._load(str(tmp_path)) == []
+
+
+# --------------------------------------------- UPDATE-025 commit 6: retry-1
+
+class FlakyLLM(ScriptedLLM):
+    """Raises a network-class death for the first N calls, then follows
+    the script — the owner's repeating incident (provider outage that
+    outlives the router's per-model retries + fleet failover)."""
+
+    def __init__(self, script, failures=1, exc=None, ok_first=0):
+        super().__init__(script)
+        self.failures = failures
+        self.exc = exc if exc is not None else TimeoutError("provider timed out")
+        self.ok_first = ok_first
+        self.calls = 0
+
+    async def __call__(self, messages=None, tools=None):
+        self.calls += 1
+        if self.ok_first < self.calls <= self.ok_first + self.failures:
+            raise self.exc
+        return await super().__call__(messages=messages, tools=tools)
+
+
+def test_retry1_menyelamatkan_subrun_dari_outage():
+    llm = FlakyLLM([{"content": LONG}], failures=1)
+    out = asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "petakan modul",
+        llm_call=llm, tool_executor=FakeExecutor(), max_iter=6,
+        retry_backoff=0,
+    ))
+    assert out["status"] == "ok"
+    assert out["retries"] == 1
+    assert out["iterations"] == 1
+    assert llm.calls == 2                   # first death + one retry, no more
+
+
+def test_retry1_tidak_untuk_kematian_non_transient():
+    llm = FlakyLLM(
+        [{"content": LONG}], failures=1,
+        exc=ValueError("tools schema rejected by provider"),
+    )
+    out = asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "petakan modul",
+        llm_call=llm, tool_executor=FakeExecutor(), max_iter=6,
+        retry_backoff=0,
+    ))
+    assert out["status"] == "error"
+    assert out["retries"] == 0
+    assert llm.calls == 1                   # retrying a 400 would burn quota
+
+
+def test_retry1_habis_lalu_salvage_yang_menang():
+    llm = FlakyLLM(
+        [{"content": "", "tool_calls": [
+            tc("read_file", {"file_path": "app/schemas.py"}, 1)]}],
+        failures=2, ok_first=1,              # call2 dies, retry (call3) dies
+    )
+    out = asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "investigate schemas",
+        llm_call=llm, tool_executor=FakeExecutor(), max_iter=6,
+        retry_backoff=0,
+    ))
+    assert llm.calls == 3                   # exactly ONE sub-run-level retry
+    assert out["status"] == "error"
+    assert out["retries"] == 1
+    assert "read_file" in out["salvage"]    # 0.10.9 salvage still catches it
+    assert "retries spent: 1" in sa._format_report(sa.EXPLORER, out)
+
+
+def test_perf_mencatat_baris_retry_dan_flag_retried(tmp_path):
+    import json as _json
+
+    llm = FlakyLLM([{"content": LONG}], failures=1)
+    asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "petakan modul",
+        llm_call=llm, tool_executor=FakeExecutor(project_path=str(tmp_path)),
+        max_iter=6, retry_backoff=0,
+    ))
+    path = tmp_path / ".orion" / "performance_log.jsonl"
+    baris = [_json.loads(x) for x in path.read_text().splitlines()]
+    assert baris[0]["status"] == "retry"
+    assert baris[0]["model"] == "sub-run-retry"
+    assert baris[0]["role"] == "explorer"
+    assert baris[1]["status"] == "success"
+    assert baris[1].get("retried") is True
+    # additive field: old readers/dashboard ignore unknown keys safely
+    assert "retried" not in baris[0]

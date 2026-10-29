@@ -144,6 +144,33 @@ PREFIX_ERROR = "[SUBAGENT ERROR]"
 # so it continues FROM them instead of re-investigating from zero.
 PREFIX_PARTIAL = "[SUBAGENT PARTIAL]"
 
+# >>> UPDATE-025 commit 6 (owner directive: "pasang retry-1 untuk setiap
+# sub agent — kejadian ini sudah berulang"): the router ALREADY retries
+# per model (LLM_MAX_RETRIES_PER_MODEL) and fails over across the whole
+# fleet, so an exception that reaches a sub-run means the ENTIRE cascade
+# was down. The missing layer was a fleet-wide pause: ONE retry of the
+# whole call after a backoff, then the 0.10.9 salvage path if it dies
+# again. Retry-1, never more — a second sub-run-level retry would just
+# double worst-case cost against an outage minutes long.
+SUBRUN_RETRY_BACKOFF_SEC = float(os.getenv("ORION_SUBRUN_RETRY_BACKOFF", "8"))
+_SUBRUN_RETRY_MARKERS = (
+    "all ai models", "timeout", "timed out", "connection", "disconnect",
+    "incomplete", "busy",
+)
+
+
+def _retryable(exc: BaseException) -> bool:
+    """Which sub-run deaths deserve the single fleet-level retry.
+
+    Network/timeout classes plus the router's cascade-final message
+    ("All AI models are busy/failing…") qualify. Schema/auth/bad-request
+    deaths do NOT: retrying a 400 burns quota against a certainty.
+    """
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError, ConnectionError)):
+        return True
+    teks = str(exc).lower()
+    return any(m in teks for m in _SUBRUN_RETRY_MARKERS)
+
 MIN_SUMMARY_LEN = 40  # a shorter 'report' is treated as not-yet-finished
 
 
@@ -303,20 +330,28 @@ class MiniContext:
 
 
 def _catat_perf_subrun(tool_executor: Any, response: Any, role: str,
-                       mulai: float) -> None:
+                       mulai: float, *, status: str | None = None,
+                       extra: dict | None = None) -> None:
     """Record ONE sub-run LLM call into .orion/performance_log.jsonl
     (UPDATE-024 Commit 1, owner directive: sub-run token usage is user data).
 
     Entries carry the additive ``role`` field ("explorer"/"verifier"/
     "worker") so per-role accounting is possible; the main loop's entries
     keep their exact old shape. ``response=None`` records the failed-call
-    shape (status "error", zero tokens). Never raises: bookkeeping must
-    not kill a sub-run — same rule as the ledger hook.
+    shape (status "error", zero tokens). ``status="retry"`` (UPDATE-025
+    commit 6) marks a first attempt that died and earned the sub-run's
+    single retry; ``extra`` rides additive fields like ``retried``.
+    Never raises: bookkeeping must not kill a sub-run — same rule as the
+    ledger hook.
     """
     try:
         proj = getattr(tool_executor, "project_path", None) or "."
         if response is None:
-            log_performance(proj, "sub-run-failed", 0, 0, 0.0, "error", role=role)
+            log_performance(
+                proj,
+                "sub-run-retry" if status == "retry" else "sub-run-failed",
+                0, 0, 0.0, status or "error", role=role, extra=extra,
+            )
             return
         usage = getattr(response, "usage", None)
         log_performance(
@@ -327,6 +362,7 @@ def _catat_perf_subrun(tool_executor: Any, response: Any, role: str,
             (time.perf_counter() - mulai) * 1000,
             "success",
             role=role,
+            extra=extra,
         )
     except Exception:  # noqa: BLE001 - bookkeeping never breaks a run
         pass
@@ -375,11 +411,12 @@ async def run_subagent(
     project_map: str = "",
     logger: Any = None,
     state: Any = None,
+    retry_backoff: float = SUBRUN_RETRY_BACKOFF_SEC,
 ) -> dict:
     """Run ONE sub-agent to completion or cap. Never raises.
 
-    Returns {"summary", "iterations", "tool_calls", "status"} with status
-    in {"ok", "capped", "error"}.
+    Returns {"summary", "iterations", "tool_calls", "status", "retries",
+    "salvage"} with status in {"ok", "capped", "error"}.
     """
     ctx = MiniContext()
     head = ROLE_PROMPTS[role]
@@ -396,6 +433,7 @@ async def run_subagent(
     last_content = ""
     tool_calls = 0
     iter_done = 0
+    retries = 0
     # >>> UPDATE-025 commit 5 (owner transcript: explorer timeout -> main
     # re-investigated from zero): a dead or capped sub-run used to take
     # everything it learned to the grave. This trail digests what it
@@ -427,11 +465,40 @@ async def run_subagent(
     try:
         for i in range(max_iter):
             _mulai_panggilan = time.perf_counter()
-            response = await llm_call(messages=ctx.messages(), tools=tools)
+            response = None
+            _percobaan = 0
+            # >>> UPDATE-025 commit 6: retry-1 at the SUB-RUN layer. The
+            # router's own retries (per model + fleet failover) already
+            # ran and lost inside this call; one paused retry of the whole
+            # call is the layer that was missing when the provider outage
+            # outlived the cascade. Non-transient deaths raise immediately.
+            for _percobaan in (0, 1):
+                try:
+                    response = await llm_call(messages=ctx.messages(), tools=tools)
+                    break
+                except Exception as exc_llm:
+                    if _percobaan == 0 and _retryable(exc_llm):
+                        retries += 1
+                        _log(
+                            f"LLM call died ({type(exc_llm).__name__}); retry-1 "
+                            f"in {retry_backoff:.0f}s — router cascade already "
+                            "exhausted"
+                        )
+                        _catat_perf_subrun(
+                            tool_executor, None, role, _mulai_panggilan,
+                            status="retry",
+                        )
+                        await asyncio.sleep(retry_backoff)
+                        _mulai_panggilan = time.perf_counter()
+                        continue
+                    raise
             iter_done = i + 1
             # >>> UPDATE-024 Commit 1: record the call BEFORE interpreting it
             # — tokens were spent whether or not the answer is usable.
-            _catat_perf_subrun(tool_executor, response, role, _mulai_panggilan)
+            _catat_perf_subrun(
+                tool_executor, response, role, _mulai_panggilan,
+                extra={"retried": True} if _percobaan else None,
+            )
             choices = getattr(response, "choices", None)
             if not choices:
                 _log("empty model response; ending sub-run")
@@ -495,6 +562,7 @@ async def run_subagent(
                     "iterations": i + 1,
                     "tool_calls": tool_calls,
                     "status": "ok",
+                    "retries": retries,
                 }
         status = "capped" if tool_calls else "error"
         return {
@@ -503,6 +571,7 @@ async def run_subagent(
             "tool_calls": tool_calls,
             "status": status,
             "salvage": _salvage(),
+            "retries": retries,
         }
     except Exception as exc:  # the loop must never die because of a sub-run
         _log(f"sub-run failed: {type(exc).__name__}: {exc}")
@@ -517,6 +586,7 @@ async def run_subagent(
             "tool_calls": tool_calls,
             "status": "error",
             "salvage": _salvage(),
+            "retries": retries,
         }
 
 
@@ -541,7 +611,8 @@ def _format_report(role: str, outcome: dict) -> str:
     if salvage and outcome.get("status") in ("error", "capped"):
         teks += (
             f"\n\n{PREFIX_PARTIAL} the {role} sub-run ended early "
-            f"(status: {outcome['status']}). What it already accomplished "
+            f"(status: {outcome['status']}, retries spent: "
+            f"{outcome.get('retries', 0)}). What it already accomplished "
             "survives below — continue FROM it with your own tools; do NOT "
             "re-read files it already read. Delegating this same role again "
             "is allowed on a NEXT turn, never in this one.\n"

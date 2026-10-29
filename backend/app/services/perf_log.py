@@ -35,12 +35,15 @@ def log_performance(
     duration_ms: float,
     status: str,
     role: str | None = None,
+    extra: dict | None = None,
 ):
     """Record API usage statistics to the .orion/performance_log.jsonl file.
 
     ``role`` None = the main agent loop (entry shape unchanged since Phase
     C); a sub-agent role name tags the entry so per-role token accounting
-    is possible (UPDATE-024 Commit 1).
+    is possible (UPDATE-024 Commit 1). ``extra`` merges additive fields
+    (UPDATE-025 commit 6: ``retried`` flag) — the dashboard reads named
+    fields and ignores unknown ones, so old readers stay safe.
     """
     try:
         orion_dir = os.path.join(project_path, ".orion")
@@ -66,6 +69,8 @@ def log_performance(
         }
         if role:
             log_entry["role"] = role
+        if extra:
+            log_entry.update(extra)
 
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry) + "\n")

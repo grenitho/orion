@@ -155,7 +155,14 @@ from pathlib import Path
 # SessionState, so a completion claim routed JAWAB_NORMAL escaped every
 # delegation disclosure; the requested-minus-dispatched gap now rides that
 # frame too when the reply claims completion.
-BACKEND_VERSION = "0.10.9"
+# Bumped 0.10.9 -> 0.10.10 for UPDATE-025 commit 6 (owner directive):
+# retry-1 per sub-agent LLM call. The router already retries per model and
+# fails over the whole fleet, so a death reaching the sub-run = fleet-wide
+# outage; the missing layer was ONE paused retry of the whole call
+# (backoff 8 s, env ORION_SUBRUN_RETRY_BACKOFF), classified transient-only
+# (_retryable). Retry exhaustion falls through to the 0.10.9 salvage path.
+# Perf log gains status "retry" rows and an additive "retried" flag.
+BACKEND_VERSION = "0.10.10"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
