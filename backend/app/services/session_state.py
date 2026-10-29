@@ -109,6 +109,15 @@ class SessionState:
     # (subagent_manager.roles_diminta) and discloses the gap. Reset at
     # loop start so last turn's dispatches can never launder this turn.
     delegasi_terpakai: set = field(default_factory=set)
+    # >>> UPDATE-025 commit 8: per-role fate of THIS turn's dispatches:
+    # {role: (status, retries)}, best status winning when a role ran more
+    # than once ("ok" > "capped" > "error"). A requested role that DIED
+    # means the ordered pipeline broke — and on a read-only turn whose
+    # reply claims nothing, every older disclosure tooth stayed silent
+    # (owner 2026-10-29: explorer died at 3:34:33, worker/verifier never
+    # ran, the answer read as if nothing had happened). The turn-end
+    # pipeline-broke block fires on this ledger.
+    nasib_role: dict = field(default_factory=dict)
 
     # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow incident): a todo
     # can be marked 'completed' by the model with zero work behind it

@@ -152,7 +152,27 @@ PREFIX_PARTIAL = "[SUBAGENT PARTIAL]"
 # whole call after a backoff, then the 0.10.9 salvage path if it dies
 # again. Retry-1, never more — a second sub-run-level retry would just
 # double worst-case cost against an outage minutes long.
-SUBRUN_RETRY_BACKOFF_SEC = float(os.getenv("ORION_SUBRUN_RETRY_BACKOFF", "8"))
+# >>> UPDATE-025 commit 8 (owner perf log 2026-10-29 15:42): the evidence
+# overruled "never more". The glm outage killed the first call at
+# 3:31:49 AND the 8 s retry at 3:34:33 — minute-scale outages outlive a
+# single short pause. The budget is now ESCALATING: retry-1 after 8 s,
+# retry-2 after 45 s (env ORION_SUBRUN_RETRY_BACKOFFS="8,45"), so the
+# second cascade lands minutes into the outage, where the blips seen so
+# far (±3-6 min) tend to have healed. Extra cost stays bounded: the
+# retries only exist while the fleet is down.
+def _baca_backoffs() -> list[float]:
+    try:
+        angka = [
+            max(0.0, float(x))
+            for x in os.getenv("ORION_SUBRUN_RETRY_BACKOFFS", "8,45").split(",")
+            if x.strip()
+        ]
+        return angka or [8.0, 45.0]
+    except ValueError:
+        return [8.0, 45.0]
+
+
+SUBRUN_RETRY_BACKOFFS = _baca_backoffs()
 _SUBRUN_RETRY_MARKERS = (
     "all ai models", "timeout", "timed out", "connection", "disconnect",
     "incomplete", "busy",
@@ -190,9 +210,19 @@ def role_of_tool(name: str) -> str:
 # "verify"/"verification" must NOT match — verify_html is a tool, not a
 # verifier, and over-matching would cry wolf on every build check.
 _POLA_TOOL_DELEGASI = re.compile(r"\bdelegate_(explorer|verifier|workers)\b", re.I)
+# >>> UPDATE-025 commit 8: the owner's OWN pipeline wording ("tugaskan
+# sekali lagi explorer … serahkan ke worker … berikan ke verifier")
+# carried no sub-agent/delegation context word, so commit 1's narrow
+# pattern saw NO requested roles — and the pipeline-broke disclosure
+# would have stayed silent on the very incident it exists for. Command
+# verbs now count as delegation context. The lookahead keeps programming
+# jargon ("worker thread", "explorer pool") from crying wolf; bare
+# "verify"/"verification" still never matches (commit 1 rule intact).
 _POLA_SUB_PERAN = re.compile(
-    r"(?:sub[\s_-]?agent|delegasi\w*|delegation|delegate)\b"
-    r"(?:\s+\w+){0,3}\s+(explorer|verifier|workers?)\b",
+    r"(?:sub[\s_-]?agent|delegasi\w*|delegation|delegate|tugas\w*|"
+    r"serahkan|berikan|kirimkan?|pakai|gunakan|dispatch|call|run)\b"
+    r"(?:\s+\w+){0,3}\s+(explorer|verifier|workers?)\b"
+    r"(?![\s_-]*(thread|threads|pool|pools|process|processes|queue|queues))",
     re.I,
 )
 
@@ -219,6 +249,27 @@ def _catat_peran(state: Any, role: str) -> None:
         peran = set()
         state.delegasi_terpakai = peran
     peran.add(role)
+
+
+def _catat_nasib(state: Any, role: str, status: str, retries: int) -> None:
+    """UPDATE-025 commit 8: record this turn's per-role dispatch FATE —
+    {role: (status, retries)} — including failures, which the success-only
+    delegation ledger deliberately hides (a crashed sub-run must still
+    count as "requested but never really ran" there). Best status wins
+    when one role was dispatched repeatedly ("ok" > "capped" > "error"),
+    retries keep their maximum. The turn-end pipeline-broke disclosure
+    reads this ledger: a requested role that DIED makes the collapse
+    visible even on read-only turns whose reply claims nothing.
+    """
+    nasib = getattr(state, "nasib_role", None)
+    if not isinstance(nasib, dict):
+        return
+    rank = {"error": 0, "capped": 1, "ok": 2}
+    lama = nasib.get(role)
+    if lama is None or rank.get(status, 0) > rank.get(lama[0], 0):
+        nasib[role] = (status, max(retries, lama[1] if lama else 0))
+    else:
+        nasib[role] = (lama[0], max(lama[1], retries))
 
 
 def read_config(config: dict | None) -> dict:
@@ -411,7 +462,7 @@ async def run_subagent(
     project_map: str = "",
     logger: Any = None,
     state: Any = None,
-    retry_backoff: float = SUBRUN_RETRY_BACKOFF_SEC,
+    retry_backoffs: list[float] | None = None,
 ) -> dict:
     """Run ONE sub-agent to completion or cap. Never raises.
 
@@ -463,32 +514,40 @@ async def run_subagent(
                 pass
 
     try:
+        _backoffs = (
+            SUBRUN_RETRY_BACKOFFS if retry_backoffs is None else list(retry_backoffs)
+        )
         for i in range(max_iter):
             _mulai_panggilan = time.perf_counter()
             response = None
             _percobaan = 0
-            # >>> UPDATE-025 commit 6: retry-1 at the SUB-RUN layer. The
-            # router's own retries (per model + fleet failover) already
-            # ran and lost inside this call; one paused retry of the whole
-            # call is the layer that was missing when the provider outage
-            # outlived the cascade. Non-transient deaths raise immediately.
-            for _percobaan in (0, 1):
+            # >>> UPDATE-025 commit 6+8: escalating paused retries at the
+            # SUB-RUN layer. The router's own retries (per model + fleet
+            # failover) already ran and lost inside this call; what was
+            # missing is a fleet-wide pause. Commit 6 shipped ONE retry;
+            # the owner's 15:42 perf log proved minute-scale outages kill
+            # the 8 s retry too (death 3:31:49, retry death 3:34:33), so
+            # the budget is now [8 s, 45 s] by default — the second
+            # cascade lands minutes into the outage, where the blips
+            # seen so far tend to have healed. Non-transient deaths raise
+            # immediately; exhausting the budget falls to 0.10.9 salvage.
+            for _percobaan in range(len(_backoffs) + 1):
                 try:
                     response = await llm_call(messages=ctx.messages(), tools=tools)
                     break
                 except Exception as exc_llm:
-                    if _percobaan == 0 and _retryable(exc_llm):
+                    if _percobaan < len(_backoffs) and _retryable(exc_llm):
                         retries += 1
                         _log(
-                            f"LLM call died ({type(exc_llm).__name__}); retry-1 "
-                            f"in {retry_backoff:.0f}s — router cascade already "
-                            "exhausted"
+                            f"LLM call died ({type(exc_llm).__name__}); "
+                            f"retry-{retries} in {_backoffs[_percobaan]:.0f}s — "
+                            "router cascade already exhausted"
                         )
                         _catat_perf_subrun(
                             tool_executor, None, role, _mulai_panggilan,
                             status="retry",
                         )
-                        await asyncio.sleep(retry_backoff)
+                        await asyncio.sleep(_backoffs[_percobaan])
                         _mulai_panggilan = time.perf_counter()
                         continue
                     raise
@@ -703,6 +762,12 @@ async def dispatch(
                 logger=logger,
                 state=state,  # UPDATE-022: worker edits feed the main ledger
             )
+            # >>> UPDATE-025 commit 8: per-worker fate into the turn ledger
+            # (best status wins inside _catat_nasib when several workers run).
+            _catat_nasib(
+                state, WORKER,
+                outcome.get("status", "error"), outcome.get("retries", 0),
+            )
             return f"--- worker {index + 1} ---\n{_format_report(WORKER, outcome)}"
 
         outcomes = await asyncio.gather(
@@ -741,6 +806,13 @@ async def dispatch(
         logger=logger,
         state=state,  # UPDATE-022: read-only roles never edit, but the
         # ledger hook is uniform (and future-proof) for every role
+    )
+    # >>> UPDATE-025 commit 8: the turn's fate ledger sees EVERY outcome,
+    # failures included — the success-only delegation ledger must stay
+    # blind to crashed sub-runs (commit 1 semantics), but the pipeline-
+    # broke disclosure needs exactly the deaths.
+    _catat_nasib(
+        state, role, outcome.get("status", "error"), outcome.get("retries", 0)
     )
     if outcome.get("status") == "error":
         state.subagent_calls = max(0, state.subagent_calls - 1)

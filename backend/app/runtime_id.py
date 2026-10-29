@@ -170,7 +170,14 @@ from pathlib import Path
 # Orion backend" while the backend lived on. _keepalive now yields SSE
 # comment bytes (sse.KEEPALIVE, every ORION_SSE_KEEPALIVE_SEC=20 s) across
 # those awaits and cancels the dispatch when the client truly disappears.
-BACKEND_VERSION = "0.10.11"
+# Bumped 0.10.11 -> 0.10.12 for UPDATE-025 commit 8 (owner perf log 15:42):
+# retry budget now ESCALATES ([8 s, 45 s], ORION_SUBRUN_RETRY_BACKOFFS)
+# because minute-scale outages killed retry-1 too; and SessionState.
+# nasib_role + the turn-end "Sub-agent pipeline broke" block make a dead
+# requested role visible even on read-only, claim-free turns (the shape
+# every older disclosure tooth missed: explorer died, worker/verifier
+# never ran, the report stayed silent).
+BACKEND_VERSION = "0.10.12"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

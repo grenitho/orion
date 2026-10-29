@@ -234,6 +234,53 @@ async def _keepalive(coro, hasil: list, interval: float | None = None):
         raise
 
 
+def _blok_pipeline_pecah(state, sebut_belum: bool = True) -> str:
+    """UPDATE-025 commit 8: the read-only-pipeline-collapse disclosure.
+
+    Owner incident 2026-10-29 15:42: the ordered explorer died (retry
+    exhausted), worker/verifier never ran, main absorbed everything —
+    and the reply said NOTHING, because every older tooth needed either
+    changed files (checkpoint) or claim keywords (JAWAB_NORMAL tooth B);
+    a read-only turn ending in a plain report slipped through all of
+    them. This block fires on the FATE ledger instead: a requested role
+    whose dispatch DIED (error/capped) makes the collapse visible, and
+    the requested roles that never got dispatched ride along (unless
+    the checkpoint block already listed them — sebut_belum=False).
+    A legitimate conditional skip stays silent: explorer status "ok"
+    means downstream "only if findings" roles may lawfully sit out.
+    """
+    diminta = subagent_manager.roles_diminta(
+        getattr(state, "permintaan_turn_ini", "") or ""
+    )
+    if not diminta:
+        return ""
+    nasib = getattr(state, "nasib_role", None) or {}
+    mati = sorted(
+        r for r in diminta
+        if (nasib.get(r) or ("",))[0] in ("error", "capped")
+    )
+    if not mati:
+        return ""
+    baris = "\n".join(
+        f"- ⚠️ `{r}` ended early (status {nasib[r][0]}, retries {nasib[r][1]})"
+        for r in mati
+    )
+    if sebut_belum:
+        belum = sorted(r for r in diminta if r not in nasib)
+        if belum:
+            baris += "\n" + "\n".join(
+                f"- ⚠️ `{r}` was never dispatched" for r in belum
+            )
+    return (
+        "\n\n**⚠️ Sub-agent pipeline broke this turn:**\n"
+        f"{baris}\n\n"
+        "The conclusions above rest on the dead sub-run's salvaged "
+        "partial findings plus main-agent self-checks — NOT the ordered "
+        "independent pipeline. Dispatch the missing role(s) on a next "
+        "turn, or tell the user plainly why they were skipped."
+    )
+
+
 async def summarize_old_history(old_messages: list) -> str:
     """Call the LLM to summarize old chat history.
     IMPORTANT: this function does NOT swallow exceptions. If the API fails, the error is raised to the caller.
@@ -567,6 +614,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # >>> UPDATE-025 commit 1: a FRESH delegation ledger every turn, so
         # a role dispatched last turn can never launder this turn's claim.
         state.delegasi_terpakai = set()
+        # >>> UPDATE-025 commit 8: same freshness rule for the fate ledger —
+        # a death recorded last turn must not colour this turn's disclosure.
+        state.nasib_role = {}
         # >>> END OF UPDATE-025 hotfix re-anchor state <<<
 
         # >>> CONVENTION: `_` below is the agent LOOP COUNTER.
@@ -2076,6 +2126,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "user plainly why they were skipped, before "
                                 "claiming the work is verified."
                             )
+                        # >>> UPDATE-025 commit 8: deaths of requested roles
+                        # ride the checkpoint too (the never-dispatched list
+                        # above already covers the 'belum' half there).
+                        checkpoint_report += _blok_pipeline_pecah(
+                            state, sebut_belum=not _peran_hilang
+                        )
 
                         checkpoint_report += (
                             "\n\n**Next steps:**\n"
@@ -2200,6 +2256,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # ride this frame too — same disclosure, no
                         # rejection. <<<
                         _teks_jawab = strip_thinking_blocks(content)
+                        # >>> UPDATE-025 commit 8: the pipeline-broke block
+                        # does NOT wait for claim keywords — a read-only
+                        # turn whose ordered explorer died must disclose
+                        # even when the reply merely reports findings.
+                        _teks_jawab += _blok_pipeline_pecah(state)
                         if guard_rules.kata_klaim(content):
                             _peran_hilang_jawab = sorted(
                                 subagent_manager.roles_diminta(

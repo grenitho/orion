@@ -783,7 +783,7 @@ def test_retry1_menyelamatkan_subrun_dari_outage():
     out = asyncio.run(sa.run_subagent(
         sa.EXPLORER, "petakan modul",
         llm_call=llm, tool_executor=FakeExecutor(), max_iter=6,
-        retry_backoff=0,
+        retry_backoffs=[0, 0],
     ))
     assert out["status"] == "ok"
     assert out["retries"] == 1
@@ -799,7 +799,7 @@ def test_retry1_tidak_untuk_kematian_non_transient():
     out = asyncio.run(sa.run_subagent(
         sa.EXPLORER, "petakan modul",
         llm_call=llm, tool_executor=FakeExecutor(), max_iter=6,
-        retry_backoff=0,
+        retry_backoffs=[0, 0],
     ))
     assert out["status"] == "error"
     assert out["retries"] == 0
@@ -810,18 +810,41 @@ def test_retry1_habis_lalu_salvage_yang_menang():
     llm = FlakyLLM(
         [{"content": "", "tool_calls": [
             tc("read_file", {"file_path": "app/schemas.py"}, 1)]}],
-        failures=2, ok_first=1,              # call2 dies, retry (call3) dies
+        failures=4, ok_first=1,        # calls 2-4 die: death + retry-1 + retry-2
     )
     out = asyncio.run(sa.run_subagent(
         sa.EXPLORER, "investigate schemas",
         llm_call=llm, tool_executor=FakeExecutor(), max_iter=6,
-        retry_backoff=0,
+        retry_backoffs=[0, 0],
     ))
-    assert llm.calls == 3                   # exactly ONE sub-run-level retry
+    assert llm.calls == 4                   # death + TWO escalating retries
     assert out["status"] == "error"
-    assert out["retries"] == 1
+    assert out["retries"] == 2
     assert "read_file" in out["salvage"]    # 0.10.9 salvage still catches it
-    assert "retries spent: 1" in sa._format_report(sa.EXPLORER, out)
+    assert "retries spent: 2" in sa._format_report(sa.EXPLORER, out)
+
+
+def test_retry2_menyelamatkan_dari_outage_skala_menit():
+    # the owner's 15:42 perf log shape: first call OK, then an outage that
+    # kills the call AND retry-1; retry-2 (45 s backoff in prod) lands
+    # after the blip heals and rescues the sub-run.
+    llm = FlakyLLM(
+        [
+            {"content": "", "tool_calls": [
+                tc("read_file", {"file_path": "app/schemas.py"}, 1)]},
+            {"content": LONG},
+        ],
+        failures=2, ok_first=1,
+    )
+    out = asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "investigate schemas",
+        llm_call=llm, tool_executor=FakeExecutor(), max_iter=6,
+        retry_backoffs=[0, 0],
+    ))
+    assert llm.calls == 4
+    assert out["status"] == "ok"
+    assert out["retries"] == 2
+    assert out["iterations"] == 2
 
 
 def test_perf_mencatat_baris_retry_dan_flag_retried(tmp_path):
@@ -831,7 +854,7 @@ def test_perf_mencatat_baris_retry_dan_flag_retried(tmp_path):
     asyncio.run(sa.run_subagent(
         sa.EXPLORER, "petakan modul",
         llm_call=llm, tool_executor=FakeExecutor(project_path=str(tmp_path)),
-        max_iter=6, retry_backoff=0,
+        max_iter=6, retry_backoffs=[0, 0],
     ))
     path = tmp_path / ".orion" / "performance_log.jsonl"
     baris = [_json.loads(x) for x in path.read_text().splitlines()]
