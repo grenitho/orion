@@ -52,3 +52,14 @@ def ev(event_type: str, **payload) -> str:
     keys, exactly like the key order in the dict literal it replaced.
     """
     return f"data: {json.dumps({'type': event_type, **payload})}\n\n"
+
+
+# >>> UPDATE-025 commit 7: an SSE COMMENT line. Every conforming SSE
+# parser (and the extension's webview reader, which only acts on lines
+# starting with 'data: ') ignores comment lines — but the BYTES flow,
+# and that is the point: Node's fetch (undici) aborts a response body
+# silent for ~300 s (bodyTimeout), and the extension translates that
+# client-side abort into "Cannot reach the Orion backend" while the
+# backend is alive and working. Long silent awaits (sub-agent dispatch)
+# yield this every SSE_KEEPALIVE_SEC instead.
+KEEPALIVE = ": orion-keepalive\n\n"

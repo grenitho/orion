@@ -198,6 +198,42 @@ def is_terminal_failure(output: str) -> bool:
     return any(err in out_lower for err in fatal_errors)
 
 
+# >>> UPDATE-025 commit 7 (owner: "backend dikabarkan terputus padahal
+# tidak, backend tetap running"): Node's fetch (undici) aborts a response
+# body that stays SILENT for ~300 s (default bodyTimeout). The main LLM
+# await has carried a 15 s heartbeat since ORION-29, but three awaits in
+# this stream sent nothing for minutes — two summarize passes and, above
+# all, the sub-agent dispatch (owner perf log: a single 159 s glm call
+# inside a >5 min explorer sub-run). The client-side abort then became
+# the extension's "Cannot reach the Orion backend" while the backend
+# lived on and kept working. SSE COMMENT bytes every SSE_KEEPALIVE_SEC
+# keep the body flowing; every conforming parser — including the
+# webview reader, which only acts on 'data: ' lines — ignores comments.
+SSE_KEEPALIVE_SEC = float(os.getenv("ORION_SSE_KEEPALIVE_SEC", "20"))
+
+
+async def _keepalive(coro, hasil: list, interval: float | None = None):
+    """Run ``coro`` as a task, yielding SSE keepalive comments while it is
+    silent; append its result to ``hasil`` (async generators cannot return
+    values to async-for). The coro's exception re-raises at the caller's
+    await point, exactly like a bare await would. If the stream itself is
+    cancelled (client gone), the task is cancelled too — same anti-orphan
+    rule as UPDATE-013's LLM cancel guard, now covering sub-runs.
+    """
+    tugas = asyncio.ensure_future(coro)
+    jeda = SSE_KEEPALIVE_SEC if interval is None else interval
+    try:
+        while not tugas.done():
+            selesai, _pong = await asyncio.wait({tugas}, timeout=jeda)
+            if not selesai:
+                yield sse.KEEPALIVE
+        hasil.append(tugas.result())
+    except BaseException:
+        if not tugas.done():
+            tugas.cancel()
+        raise
+
+
 async def summarize_old_history(old_messages: list) -> str:
     """Call the LLM to summarize old chat history.
     IMPORTANT: this function does NOT swallow exceptions. If the API fails, the error is raised to the caller.
@@ -439,7 +475,13 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
     if len(history) > 15:
         yield deps.kirim_status('🧠 Memory full, compressing context...')
         try:
-            await execute_summarize(deps.context_manager, history, threshold=15)
+            # >>> UPDATE-025 commit 7: keepalive across the silent summarize
+            _hasil_summarize: list = []
+            async for _ka in _keepalive(
+                execute_summarize(deps.context_manager, history, threshold=15),
+                _hasil_summarize,
+            ):
+                yield _ka
             print("[ORION SUMMARIZE] Initial context summarized successfully.")
         except Exception as e:
             print(
@@ -536,7 +578,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             if len(history) > 20:
                 yield deps.kirim_status('🧠 Memory full, compressing context...')
                 try:
-                    await execute_summarize(deps.context_manager, history, threshold=20)
+                    # >>> UPDATE-025 commit 7: keepalive across the silent summarize
+                    _hasil_summarize_loop: list = []
+                    async for _ka in _keepalive(
+                        execute_summarize(
+                            deps.context_manager, history, threshold=20
+                        ),
+                        _hasil_summarize_loop,
+                    ):
+                        yield _ka
                     print(
                         "[ORION SUMMARIZE] In-loop context summarized successfully."
                     )
@@ -1291,16 +1341,30 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             yield deps.kirim_status(
                                 f'🤖 Sub-agent {_sa_role}: {_sa_snippet} ...'
                             )
-                            result = await subagent_manager.dispatch(
-                                func_name,
-                                func_args,
-                                state=state,
-                                llm_call=deps.llm_call,
-                                tool_executor=deps.tool_executor,
-                                config=deps.config,
-                                project_map=deps.context_manager.get_project_map(),
-                                logger=deps.logger,
-                            )
+                            # >>> UPDATE-025 commit 7 (the owner's "backend
+                            # terputus padahal tidak"): a sub-run bundles
+                            # several 60-160 s provider calls behind ONE bare
+                            # await — minutes of zero bytes, past undici's
+                            # ~300 s bodyTimeout. The keepalive wrapper keeps
+                            # the SSE body flowing with comment bytes and, as
+                            # a bonus, cancels the dispatch if the client
+                            # really is gone (no more orphan sub-runs).
+                            _hasil_dispatch: list = []
+                            async for _ka in _keepalive(
+                                subagent_manager.dispatch(
+                                    func_name,
+                                    func_args,
+                                    state=state,
+                                    llm_call=deps.llm_call,
+                                    tool_executor=deps.tool_executor,
+                                    config=deps.config,
+                                    project_map=deps.context_manager.get_project_map(),
+                                    logger=deps.logger,
+                                ),
+                                _hasil_dispatch,
+                            ):
+                                yield _ka
+                            result = _hasil_dispatch[0]
                             yield deps.kirim_status(
                                 f'🤖 Sub-agent {_sa_role} finished.'
                             )

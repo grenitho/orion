@@ -162,7 +162,15 @@ from pathlib import Path
 # (backoff 8 s, env ORION_SUBRUN_RETRY_BACKOFF), classified transient-only
 # (_retryable). Retry exhaustion falls through to the 0.10.9 salvage path.
 # Perf log gains status "retry" rows and an additive "retried" flag.
-BACKEND_VERSION = "0.10.10"
+# Bumped 0.10.10 -> 0.10.11 for UPDATE-025 commit 7 (owner: "sudah 2 kali
+# backend dikabarkan terputus, padahal tidak"): the sub-agent dispatch and
+# the two summarize passes were bare multi-minute awaits inside the SSE
+# stream; Node's fetch (undici) aborts bodies silent ~300 s and the
+# extension translated that CLIENT-side abort into "Cannot reach the
+# Orion backend" while the backend lived on. _keepalive now yields SSE
+# comment bytes (sse.KEEPALIVE, every ORION_SSE_KEEPALIVE_SEC=20 s) across
+# those awaits and cancels the dispatch when the client truly disappears.
+BACKEND_VERSION = "0.10.11"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
