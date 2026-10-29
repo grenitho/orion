@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 
 from app.services import subagent_manager as sa
-from app.services.agent_loop import Deps, _blok_pipeline_pecah, aliran_agent
+from app.services.agent_loop import Deps, _blok_delegasi_akhir, aliran_agent
 from app.services.session_state import SessionState
 from app.services.test_soft_limit_reanchor import (
     _CM,
@@ -44,6 +44,9 @@ PESAN_PIPELINE = (
     "untuk input pelanggan; jika ada, delegasikan perbaikannya ke sub "
     "agent worker, lalu delegate_verifier memverifikasi sebelum kamu "
     "melaporkan selesai."
+)
+KLAIM_TEKS = (
+    "Implementasi selesai dan telah diverifikasi dengan sukses."
 )
 LAPORAN_TANPA_KLAIM = (
     "Payload input pelanggan di frontend/src/App.jsx sudah selaras dengan "
@@ -148,7 +151,7 @@ def test_skip_kondisional_sah_tetap_senyap(monkeypatch):
     assert state.nasib_role.get(sa.EXPLORER) == ("ok", 0)
     badan = "".join(f for f in frames if "token" in f)
     assert "Sub-agent pipeline broke this turn" not in badan
-    assert _blok_pipeline_pecah(state) == ""
+    assert _blok_delegasi_akhir(state) == ""
 
 
 def test_ledger_nasib_di_reset_di_awal_turn(monkeypatch):
@@ -168,3 +171,28 @@ def test_ledger_nasib_di_reset_di_awal_turn(monkeypatch):
     assert basi.nasib_role == {sa.EXPLORER: ("ok", 0)}   # stale entry wiped
     badan = "".join(f for f in frames if "token" in f)
     assert "Sub-agent pipeline broke this turn" not in badan
+
+
+def test_satu_blok_gabungan_tanpa_kontradiksi(monkeypatch):
+    # owner paste 2026-10-29: verifier dispatched-but-dead appeared BOTH
+    # as "ended early (retries 2)" AND as "zero successful delegate_*
+    # calls reached them", and the same gap was stated in two blocks.
+    # Commit 10: one merged block, per-role fate accurate.
+    async def _mati(*a, **k):
+        return _outcome("error", retries=2)
+
+    monkeypatch.setattr(sa, "run_subagent", _mati)
+    frames, deps, state = _jalankan(PESAN_PIPELINE, [
+        _Resp("", tool_calls=[_tool_call(
+            "delegate_verifier", '{"task": "verifikasi perubahan"}')]),
+        _Resp(KLAIM_TEKS),
+        _Resp(KLAIM_TEKS),
+    ])
+    badan = "".join(f for f in frames if "token" in f)
+    assert badan.count("Sub-agent pipeline broke this turn") == 1
+    assert "Delegation requested but NOT dispatched" not in badan
+    assert "`verifier` ended early (status error, retries 2)" in badan
+    assert "`verifier` was never dispatched" not in badan   # no contradiction
+    assert "`explorer` was never dispatched" in badan
+    assert "`worker` was never dispatched" in badan
+    assert badan.count("Self-run checks") == 1              # one paragraph

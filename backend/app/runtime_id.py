@@ -188,7 +188,14 @@ from pathlib import Path
 # frame when the thread is about stored/added data. InvoiceFlow's
 # add-customer saga kept being investigated as code defects while the
 # structural candidate sat unnamed.
-BACKEND_VERSION = "0.10.13"
+# Bumped 0.10.13 -> 0.10.14 for UPDATE-025 commit 10 (owner audit paste):
+# the commit-8 pipeline-broke block and the commit-5 claim disclosure
+# could fire TOGETHER on one frame — same gap stated twice, and a role
+# dispatched-but-dead read "ended early (retries 2)" in one block while
+# the other claimed "zero successful delegate_* calls reached them".
+# _blok_delegasi_akhir merges both into ONE fate-accurate, claim-aware
+# block used by both turn endings (JAWAB_NORMAL and CHECKPOINT).
+BACKEND_VERSION = "0.10.14"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

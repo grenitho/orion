@@ -263,20 +263,24 @@ def _tutup_utas_bila_disarankan(state, konten) -> None:
         state.utas_gagal = ""
 
 
-def _blok_pipeline_pecah(state, sebut_belum: bool = True) -> str:
-    """UPDATE-025 commit 8: the read-only-pipeline-collapse disclosure.
+def _blok_delegasi_akhir(state, klaim: bool = False) -> str:
+    """UPDATE-025 commit 10: ONE merged end-of-turn delegation block.
 
-    Owner incident 2026-10-29 15:42: the ordered explorer died (retry
-    exhausted), worker/verifier never ran, main absorbed everything —
-    and the reply said NOTHING, because every older tooth needed either
-    changed files (checkpoint) or claim keywords (JAWAB_NORMAL tooth B);
-    a read-only turn ending in a plain report slipped through all of
-    them. This block fires on the FATE ledger instead: a requested role
-    whose dispatch DIED (error/capped) makes the collapse visible, and
-    the requested roles that never got dispatched ride along (unless
-    the checkpoint block already listed them — sebut_belum=False).
-    A legitimate conditional skip stays silent: explorer status "ok"
-    means downstream "only if findings" roles may lawfully sit out.
+    Commit 8's pipeline-broke block and commit 5's claim disclosure
+    could both fire on the same frame, stating the same gap twice and —
+    worse — contradicting each other: a role dispatched-but-dead read
+    "ended early (retries 2)" in one block and "zero successful
+    delegate_* calls reached them" in the other (owner paste,
+    2026-10-29: verifier died AFTER two retries yet the second block
+    claimed nobody reached it). One block now, per-role fate accurate:
+
+      * requested role with fate error/capped -> "ended early (status
+        X, retries N)";
+      * requested role with no fate at all    -> "was never
+        dispatched" (mati branch) / bare line (claim-only branch);
+      * header: pipeline-broke when anything died, else the
+        requested-but-NOT-dispatched header, claim-gated;
+      * exactly one guidance paragraph.
     """
     diminta = subagent_manager.roles_diminta(
         getattr(state, "permintaan_turn_ini", "") or ""
@@ -285,28 +289,47 @@ def _blok_pipeline_pecah(state, sebut_belum: bool = True) -> str:
         return ""
     nasib = getattr(state, "nasib_role", None) or {}
     mati = sorted(
-        r for r in diminta
-        if (nasib.get(r) or ("",))[0] in ("error", "capped")
+        r for r in diminta if (nasib.get(r) or ("",))[0] in ("error", "capped")
     )
-    if not mati:
+    belum = sorted(r for r in diminta if r not in nasib)
+    if not mati and not (klaim and belum):
         return ""
-    baris = "\n".join(
-        f"- ⚠️ `{r}` ended early (status {nasib[r][0]}, retries {nasib[r][1]})"
-        for r in mati
-    )
-    if sebut_belum:
-        belum = sorted(r for r in diminta if r not in nasib)
+    if mati:
+        baris = "\n".join(
+            f"- ⚠️ `{r}` ended early (status {nasib[r][0]}, retries {nasib[r][1]})"
+            for r in mati
+        )
         if belum:
             baris += "\n" + "\n".join(
                 f"- ⚠️ `{r}` was never dispatched" for r in belum
             )
+        paragraf = (
+            "The conclusions above rest on the dead sub-run's salvaged "
+            "partial findings plus main-agent self-checks — NOT the "
+            "ordered independent pipeline."
+        )
+        if belum or klaim:
+            paragraf += (
+                " Self-run checks (builds, verify_*, pytest) are NOT "
+                "independent verification."
+            )
+        paragraf += (
+            " Dispatch the missing role(s) on a next turn, or tell the "
+            "user plainly why they were skipped."
+        )
+        return (
+            "\n\n**⚠️ Sub-agent pipeline broke this turn:**\n"
+            f"{baris}\n\n{paragraf}"
+        )
+    baris = "\n".join(f"- ⚠️ `{r}`" for r in belum)
     return (
-        "\n\n**⚠️ Sub-agent pipeline broke this turn:**\n"
+        "\n\n**⚠️ Delegation requested but NOT dispatched this turn:**\n"
         f"{baris}\n\n"
-        "The conclusions above rest on the dead sub-run's salvaged "
-        "partial findings plus main-agent self-checks — NOT the ordered "
-        "independent pipeline. Dispatch the missing role(s) on a next "
-        "turn, or tell the user plainly why they were skipped."
+        "This turn's request named the role(s) above, but zero "
+        "successful delegate_* calls reached them. Self-run checks "
+        "(builds, verify_*, pytest) are NOT independent verification. "
+        "Dispatch the missing role(s), or tell the user plainly why "
+        "they were skipped."
     )
 
 
@@ -2179,33 +2202,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # roles minus the turn's delegation ledger.
                         # Disclosure, not rejection — same v1 philosophy as
                         # the zero-evidence block above. <<<
-                        _peran_diminta = subagent_manager.roles_diminta(
-                            state.permintaan_turn_ini
-                        )
-                        _peran_hilang = sorted(
-                            _peran_diminta - state.delegasi_terpakai
-                        )
-                        if _peran_hilang:
-                            _daftar_peran = "\n".join(
-                                f"- ⚠️ `{r}`" for r in _peran_hilang
-                            )
-                            checkpoint_report += (
-                                "\n\n**⚠️ Delegation requested but NOT "
-                                "dispatched this turn:**\n"
-                                f"{_daftar_peran}\n\n"
-                                "This turn's request named the role(s) above, "
-                                "but zero successful delegate_* calls reached "
-                                "them. Self-run checks (builds, verify_*, "
-                                "pytest) are NOT independent verification. "
-                                "Dispatch the missing role(s), or tell the "
-                                "user plainly why they were skipped, before "
-                                "claiming the work is verified."
-                            )
-                        # >>> UPDATE-025 commit 8: deaths of requested roles
-                        # ride the checkpoint too (the never-dispatched list
-                        # above already covers the 'belum' half there).
-                        checkpoint_report += _blok_pipeline_pecah(
-                            state, sebut_belum=not _peran_hilang
+                        # >>> UPDATE-025 commit 10: the checkpoint ending
+                        # uses the same single merged block (claim=True by
+                        # construction here) — no duplicate gap statement.
+                        checkpoint_report += _blok_delegasi_akhir(
+                            state, klaim=True
                         )
                         # >>> UPDATE-025 commit 9: same persistence fact and
                         # same thread-closing rule on the checkpoint ending.
@@ -2326,16 +2327,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         continue
                     case loop_guards.Keputusan.JAWAB_NORMAL:
                         # Not a task completion, just a normal response
-                        # >>> UPDATE-025 commit 5 (owner transcript: the
-                        # resume segment after a SOFT-LIMIT pause claimed
-                        # "7 pytest passed" and silently dropped the
-                        # worker/verifier the user had ordered): the
-                        # checkpoint disclosure above only fires when files
-                        # changed this turn, so a claim routed here escaped
-                        # EVERY disclosure. When the reply text claims
-                        # completion, the requested-minus-dispatched roles
-                        # ride this frame too — same disclosure, no
-                        # rejection. <<<
+                        # >>> UPDATE-025 commits 5+8+10: claims routed here
+                        # (read-only turns, post-pause resumes) carry the
+                        # single merged delegation block — fate-accurate,
+                        # claim-aware, never duplicated. <<<
                         _teks_jawab = strip_thinking_blocks(content)
                         # >>> UPDATE-025 commit 9: the persistence fact rides
                         # BEFORE the thread can close; closing needs the
@@ -2344,33 +2339,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             state, deps.tool_executor
                         )
                         _tutup_utas_bila_disarankan(state, content)
-                        # >>> UPDATE-025 commit 8: the pipeline-broke block
-                        # does NOT wait for claim keywords — a read-only
-                        # turn whose ordered explorer died must disclose
-                        # even when the reply merely reports findings.
-                        _teks_jawab += _blok_pipeline_pecah(state)
-                        if guard_rules.kata_klaim(content):
-                            _peran_hilang_jawab = sorted(
-                                subagent_manager.roles_diminta(
-                                    state.permintaan_turn_ini
-                                )
-                                - state.delegasi_terpakai
-                            )
-                            if _peran_hilang_jawab:
-                                _teks_jawab += (
-                                    "\n\n**⚠️ Delegation requested but NOT "
-                                    "dispatched this turn:**\n"
-                                    + "\n".join(
-                                        f"- ⚠️ `{r}`" for r in _peran_hilang_jawab
-                                    )
-                                    + "\n\nThis turn's request named the "
-                                    "role(s) above, but zero successful "
-                                    "delegate_* calls reached them. Self-run "
-                                    "checks (builds, verify_*, pytest) are "
-                                    "NOT independent verification. Dispatch "
-                                    "the missing role(s), or tell the user "
-                                    "plainly why they were skipped."
-                                )
+                        # >>> UPDATE-025 commit 10: ONE merged delegation
+                        # block (fate-accurate, claim-aware) replaces the
+                        # old pair — pipeline-broke (commit 8) plus the
+                        # claim disclosure (commit 5) — which could state
+                        # the same gap twice and contradict each other.
+                        _teks_jawab += _blok_delegasi_akhir(
+                            state, klaim=guard_rules.kata_klaim(content)
+                        )
                         yield sse.ev('token', text=_teks_jawab)
                         deps.context_manager.add_message(
                             "assistant",
