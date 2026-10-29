@@ -1,5 +1,18 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { orionHeaders } from '../services/authToken';
+
+// >>> UPDATE-025 commit 4: the dashboard stopped being a "last 10"
+// peephole. The host reads the WHOLE performance_log.jsonl from the
+// active project's .orion folder (path learned from /health, which the
+// backend already exposes) and ships it to the page; the page owns
+// role/model filtering and per-row token columns. Field names follow
+// perf_log.py exactly (input_tokens/output_tokens/estimated_cost_usd) —
+// the pre-0.4.4 page asked for input_chars/output_chars, which never
+// existed, hence the "undefined / undefined" column owners saw.
+const MAX_ENTRIES_SHIPPED = 5000;
+const MAX_ROWS_RENDERED = 500;
 
 export class PerformancePanel {
     public static currentPanel: PerformancePanel | undefined;
@@ -8,15 +21,9 @@ export class PerformancePanel {
     private constructor(panel: vscode.WebviewPanel) {
         this._panel = panel;
         this._panel.onDidDispose(() => this.dispose(), null);
-        // >>> UPDATE-025 commit 3: the page asks, the HOST fetches. The
-        // pre-0.4.3 page script called orionHeaders() — an extension-host
-        // function (fs + process.env) that does not exist inside the
-        // webview page. Every open threw ReferenceError, the catch printed
-        // "Failed to connect to the backend" while the backend was healthy,
-        // and even a defined header would not have helped: /performance
-        // sits behind the X-Orion-Token middleware and a webview page can
-        // never read the token file. The host now owns the request and
-        // posts the JSON; the page only renders.
+        // >>> UPDATE-025 commit 3: the page asks, the HOST fetches (a
+        // webview page cannot hold the X-Orion-Token secret). Commit 4
+        // adds the on-disk full-log read to the same bridge.
         this._panel.webview.onDidReceiveMessage(
             (msg: { command?: string }) => {
                 if (msg && msg.command === 'loadPerf') {
@@ -42,13 +49,51 @@ export class PerformancePanel {
         PerformancePanel.currentPanel = new PerformancePanel(panel);
     }
 
+    private _readFullLog(projectPath: string): unknown[] {
+        try {
+            const file = path.join(projectPath, '.orion', 'performance_log.jsonl');
+            const raw = fs.readFileSync(file, 'utf-8');
+            const lines = raw.split('\n').filter(l => l.trim().length > 0);
+            const tail = lines.slice(-MAX_ENTRIES_SHIPPED);
+            const entries: unknown[] = [];
+            for (const line of tail) {
+                try {
+                    entries.push(JSON.parse(line));
+                } catch {
+                    // a torn last line (crash mid-append) is skipped, not fatal
+                }
+            }
+            return entries;
+        } catch {
+            return [];
+        }
+    }
+
     private async _pushPerf(): Promise<void> {
         try {
-            const res = await fetch('http://127.0.0.1:8000/performance', {
-                headers: orionHeaders(),
+            const headers = orionHeaders();
+            const res = await fetch('http://127.0.0.1:8000/performance', { headers });
+            const data = (await res.json()) as { summary?: unknown; recent_logs?: unknown[] };
+            let logs: unknown[] = [];
+            let logSource = 'none';
+            try {
+                const healthRes = await fetch('http://127.0.0.1:8000/health', { headers });
+                const health = (await healthRes.json()) as { project_path?: unknown };
+                if (health && typeof health.project_path === 'string' && health.project_path) {
+                    logs = this._readFullLog(health.project_path);
+                    logSource = logs.length > 0 ? 'file' : 'empty';
+                }
+            } catch {
+                // health unreachable: fall through to recent_logs below
+            }
+            if (logs.length === 0 && Array.isArray(data.recent_logs)) {
+                logs = data.recent_logs;
+                logSource = 'recent';
+            }
+            void this._panel.webview.postMessage({
+                type: 'perfData',
+                data: { summary: data.summary ?? null, logs, logSource },
             });
-            const data: unknown = await res.json();
-            void this._panel.webview.postMessage({ type: 'perfData', data });
         } catch (e: unknown) {
             const message = e instanceof Error ? e.message : String(e);
             void this._panel.webview.postMessage({ type: 'perfError', message });
@@ -82,7 +127,7 @@ export class PerformancePanel {
                         display: flex; 
                         gap: 15px; 
                         flex-wrap: wrap; 
-                        margin-bottom: 30px; 
+                        margin-bottom: 20px; 
                     }
                     .card { 
                         background-color: var(--vscode-badge-background); 
@@ -101,6 +146,26 @@ export class PerformancePanel {
                     .card .value { 
                         font-size: 1.8em; 
                         font-weight: bold; 
+                    }
+                    .filters {
+                        display: flex;
+                        gap: 12px;
+                        align-items: center;
+                        flex-wrap: wrap;
+                        margin: 0 0 10px 0;
+                    }
+                    .filters label { font-size: 0.9em; opacity: 0.85; }
+                    .filters select {
+                        background: var(--vscode-dropdown-background);
+                        color: var(--vscode-dropdown-foreground);
+                        border: 1px solid var(--vscode-dropdown-border);
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                    }
+                    .filtsum {
+                        font-size: 0.9em;
+                        opacity: 0.85;
+                        margin: 0 0 12px 0;
                     }
                     table { 
                         width: 100%; 
@@ -123,9 +188,6 @@ export class PerformancePanel {
                         color: #f44336; 
                         font-weight: bold; 
                     }
-                    /* >>> UPDATE-025 commit 2: per-call role badge. Entries
-                       without a role field are main-loop calls (the field
-                       is additive, shipped for sub-runs in UPDATE-024). */
                     .role-badge {
                         padding: 2px 8px;
                         border-radius: 10px;
@@ -151,47 +213,100 @@ export class PerformancePanel {
 
                 <script>
                     const vscode = acquireVsCodeApi();
+                    let ALL_LOGS = [];
+                    let SUMMARY = null;
 
-                    function renderPerf(data) {
-                        if (data.error) {
-                            document.getElementById('dashboard-content').innerHTML = '<div class="loading">Error: ' + data.error + '</div>';
+                    function esc(v) {
+                        return String(v === undefined || v === null ? '' : v)
+                            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    }
+
+                    function filtered() {
+                        const role = document.getElementById('fltRole').value;
+                        const model = document.getElementById('fltModel').value;
+                        return ALL_LOGS.filter(l => {
+                            const r = l.role || 'main';
+                            if (role !== 'all' && r !== role) { return false; }
+                            if (model !== 'all' && l.model !== model) { return false; }
+                            return true;
+                        });
+                    }
+
+                    function renderTable() {
+                        const rows = filtered().slice().reverse();
+                        const total = rows.length;
+                        const shown = rows.slice(0, ${MAX_ROWS_RENDERED});
+                        let inT = 0, outT = 0, cost = 0;
+                        rows.forEach(l => {
+                            inT += Number(l.input_tokens) || 0;
+                            outT += Number(l.output_tokens) || 0;
+                            cost += Number(l.estimated_cost_usd) || 0;
+                        });
+                        let html = '<div class="filtsum">Showing ' + total + ' of ' + ALL_LOGS.length +
+                            ' entries — filtered: ' + inT.toLocaleString() + ' in tok · ' +
+                            outT.toLocaleString() + ' out tok · $' + cost.toFixed(6) + '</div>';
+                        if (total === 0) {
+                            html += '<div class="loading">No entries match the current filter.</div>';
+                            document.getElementById('table-zone').innerHTML = html;
                             return;
                         }
-
-                        const s = data.summary;
-                        const logs = data.recent_logs || [];
-
-                        let html = '<div class="cards">';
-                        html += '<div class="card"><h3>Total Requests</h3><div class="value">' + s.total_requests + '</div></div>';
-                        html += '<div class="card"><h3>Total Input Tokens</h3><div class="value" style="color: #4caf50;">' + s.total_input_tokens.toLocaleString() + '</div></div>';
-                        html += '<div class="card"><h3>Total Output Tokens</h3><div class="value" style="color: #2196f3;">' + s.total_output_tokens.toLocaleString() + '</div></div>';
-                        html += '<div class="card"><h3>Estimated Cost (USD)</h3><div class="value">$' + s.total_cost_usd.toFixed(6) + '</div></div>';
-                        html += '<div class="card"><h3>Average Time (ms)</h3><div class="value">' + s.avg_response_time_ms + ' ms</div></div>';
-                        html += '<div class="card"><h3>Success / Failed</h3><div class="value"><span class="status-success">' + s.success_count + '</span> / <span class="status-error">' + s.error_count + '</span></div></div>';
-                        html += '</div>';
-
-                        if (logs.length > 0) {
-                            html += '<h3>Last 10 Requests</h3>';
-                            html += '<table><thead><tr><th>Time</th><th>Role</th><th>Model</th><th>Input/Output (chars)</th><th>Time (ms)</th><th>Status</th></tr></thead><tbody>';
-                            logs.slice().reverse().forEach(log => {
-                                const time = new Date(log.timestamp).toLocaleTimeString();
-                                const statusClass = log.status === 'success' ? 'status-success' : 'status-error';
-                                const role = log.role || 'main';
-                                html += '<tr>';
-                                html += '<td>' + time + '</td>';
-                                html += '<td><span class="role-badge role-' + role + '">' + role + '</span></td>';
-                                html += '<td>' + log.model + '</td>';
-                                html += '<td>' + log.input_chars + ' / ' + log.output_chars + '</td>';
-                                html += '<td>' + log.duration_ms + '</td>';
-                                html += '<td class="' + statusClass + '">' + log.status + '</td>';
-                                html += '</tr>';
-                            });
-                            html += '</tbody></table>';
-                        } else {
-                            html += '<div class="loading">No log data yet. Try chatting with Orion first.</div>';
+                        html += '<table><thead><tr><th>Time</th><th>Role</th><th>Model</th>' +
+                            '<th>In tok</th><th>Out tok</th><th>Cost (USD)</th><th>ms</th><th>Status</th>' +
+                            '</tr></thead><tbody>';
+                        shown.forEach(log => {
+                            const time = new Date(log.timestamp).toLocaleTimeString();
+                            const statusClass = log.status === 'success' ? 'status-success' : 'status-error';
+                            const role = log.role || 'main';
+                            html += '<tr>';
+                            html += '<td>' + esc(time) + '</td>';
+                            html += '<td><span class="role-badge role-' + esc(role) + '">' + esc(role) + '</span></td>';
+                            html += '<td>' + esc(log.model) + '</td>';
+                            html += '<td>' + (Number(log.input_tokens) || 0).toLocaleString() + '</td>';
+                            html += '<td>' + (Number(log.output_tokens) || 0).toLocaleString() + '</td>';
+                            html += '<td>$' + (Number(log.estimated_cost_usd) || 0).toFixed(6) + '</td>';
+                            html += '<td>' + esc(log.duration_ms) + '</td>';
+                            html += '<td class="' + statusClass + '">' + esc(log.status) + '</td>';
+                            html += '</tr>';
+                        });
+                        html += '</tbody></table>';
+                        if (total > shown.length) {
+                            html += '<div class="loading">Showing first ' + shown.length +
+                                ' of ' + total + ' matches — narrow the filter to see the rest.</div>';
                         }
+                        document.getElementById('table-zone').innerHTML = html;
+                    }
 
+                    function renderPerf(payload) {
+                        const data = payload || {};
+                        SUMMARY = data.summary;
+                        ALL_LOGS = Array.isArray(data.logs) ? data.logs : [];
+                        let html = '';
+                        if (SUMMARY) {
+                            const s = SUMMARY;
+                            html += '<div class="cards">';
+                            html += '<div class="card"><h3>Total Requests (all-time)</h3><div class="value">' + esc(s.total_requests) + '</div></div>';
+                            html += '<div class="card"><h3>Total Input Tokens</h3><div class="value" style="color: #4caf50;">' + Number(s.total_input_tokens || 0).toLocaleString() + '</div></div>';
+                            html += '<div class="card"><h3>Total Output Tokens</h3><div class="value" style="color: #2196f3;">' + Number(s.total_output_tokens || 0).toLocaleString() + '</div></div>';
+                            html += '<div class="card"><h3>Estimated Cost (USD)</h3><div class="value">$' + Number(s.total_cost_usd || 0).toFixed(6) + '</div></div>';
+                            html += '<div class="card"><h3>Success / Failed</h3><div class="value"><span class="status-success">' + esc(s.success_count) + '</span> / <span class="status-error">' + esc(s.error_count) + '</span></div></div>';
+                            html += '</div>';
+                        }
+                        const roles = ['all'];
+                        const models = ['all'];
+                        ALL_LOGS.forEach(l => {
+                            const r = l.role || 'main';
+                            if (roles.indexOf(r) < 0) { roles.push(r); }
+                            if (l.model && models.indexOf(l.model) < 0) { models.push(l.model); }
+                        });
+                        html += '<div class="filters">';
+                        html += '<label>Role <select id="fltRole">' + roles.map(r => '<option value="' + esc(r) + '">' + esc(r) + '</option>').join('') + '</select></label>';
+                        html += '<label>Model <select id="fltModel">' + models.map(m => '<option value="' + esc(m) + '">' + esc(m) + '</option>').join('') + '</select></label>';
+                        html += '</div>';
+                        html += '<div id="table-zone"></div>';
                         document.getElementById('dashboard-content').innerHTML = html;
+                        document.getElementById('fltRole').addEventListener('change', renderTable);
+                        document.getElementById('fltModel').addEventListener('change', renderTable);
+                        renderTable();
                     }
 
                     window.addEventListener('message', event => {
@@ -200,7 +315,7 @@ export class PerformancePanel {
                             renderPerf(msg.data);
                         } else if (msg.type === 'perfError') {
                             document.getElementById('dashboard-content').innerHTML =
-                                '<div class="loading">Failed to query the backend (' + msg.message + '). Make sure the Orion backend is running.</div>';
+                                '<div class="loading">Failed to query the backend (' + esc(msg.message) + '). Make sure the Orion backend is running.</div>';
                         }
                     });
 
