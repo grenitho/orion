@@ -139,6 +139,10 @@ PREFIX_SCOPE = "[SUBAGENT SCOPE]"
 PREFIX_GUARD = "[SUBAGENT GUARD]"
 PREFIX_DISABLED = "[SUBAGENTS DISABLED]"
 PREFIX_ERROR = "[SUBAGENT ERROR]"
+# >>> UPDATE-025 commit 5: marker for a salvaged partial sub-run — the
+# dead/capped explorer-worker-verifier's findings handed to the main agent
+# so it continues FROM them instead of re-investigating from zero.
+PREFIX_PARTIAL = "[SUBAGENT PARTIAL]"
 
 MIN_SUMMARY_LEN = 40  # a shorter 'report' is treated as not-yet-finished
 
@@ -391,6 +395,27 @@ async def run_subagent(
     scope_norm = {os.path.normpath(str(p)) for p in (scope or [])}
     last_content = ""
     tool_calls = 0
+    iter_done = 0
+    # >>> UPDATE-025 commit 5 (owner transcript: explorer timeout -> main
+    # re-investigated from zero): a dead or capped sub-run used to take
+    # everything it learned to the grave. This trail digests what it
+    # actually did (tool + key args + first slice of each result) so the
+    # dispatch layer can hand the findings to the main agent instead of
+    # a bare error string.
+    jejak: list[str] = []
+
+    def _salvage() -> str:
+        if not jejak and not last_content:
+            return ""
+        bagian = []
+        if jejak:
+            bagian.append(
+                "Tools already called by the sub-run (do NOT repeat these "
+                "reads):\n" + "\n".join(jejak[-8:])
+            )
+        if last_content:
+            bagian.append("Last report fragment:\n" + last_content[:1200])
+        return "\n\n".join(bagian)
 
     def _log(msg: str) -> None:
         if logger is not None:
@@ -403,6 +428,7 @@ async def run_subagent(
         for i in range(max_iter):
             _mulai_panggilan = time.perf_counter()
             response = await llm_call(messages=ctx.messages(), tools=tools)
+            iter_done = i + 1
             # >>> UPDATE-024 Commit 1: record the call BEFORE interpreting it
             # — tokens were spent whether or not the answer is usable.
             _catat_perf_subrun(tool_executor, response, role, _mulai_panggilan)
@@ -453,6 +479,13 @@ async def run_subagent(
                                     os.path.normpath(str(args.get("file_path", ""))),
                                     result,
                                 )
+                    jejak.append(
+                        f"- {name}("
+                        + ", ".join(
+                            f"{k}={str(v)[:80]}" for k, v in args.items()
+                        )
+                        + f") -> {result[:300]}"
+                    )
                     ctx.add("tool", result)
                 continue
             last_content = (msg.content or "").strip()
@@ -469,6 +502,7 @@ async def run_subagent(
             "iterations": max_iter,
             "tool_calls": tool_calls,
             "status": status,
+            "salvage": _salvage(),
         }
     except Exception as exc:  # the loop must never die because of a sub-run
         _log(f"sub-run failed: {type(exc).__name__}: {exc}")
@@ -477,9 +511,12 @@ async def run_subagent(
         _catat_perf_subrun(tool_executor, None, role, 0.0)
         return {
             "summary": f"{PREFIX_ERROR} {role} sub-run failed: {type(exc).__name__}: {str(exc)[:200]}",
-            "iterations": 0,
+            # >>> UPDATE-025 commit 5: honest iteration count (0 used to
+            # erase the fact that the sub-run DID work before dying).
+            "iterations": iter_done,
             "tool_calls": tool_calls,
             "status": "error",
+            "salvage": _salvage(),
         }
 
 
@@ -491,11 +528,26 @@ def _semua_error(outcomes) -> bool:
 
 
 def _format_report(role: str, outcome: dict) -> str:
-    return (
+    teks = (
         f"{PREFIX_REPORT} • {role} • {outcome['iterations']} iterations, "
         f"{outcome['tool_calls']} tool calls, status {outcome['status']}]\n"
         f"{outcome['summary']}"
     )
+    # >>> UPDATE-025 commit 5 (owner: "the explorer was cut off, then Orion
+    # re-investigated everything itself"): when a sub-run dies or is capped,
+    # its salvaged trail rides along. The main agent continues FROM it —
+    # no repeat reads, and the pipeline may resume that role NEXT turn.
+    salvage = str(outcome.get("salvage") or "")
+    if salvage and outcome.get("status") in ("error", "capped"):
+        teks += (
+            f"\n\n{PREFIX_PARTIAL} the {role} sub-run ended early "
+            f"(status: {outcome['status']}). What it already accomplished "
+            "survives below — continue FROM it with your own tools; do NOT "
+            "re-read files it already read. Delegating this same role again "
+            "is allowed on a NEXT turn, never in this one.\n"
+            f"{salvage}"
+        )
+    return teks
 
 
 # --------------------------------------------------------------------------
@@ -621,6 +673,14 @@ async def dispatch(
     )
     if outcome.get("status") == "error":
         state.subagent_calls = max(0, state.subagent_calls - 1)
+        # >>> UPDATE-025 commit 5: a dead sub-run still found things. The
+        # salvaged trail enters the findings ledger too, so even a context
+        # prune/summarize or a soft-limit resume cannot erase it — the
+        # durable half of the "Orion loses context" fix.
+        if str(outcome.get("salvage") or ""):
+            findings_ledger.simpan_temuan(
+                getattr(tool_executor, "project_path", "."),
+                role, _format_report(role, outcome))
     else:
         # >>> UPDATE-025 commit 1: the sub-run succeeded — record the role
         # on the turn's delegation ledger (a crashed sub-run refunds the

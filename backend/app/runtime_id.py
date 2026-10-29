@@ -146,7 +146,16 @@ from pathlib import Path
 # model self-verified (verify_html + npm build) and claimed "diverifikasi"
 # with zero delegate_verifier dispatches. The checkpoint now discloses
 # requested-minus-dispatched roles; per-turn ledger in SessionState.
-BACKEND_VERSION = "0.10.8"
+# Bumped 0.10.8 -> 0.10.9 for UPDATE-025 commit 5: sub-run salvage +
+# end-of-turn claim disclosure. Owner transcript (InvoiceFlow add-customer)
+# proved two context-loss mechanisms: (1) a dead/capped sub-run's MiniContext
+# was discarded — the main agent re-investigated from zero; now the salvaged
+# tool trail + last fragment ride the [SUBAGENT PARTIAL] report and enter the
+# findings ledger. (2) After a SOFT-LIMIT pause, the resume segment resets
+# SessionState, so a completion claim routed JAWAB_NORMAL escaped every
+# delegation disclosure; the requested-minus-dispatched gap now rides that
+# frame too when the reply claims completion.
+BACKEND_VERSION = "0.10.9"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

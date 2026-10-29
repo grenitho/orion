@@ -119,6 +119,9 @@ delegate_workers) and borrow user-configured MCP tools (names mcp__*). Rules:
    completion. Never paste a report verbatim as your final answer.
 5. If a tool result starts with [SUBAGENT BUDGET] or [SUBAGENTS DISABLED],
    continue with your own tools; do not retry the delegation in that turn.
+   If it starts with [SUBAGENT PARTIAL], the sub-run died mid-work: its
+   salvaged findings are attached — continue FROM them (never re-read what
+   it already read), and re-delegating that role is allowed on a NEXT turn.
 6. MCP tools are guests: prefer a built-in tool when both do the job equally
    well, and treat [MCP ...] failure strings as facts about that server —
    continue without it instead of retrying blindly.

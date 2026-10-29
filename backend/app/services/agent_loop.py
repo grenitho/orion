@@ -36,7 +36,7 @@ from typing import AsyncIterator, Callable
 
 import tiktoken
 
-from app.services import loop_guards, research_rules, sse, tool_dispatch
+from app.services import guard_rules, loop_guards, research_rules, sse, tool_dispatch
 from app.services import subagent_manager, tool_guards
 from app.services.llm_router import get_ai_response
 # >>> UPDATE-024 Commit 1: the jsonl writer moved to perf_log.py so
@@ -2125,10 +2125,43 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         continue
                     case loop_guards.Keputusan.JAWAB_NORMAL:
                         # Not a task completion, just a normal response
-                        yield sse.ev('token', text=strip_thinking_blocks(content))
+                        # >>> UPDATE-025 commit 5 (owner transcript: the
+                        # resume segment after a SOFT-LIMIT pause claimed
+                        # "7 pytest passed" and silently dropped the
+                        # worker/verifier the user had ordered): the
+                        # checkpoint disclosure above only fires when files
+                        # changed this turn, so a claim routed here escaped
+                        # EVERY disclosure. When the reply text claims
+                        # completion, the requested-minus-dispatched roles
+                        # ride this frame too — same disclosure, no
+                        # rejection. <<<
+                        _teks_jawab = strip_thinking_blocks(content)
+                        if guard_rules.kata_klaim(content):
+                            _peran_hilang_jawab = sorted(
+                                subagent_manager.roles_diminta(
+                                    state.permintaan_turn_ini
+                                )
+                                - state.delegasi_terpakai
+                            )
+                            if _peran_hilang_jawab:
+                                _teks_jawab += (
+                                    "\n\n**⚠️ Delegation requested but NOT "
+                                    "dispatched this turn:**\n"
+                                    + "\n".join(
+                                        f"- ⚠️ `{r}`" for r in _peran_hilang_jawab
+                                    )
+                                    + "\n\nThis turn's request named the "
+                                    "role(s) above, but zero successful "
+                                    "delegate_* calls reached them. Self-run "
+                                    "checks (builds, verify_*, pytest) are "
+                                    "NOT independent verification. Dispatch "
+                                    "the missing role(s), or tell the user "
+                                    "plainly why they were skipped."
+                                )
+                        yield sse.ev('token', text=_teks_jawab)
                         deps.context_manager.add_message(
                             "assistant",
-                            content,
+                            _teks_jawab,
                             reasoning_content=reasoning_content,
                         )
                         yield sse.ev('done')

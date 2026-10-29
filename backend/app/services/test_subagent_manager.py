@@ -670,3 +670,88 @@ def test_budget_tetap_terpakai_bila_subrun_sukses():
         state=state, llm_call=llm, tool_executor=FakeExecutor(),
     ))
     assert state.subagent_calls == 1
+
+
+# ------------------------------------------------- UPDATE-025 commit 5: salvage
+
+class DyingLLM(ScriptedLLM):
+    """The provider connection drops as soon as the script runs out —
+    the exact owner-transcript scenario (explorer's third LLM call died
+    with a timeout and everything it had read was thrown away)."""
+
+    async def __call__(self, messages=None, tools=None):
+        if not self.script:
+            self.seen.append(messages)
+            raise TimeoutError("provider timed out mid sub-run")
+        return await super().__call__(messages=messages, tools=tools)
+
+
+def test_subrun_mati_mewariskan_salvage_dan_laporan_parsial():
+    llm = DyingLLM([
+        {"content": "", "tool_calls": [
+            tc("read_file", {"file_path": "app/routers/customers.py"}, 1)]},
+    ])
+    out = asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "investigate the customer creation flow",
+        llm_call=llm, tool_executor=FakeExecutor(), max_iter=6,
+    ))
+    assert out["status"] == "error"
+    assert "TimeoutError" in out["summary"]
+    assert out["iterations"] == 1          # honest count — not the old 0
+    assert out["tool_calls"] == 1
+    # the salvage trail knows what was already read...
+    assert "read_file" in out["salvage"]
+    assert "customers.py" in out["salvage"]
+    rep = sa._format_report(sa.EXPLORER, out)
+    assert sa.PREFIX_PARTIAL in rep
+    assert "do NOT" in rep and "re-read" in rep
+    assert "NEXT turn" in rep
+
+
+def test_subrun_capped_juga_menyelamatkan_jejak():
+    script = [
+        {"content": "", "tool_calls": [tc("list_files", {"path": "."}, i)]}
+        for i in range(1, 5)
+    ]
+    out = asyncio.run(sa.run_subagent(
+        sa.EXPLORER, "map the project",
+        llm_call=ScriptedLLM(script), tool_executor=FakeExecutor(), max_iter=3,
+    ))
+    assert out["status"] == "capped"
+    assert "list_files" in out["salvage"]
+    assert sa.PREFIX_PARTIAL in sa._format_report(sa.EXPLORER, out)
+
+
+def test_dispatch_error_dengan_salvage_masuk_ledger_temuan(tmp_path):
+    from app.services import findings_ledger
+
+    state = SessionState()
+    llm = DyingLLM([
+        {"content": "", "tool_calls": [
+            tc("search_code", {"query": "customer"}, 1)]},
+    ])
+    hasil = asyncio.run(sa.dispatch(
+        sa.TOOL_EXPLORER, {"task": "petakan alur pelanggan"},
+        state=state, llm_call=llm,
+        tool_executor=FakeExecutor(project_path=str(tmp_path)),
+    ))
+    assert sa.PREFIX_PARTIAL in hasil
+    assert state.subagent_calls == 0        # budget still refunded
+    assert state.delegasi_terpakai == set() # role never "really ran"
+    # ...and the salvaged report is durable memory, immune to pruning
+    isi = findings_ledger._load(str(tmp_path))
+    assert any(sa.PREFIX_PARTIAL in str(e) for e in isi)
+
+
+def test_dispatch_error_tanpa_jejak_tidak_mengotori_ledger(tmp_path):
+    from app.services import findings_ledger
+
+    async def llm_mati(**kwargs):
+        raise RuntimeError("provider mati total")
+
+    asyncio.run(sa.dispatch(
+        sa.TOOL_EXPLORER, {"task": "petakan modul"},
+        state=SessionState(), llm_call=llm_mati,
+        tool_executor=FakeExecutor(project_path=str(tmp_path)),
+    ))
+    assert findings_ledger._load(str(tmp_path)) == []

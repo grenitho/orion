@@ -133,3 +133,28 @@ def test_permintaan_tanpa_peran_tetap_senyap():
     laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
     assert laporan, frames
     assert "Delegation requested but NOT dispatched" not in laporan
+
+
+def test_klaim_jawab_normal_membawa_disclosure():
+    # UPDATE-025 commit 5 (owner transcript): after a SOFT-LIMIT pause the
+    # resume segment starts with a fresh SessionState — zero files changed —
+    # so the completion claim skips CHECKPOINT entirely, gets challenged
+    # once, and lands on JAWAB_NORMAL. Pre-0.10.9 that frame escaped EVERY
+    # disclosure ("7 pytest passed" while worker/verifier stayed unrun).
+    frames, deps, state = _jalankan(PESAN_VERIFIER, [_Resp(KLAIM), _Resp(KLAIM)])
+    badan = "".join(f for f in frames if "token" in f)
+    assert "Delegation requested but NOT dispatched" in badan, frames
+    assert "`verifier`" in badan
+    # the disclosure is part of the SAVED assistant message too, so the
+    # next turn's context still shows the pipeline was dropped.
+    disimpan = [m for m in deps.context_manager.history
+                if m.get("role") == "assistant"]
+    assert any("Delegation requested but NOT dispatched" in str(m.get("content"))
+               for m in disimpan)
+
+
+def test_jawab_normal_tanpa_klaim_tetap_senyap():
+    panjang = "Berikut penjelasan rinci tentang arsitektur proyek ini. " * 6
+    frames, deps, state = _jalankan(PESAN_VERIFIER, [_Resp(panjang)])
+    badan = "".join(f for f in frames if "token" in f)
+    assert "Delegation requested but NOT dispatched" not in badan
