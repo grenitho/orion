@@ -8,6 +8,23 @@ export class PerformancePanel {
     private constructor(panel: vscode.WebviewPanel) {
         this._panel = panel;
         this._panel.onDidDispose(() => this.dispose(), null);
+        // >>> UPDATE-025 commit 3: the page asks, the HOST fetches. The
+        // pre-0.4.3 page script called orionHeaders() — an extension-host
+        // function (fs + process.env) that does not exist inside the
+        // webview page. Every open threw ReferenceError, the catch printed
+        // "Failed to connect to the backend" while the backend was healthy,
+        // and even a defined header would not have helped: /performance
+        // sits behind the X-Orion-Token middleware and a webview page can
+        // never read the token file. The host now owns the request and
+        // posts the JSON; the page only renders.
+        this._panel.webview.onDidReceiveMessage(
+            (msg: { command?: string }) => {
+                if (msg && msg.command === 'loadPerf') {
+                    void this._pushPerf();
+                }
+            },
+            null,
+        );
         this._update();
     }
 
@@ -23,6 +40,19 @@ export class PerformancePanel {
             }
         );
         PerformancePanel.currentPanel = new PerformancePanel(panel);
+    }
+
+    private async _pushPerf(): Promise<void> {
+        try {
+            const res = await fetch('http://127.0.0.1:8000/performance', {
+                headers: orionHeaders(),
+            });
+            const data: unknown = await res.json();
+            void this._panel.webview.postMessage({ type: 'perfData', data });
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            void this._panel.webview.postMessage({ type: 'perfError', message });
+        }
     }
 
     private _update() {
@@ -121,57 +151,60 @@ export class PerformancePanel {
 
                 <script>
                     const vscode = acquireVsCodeApi();
-                    
-                    async function loadData() {
-                        try {
-                            const res = await fetch('http://127.0.0.1:8000/performance', { headers: orionHeaders() });
-                            const data = await res.json();
-                            
-                            if (data.error) {
-                                document.getElementById('dashboard-content').innerHTML = '<div class="loading">Error: ' + data.error + '</div>';
-                                return;
-                            }
 
-                            const s = data.summary;
-                            const logs = data.recent_logs || [];
-
-                            let html = '<div class="cards">';
-                            html += '<div class="card"><h3>Total Requests</h3><div class="value">' + s.total_requests + '</div></div>';
-                            html += '<div class="card"><h3>Total Input Tokens</h3><div class="value" style="color: #4caf50;">' + s.total_input_tokens.toLocaleString() + '</div></div>';
-                            html += '<div class="card"><h3>Total Output Tokens</h3><div class="value" style="color: #2196f3;">' + s.total_output_tokens.toLocaleString() + '</div></div>';
-                            html += '<div class="card"><h3>Estimated Cost (USD)</h3><div class="value">$' + s.total_cost_usd.toFixed(6) + '</div></div>';
-                            html += '<div class="card"><h3>Average Time (ms)</h3><div class="value">' + s.avg_response_time_ms + ' ms</div></div>';
-                            html += '<div class="card"><h3>Success / Failed</h3><div class="value"><span class="status-success">' + s.success_count + '</span> / <span class="status-error">' + s.error_count + '</span></div></div>';
-                            html += '</div>';
-
-                            if (logs.length > 0) {
-                                html += '<h3>Last 10 Requests</h3>';
-                                html += '<table><thead><tr><th>Time</th><th>Role</th><th>Model</th><th>Input/Output (chars)</th><th>Time (ms)</th><th>Status</th></tr></thead><tbody>';
-                                logs.reverse().forEach(log => {
-                                    const time = new Date(log.timestamp).toLocaleTimeString();
-                                    const statusClass = log.status === 'success' ? 'status-success' : 'status-error';
-                                    const role = log.role || 'main';
-                                    html += '<tr>';
-                                    html += '<td>' + time + '</td>';
-                                    html += '<td><span class="role-badge role-' + role + '">' + role + '</span></td>';
-                                    html += '<td>' + log.model + '</td>';
-                                    html += '<td>' + log.input_chars + ' / ' + log.output_chars + '</td>';
-                                    html += '<td>' + log.duration_ms + '</td>';
-                                    html += '<td class="' + statusClass + '">' + log.status + '</td>';
-                                    html += '</tr>';
-                                });
-                                html += '</tbody></table>';
-                            } else {
-                                html += '<div class="loading">No log data yet. Try chatting with Orion first.</div>';
-                            }
-
-                            document.getElementById('dashboard-content').innerHTML = html;
-                        } catch (e) {
-                            document.getElementById('dashboard-content').innerHTML = '<div class="loading">Failed to connect to the backend. Make sure the Orion backend is running.</div>';
+                    function renderPerf(data) {
+                        if (data.error) {
+                            document.getElementById('dashboard-content').innerHTML = '<div class="loading">Error: ' + data.error + '</div>';
+                            return;
                         }
+
+                        const s = data.summary;
+                        const logs = data.recent_logs || [];
+
+                        let html = '<div class="cards">';
+                        html += '<div class="card"><h3>Total Requests</h3><div class="value">' + s.total_requests + '</div></div>';
+                        html += '<div class="card"><h3>Total Input Tokens</h3><div class="value" style="color: #4caf50;">' + s.total_input_tokens.toLocaleString() + '</div></div>';
+                        html += '<div class="card"><h3>Total Output Tokens</h3><div class="value" style="color: #2196f3;">' + s.total_output_tokens.toLocaleString() + '</div></div>';
+                        html += '<div class="card"><h3>Estimated Cost (USD)</h3><div class="value">$' + s.total_cost_usd.toFixed(6) + '</div></div>';
+                        html += '<div class="card"><h3>Average Time (ms)</h3><div class="value">' + s.avg_response_time_ms + ' ms</div></div>';
+                        html += '<div class="card"><h3>Success / Failed</h3><div class="value"><span class="status-success">' + s.success_count + '</span> / <span class="status-error">' + s.error_count + '</span></div></div>';
+                        html += '</div>';
+
+                        if (logs.length > 0) {
+                            html += '<h3>Last 10 Requests</h3>';
+                            html += '<table><thead><tr><th>Time</th><th>Role</th><th>Model</th><th>Input/Output (chars)</th><th>Time (ms)</th><th>Status</th></tr></thead><tbody>';
+                            logs.slice().reverse().forEach(log => {
+                                const time = new Date(log.timestamp).toLocaleTimeString();
+                                const statusClass = log.status === 'success' ? 'status-success' : 'status-error';
+                                const role = log.role || 'main';
+                                html += '<tr>';
+                                html += '<td>' + time + '</td>';
+                                html += '<td><span class="role-badge role-' + role + '">' + role + '</span></td>';
+                                html += '<td>' + log.model + '</td>';
+                                html += '<td>' + log.input_chars + ' / ' + log.output_chars + '</td>';
+                                html += '<td>' + log.duration_ms + '</td>';
+                                html += '<td class="' + statusClass + '">' + log.status + '</td>';
+                                html += '</tr>';
+                            });
+                            html += '</tbody></table>';
+                        } else {
+                            html += '<div class="loading">No log data yet. Try chatting with Orion first.</div>';
+                        }
+
+                        document.getElementById('dashboard-content').innerHTML = html;
                     }
 
-                    loadData();
+                    window.addEventListener('message', event => {
+                        const msg = event.data || {};
+                        if (msg.type === 'perfData') {
+                            renderPerf(msg.data);
+                        } else if (msg.type === 'perfError') {
+                            document.getElementById('dashboard-content').innerHTML =
+                                '<div class="loading">Failed to query the backend (' + msg.message + '). Make sure the Orion backend is running.</div>';
+                        }
+                    });
+
+                    vscode.postMessage({ command: 'loadPerf' });
                 </script>
             </body>
             </html>
