@@ -446,6 +446,6 @@ def test_loop_klaim_tanpa_edit_ditantang_sekali_answer_first(tmp_path):
         and "EVIDENCE CHECK" in m["content"]
     ]
     assert len(suntikan) == 1
-    assert "Answer the user's actual question FIRST" in suntikan[0]["content"]
+    assert "answer IT FIRST" in suntikan[0]["content"]
     # the old ritual wording must never return
     assert "State the file name + line number" not in suntikan[0]["content"]

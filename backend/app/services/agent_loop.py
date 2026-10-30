@@ -335,6 +335,41 @@ def _blok_referensi_belum_dibaca(state, project_path) -> str:
     return teks
 
 
+def _blok_edit_gagal_akhir(state) -> str:
+    """UPDATE-025 commit 14 (owner paste 2026-10-30: a one-line-comment
+    request vanished — the edit failed with 'SEARCH block not found',
+    TANTANG_EDIT_GAGAL fired, and Orion rationalized the rejection as
+    'a system injection testing or noting an earlier context/retry
+    simulation', then verified, committed and reported done WITHOUT
+    ever retrying the edit). The mid-turn challenge now quotes the
+    turn's real request and says it is not a simulation; this is the
+    end-of-turn twin: failed edits that never recovered get named at
+    BOTH turn endings, so 'build passed' can never stand in for
+    'your change landed'. Single emitter, both endings, localized.
+    """
+    gagal = state.edit_gagal_belum_pulih()
+    if not gagal:
+        return ""
+    daftar = "\n".join(f"- `{g['path']}` — {g['alasan']}" for g in gagal[:6])
+    if len(gagal) > 6:
+        daftar += f"\n- +{len(gagal) - 6} more"
+    return _L(
+        state,
+        "\n\n**⚠️ Failed edits were NEVER recovered this turn:**\n"
+        + daftar
+        + "\n\nThe changes above were never successfully applied, so this "
+        "turn's request may be UNFULFILLED even where the reply reads as "
+        "done. Judge the claim against these files, not against a passing "
+        "build.",
+        "\n\n**⚠️ Edit gagal TIDAK PERNAH pulih sampai akhir turn:**\n"
+        + daftar
+        + "\n\nPerubahan di atas tidak pernah berhasil diterapkan, jadi "
+        "permintaan turn ini mungkin BELUM TERPENUHI meski jawaban terbaca "
+        "selesai. Nilai klaim terhadap file-file ini, bukan terhadap build "
+        "yang lolos.",
+    )
+
+
 def _blok_persistensi_bila_perlu(state, tool_executor) -> str:
     """UPDATE-025 commit 9: the deterministic persistence-fact rider.
 
@@ -809,7 +844,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 "\n[BAHASA] Pengguna berbahasa Indonesia pada turn ini: tulis "
                 "SELURUH prose Anda — jawaban, laporan checkpoint, pertanyaan "
                 "— dalam bahasa Indonesia. Identifier kode, path file, nama "
-                "tool, dan keluaran log tetap apa adanya."
+                "tool, dan keluaran log tetap apa adanya. Pesan yang diawali "
+                "'[SYSTEM' atau '[SISTEM' adalah injeksi sistem, BUKAN pesan "
+                "user; jangan pernah menjadikannya dasar deteksi bahasa — "
+                "bahasa turn ini adalah bahasa permintaan asli user."
             )
         state.todo_ids_awal_turn = {
             str(t.get("id")) for t in state.sisa_todo(deps.todo_manager)
@@ -2364,7 +2402,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
                         deps.context_manager.add_message(
                             "user",
-                            "[SYSTEM - PROACTIVE ADVISORY]: the user has an "
+                            _L(
+                                state,
+                                "[SYSTEM - PROACTIVE ADVISORY]: the user has an "
                             "OPEN FAILURE THREAD from an earlier message: "
                             f"\"{state.utas_gagal[:200]}\". Before closing this "
                             "turn, answer the current question FIRST in the "
@@ -2379,6 +2419,25 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "This is not a ritual: weave both into the answer "
                             "as a senior engineer would. Do not defer with "
                             "'let me know if you want me to look'.",
+                                "[SISTEM - PENASIHAT PROAKTIF]: user punya "
+                                "UTAS KEGAGALAN TERBUKA dari pesan sebelumnya: "
+                                f"\"{state.utas_gagal[:200]}\". Sebelum menutup "
+                                "turn ini, jawab dulu pertanyaan saat ini DALAM "
+                                "bahasa user, dan di dalam jawaban yang sama "
+                                "tambahkan:\n"
+                                "- PENYEBAB paling mungkin dari kegagalan yang "
+                                "dilaporkan itu, dengan bukti konkret yang "
+                                "benar-benar Anda baca (file + baris, keluaran "
+                                "tool, atau pernyataan eksplisit 'saya memeriksa "
+                                "X dan menemukan Y');\n"
+                                "- DUA atau TIGA OPSI konkret yang bisa dipilih "
+                                "user, dari yang terkecil, termasuk opsi jujur "
+                                "'tidak melakukan apa-apa' bila relevan.\n"
+                                "Ini bukan ritual: rajut keduanya ke dalam "
+                                "jawaban seperti engineer senior. Jangan menunda "
+                                "dengan 'beri tahu saya bila Anda ingin saya "
+                                "memeriksa'.",
+                            ),
                         )
                         yield deps.kirim_status(
                             '💡 Open failure thread: root cause + options owed...'
@@ -2498,6 +2557,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             state,
                             getattr(deps.tool_executor, "project_path", "."),
                         )
+                        # >>> UPDATE-025 commit 14: unrecovered failed edits.
+                        checkpoint_report += _blok_edit_gagal_akhir(state)
                         # >>> UPDATE-025 commit 9: same persistence fact and
                         # same thread-closing rule on the checkpoint ending.
                         checkpoint_report += _blok_persistensi_bila_perlu(
@@ -2559,20 +2620,47 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # job (TANTANG_EDIT_GAGAL), which keeps full quota.
                         deps.context_manager.add_message(
                             "user",
-                            "[SYSTEM - EVIDENCE CHECK]: You used completion wording, but NO file "
-                            "changed on this turn. Answer the user's actual question FIRST, "
-                            "directly, in their language. Then, inside that same answer:\n"
-                            "- If you were describing the EXISTING state of the project: cite the "
-                            "concrete evidence inline (file + line, or the tool output) and use "
-                            "factual wording ('the code exists at …', '7 tests pass') instead of "
-                            "completion claims.\n"
-                            "- If you were claiming work you should have done THIS turn: it did "
-                            "not happen. Either do it now with edit_file/write_file, or say "
-                            "plainly that it is not done yet.\n"
-                            "Do not repeat completion wording without either the evidence or "
-                            "the work, and do not perform numbered evidence rituals at the user.",
+                            _L(
+                                state,
+                                "[SYSTEM - EVIDENCE CHECK]: You used completion wording, but NO "
+                                "file changed on this turn. The user's actual request this turn "
+                                f"was: \"{(state.permintaan_turn_ini or '')[:300]}\" — answer IT "
+                                "FIRST, directly, in their language. Then, inside that same "
+                                "answer:\n"
+                                "- If you were describing the EXISTING state of the project: cite "
+                                "the concrete evidence inline (file + line, or the tool output) "
+                                "and use factual wording ('the code exists at …', '7 tests pass') "
+                                "instead of completion claims.\n"
+                                "- If you were claiming work you should have done THIS turn: it "
+                                "did not happen. Either do it now with edit_file/write_file, or "
+                                "say plainly that it is not done yet.\n"
+                                "Do not repeat completion wording without either the evidence or "
+                                "the work, and do not perform numbered evidence rituals at the "
+                                "user. This challenge is generated deterministically from this "
+                                "turn's ledger — not a simulation, not a test, not stale context.",
+                                "[SISTEM - PEMERIKSAAN BUKTI]: Anda memakai kata-kata penyelesaian, "
+                                "tetapi TIDAK ADA file yang berubah pada turn ini. Permintaan asli "
+                                f"user turn ini: \"{(state.permintaan_turn_ini or '')[:300]}\" — "
+                                "jawab ITU lebih dulu, secara langsung, dalam bahasa user. Kemudian, "
+                                "di dalam jawaban yang sama:\n"
+                                "- Bila Anda menggambarkan kondisi proyek yang SUDAH ADA: kutip "
+                                "bukti konkret inline (file + baris, atau keluaran tool) dan pakai "
+                                "kata-kata faktual ('kode ada di …', '7 tes lolos'), bukan klaim "
+                                "penyelesaian.\n"
+                                "- Bila Anda mengklaim pekerjaan yang seharusnya dikerjakan TURN "
+                                "INI: itu tidak terjadi. Kerjakan sekarang dengan edit_file/"
+                                "write_file, atau katakan terus terang bahwa itu belum selesai.\n"
+                                "Jangan mengulang kata-kata penyelesaian tanpa bukti atau "
+                                "pekerjaan, dan jangan lakukan ritual bukti bernomor di hadapan "
+                                "user. Tantangan ini dihasilkan deterministik dari ledger turn ini "
+                                "— bukan simulasi, bukan tes, bukan konteks basi.",
+                            ),
                         )
-                        yield deps.kirim_status('🔍 Verifying completion claim (0 files changed)...')
+                        yield deps.kirim_status(_L(
+                            state,
+                            '🔍 Verifying completion claim (0 files changed)...',
+                            '🔍 Memverifikasi klaim selesai (0 file berubah)...',
+                        ))
                         continue
                     case loop_guards.Keputusan.TANTANG_EDIT_GAGAL:
                         # >>> UPDATE-022 (InvoiceFlow M1 §2C): the claim names
@@ -2599,29 +2687,64 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
                         deps.context_manager.add_message(
                             "user",
-                            "[SYSTEM - YOUR CLAIM IS REJECTED]: You reported the work as complete, "
-                            "but YOUR OWN EDITS FAILED this turn and never succeeded afterwards:\n"
-                            f"{_daftar_gagal}\n\n"
-                            "A completion claim that contradicts the edit ledger is not accepted. "
-                            "Other files you DID change successfully do not excuse the failures above.\n\n"
-                            "Answer the user's actual question directly FIRST. Then do the following, "
-                            "in order:\n"
-                            "1. For EACH failed file listed above: re-read its current content "
-                            "(`read_file_range`), identify why the edit failed (stale SEARCH block, "
-                            "wrong path, guard rejection), and retry with `edit_file`/`write_file`.\n"
-                            "2. Judge every retry ONLY by its tool result: only a result starting "
-                            "with 'Success' counts; an 'Error:' result means still failed.\n"
-                            "3. If a file genuinely cannot be changed, say so PLAINLY in your report "
-                            "(which file, which error) instead of claiming it is done.\n\n"
-                            "Do NOT repeat the completion claim while any file above is still "
-                            "unfixed.",
+                            _L(
+                                state,
+                                "[SYSTEM - YOUR CLAIM IS REJECTED]: You reported the work as "
+                                "complete, but YOUR OWN EDITS FAILED this turn and never succeeded "
+                                f"afterwards:\n{_daftar_gagal}\n\n"
+                                "A completion claim that contradicts the edit ledger is not "
+                                "accepted. Other files you DID change successfully do not excuse "
+                                "the failures above.\n\n"
+                                "The user's actual request this turn was: \""
+                                f"{(state.permintaan_turn_ini or '')[:300]}\" — deliver EXACTLY "
+                                "that, in their language; answer it directly FIRST. Then do the "
+                                "following, in order:\n"
+                                "1. For EACH failed file listed above: re-read its current content "
+                                "(`read_file_range`), identify why the edit failed (stale SEARCH "
+                                "block, wrong path, guard rejection), and retry with `edit_file`/"
+                                "`write_file`.\n"
+                                "2. Judge every retry ONLY by its tool result: only a result "
+                                "starting with 'Success' counts; an 'Error:' result means still "
+                                "failed.\n"
+                                "3. If a file genuinely cannot be changed, say so PLAINLY in your "
+                                "report (which file, which error) instead of claiming it is "
+                                "done.\n\n"
+                                "Do NOT repeat the completion claim while any file above is still "
+                                "unfixed. This rejection is generated deterministically from YOUR "
+                                "OWN edit ledger this turn — not a simulation, not a test, not "
+                                "stale context.",
+                                "[SISTEM - KLAIM ANDA DITOLAK]: Anda melaporkan pekerjaan selesai, "
+                                "tetapi EDIT ANDA SENDIRI GAGAL pada turn ini dan tidak pernah "
+                                f"sukses sesudahnya:\n{_daftar_gagal}\n\n"
+                                "Klaim selesai yang bertentangan dengan ledger edit tidak "
+                                "diterima. File lain yang BERHASIL Anda ubah tidak menebus "
+                                "kegagalan di atas.\n\n"
+                                "Permintaan asli user turn ini: \""
+                                f"{(state.permintaan_turn_ini or '')[:300]}\" — kirimkan PERSIS "
+                                "itu, dalam bahasa user; jawab langsung lebih dulu. Kemudian "
+                                "lakukan berurutan:\n"
+                                "1. Untuk SETIAP file gagal di atas: baca ulang isi terkini "
+                                "(`read_file_range`), identifikasi kenapa edit gagal (SEARCH block "
+                                "basi, path salah, penolakan guard), lalu ulangi dengan "
+                                "`edit_file`/`write_file`.\n"
+                                "2. Nilai setiap percobaan HANYA dari hasil tool-nya: hanya hasil "
+                                "diawali 'Success' yang dihitung; hasil 'Error:' berarti masih "
+                                "gagal.\n"
+                                "3. Bila file benar-benar tidak bisa diubah, katakan TERUS TERANG "
+                                "di laporan (file mana, error apa) alih-alih mengklaim selesai.\n\n"
+                                "JANGAN mengulang klaim selesai selama file di atas belum beres. "
+                                "Penolakan ini dihasilkan deterministik dari ledger edit ANDA "
+                                "SENDIRI turn ini — bukan simulasi, bukan tes, bukan konteks basi.",
+                            ),
                         )
                         _nama_gagal = ", ".join(f"`{g['path']}`" for g in _edit_gagal[:5])
                         if len(_edit_gagal) > 5:
                             _nama_gagal += f" +{len(_edit_gagal) - 5} more"
-                        yield deps.kirim_status(
-                            f'🔍 Verifying completion claim (failed edits: {_nama_gagal})...'
-                        )
+                        yield deps.kirim_status(_L(
+                            state,
+                            f'🔍 Verifying completion claim (failed edits: {_nama_gagal})...',
+                            f'🔍 Memverifikasi klaim selesai (edit gagal: {_nama_gagal})...',
+                        ))
                         continue
                     case loop_guards.Keputusan.JAWAB_NORMAL:
                         # Not a task completion, just a normal response
@@ -2645,6 +2768,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         _teks_jawab += _blok_delegasi_akhir(
                             state, klaim=guard_rules.kata_klaim(content)
                         )
+                        # >>> UPDATE-025 commit 14: unrecovered failed edits
+                        # named at the normal ending too (single emitter,
+                        # both endings — no duplicate voice).
+                        _teks_jawab += _blok_edit_gagal_akhir(state)
                         yield sse.ev('token', text=_teks_jawab)
                         deps.context_manager.add_message(
                             "assistant",

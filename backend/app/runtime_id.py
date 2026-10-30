@@ -222,7 +222,21 @@ from pathlib import Path
 # detection (guard_rules.deteksi_bahasa), a one-line reminder in the
 # TARGET language on the ephemeral per-iteration context message, and
 # every user-facing literal rendered through _L(state, en, id).
-BACKEND_VERSION = "0.10.17"
+# Bumped 0.10.17 -> 0.10.18 for UPDATE-025 commit 14 (owner paste: an
+# Indonesian one-line-comment request came back as an ENGLISH report
+# that never delivered the comment). Two live defects, both in the
+# injection layer: (1) the mid-turn challenges were English user-role
+# messages, so the SYSTEM_PROMPT rule "reply in the language of the
+# user's LATEST message" legally hijacked the turn language — every
+# challenge (SARAN/KLAIM/EDIT_GAGAL) is now rendered in the detected
+# turn language and the [BAHASA] reminder names injections as
+# non-user messages; (2) TANTANG_EDIT_GAGAL never quoted the turn's
+# real request, and Orion rationalized the rejection as "a system
+# injection testing..." and dropped the request — challenges now quote
+# state.permintaan_turn_ini verbatim, state they are ledger-generated
+# (not a simulation), and unrecovered failed edits are disclosed at
+# BOTH turn endings.
+BACKEND_VERSION = "0.10.18"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

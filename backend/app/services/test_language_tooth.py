@@ -102,3 +102,98 @@ def test_helper_L_memilih_berdasar_bahasa():
     assert _L(st, "yes", "ya") == "yes"
     st.bahasa_turn = "id"
     assert _L(st, "yes", "ya") == "ya"
+
+
+# ------------------------- commit 14: challenges speak the turn language
+
+
+class _TEGagal(_TERef):
+    def write_file(self, **kw):
+        return "Error: SEARCH block not found in the original file."
+
+
+class _TEGagalLaluSukses(_TEGagal):
+    def __init__(self, path):
+        super().__init__(path)
+        self.panggilan = 0
+
+    def write_file(self, **kw):
+        self.panggilan += 1
+        if self.panggilan == 1:
+            return "Error: SEARCH block not found in the original file."
+        return "Success: wrote the file"
+
+
+PESAN_KOMENTAR_ID = (
+    "tolong tambahkan satu baris komentar di atas fungsi utama di "
+    "frontend/src/App.jsx"
+)
+PESAN_KOMENTAR_EN = (
+    "please add one comment line above the main function in "
+    "frontend/src/App.jsx"
+)
+
+
+def test_tantang_edit_gagal_indonesia_mengutip_permintaan(tmp_path):
+    frames, state, deps = _jalankan(
+        PESAN_KOMENTAR_ID,
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),  # fail
+            _Resp("Semua pekerjaan selesai dan terverifikasi."),           # claim
+            _Resp("Editnya gagal; file tidak bisa diubah karena format berubah."),
+        ],
+        executor=_TEGagal(tmp_path),
+    )
+    assert state.bahasa_turn == "id"
+    sejarah = deps.context_manager.get_history()
+    inj = [
+        m for m in sejarah
+        if "[SISTEM - KLAIM ANDA DITOLAK]" in str(m.get("content"))
+    ]
+    assert inj, frames
+    # the turn's REAL request is quoted inside the challenge, and the
+    # "this is not a simulation" sentence kills the rationalization
+    # that dropped the owner's one-line-comment request.
+    assert "tolong tambahkan satu baris komentar" in inj[-1]["content"]
+    assert "bukan simulasi" in inj[-1]["content"]
+    gabungan = "".join(frames)
+    assert "Edit gagal TIDAK PERNAH pulih" in gabungan
+
+
+def test_tantang_edit_gagal_inggris_tetap_inggris(tmp_path):
+    frames, state, deps = _jalankan(
+        PESAN_KOMENTAR_EN,
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),
+            _Resp("All of the requested work is completed and fully verified by the test suite."),
+            _Resp("The edit failed because the file format changed since my last read, so I cannot apply it blindly."),
+        ],
+        executor=_TEGagal(tmp_path),
+    )
+    assert state.bahasa_turn == "en"
+    sejarah = deps.context_manager.get_history()
+    inj = [
+        m for m in sejarah
+        if "[SYSTEM - YOUR CLAIM IS REJECTED]" in str(m.get("content"))
+    ]
+    assert inj, frames
+    assert "please add one comment line" in inj[-1]["content"]
+    assert "not a simulation" in inj[-1]["content"]
+    assert "Failed edits were NEVER recovered" in "".join(frames)
+
+
+def test_disclosure_edit_gagal_senyap_bila_pulih(tmp_path):
+    frames, state, _ = _jalankan(
+        PESAN_KOMENTAR_ID,
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),  # fail
+            _Resp("Semua pekerjaan selesai dan terverifikasi."),           # claim
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),  # retry ok
+            _Resp("Komentar sudah terpasang dan build lolos."),
+        ],
+        executor=_TEGagalLaluSukses(tmp_path),
+    )
+    gabungan = "".join(frames)
+    assert "LAPORAN CHECKPOINT" in gabungan
+    assert "Edit gagal TIDAK PERNAH pulih" not in gabungan
+    assert "Failed edits were NEVER recovered" not in gabungan
