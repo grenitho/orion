@@ -81,11 +81,11 @@ def test_roles_diminta_menangkap_nama_tool_dan_konteks_subagent():
 
 def test_diminta_tanpa_dispatch_diungkapkan_di_checkpoint():
     frames, deps, state = _jalankan(PESAN_VERIFIER, JALAN_TULIS_KLAIM)
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "LAPORAN CHECKPOINT" in f))
     assert laporan, frames
-    assert "Delegation requested but NOT dispatched" in laporan
+    assert "Delegasi diminta tetapi TIDAK dispatch" in laporan
     assert "`verifier`" in laporan
-    assert "NOT independent verification" in laporan
+    assert "BUKAN verifikasi independen" in laporan
     assert state.delegasi_terpakai == set()
 
 
@@ -106,9 +106,9 @@ def test_dispatch_asli_membungkam_disclosure_dan_tercatat():
             _Resp(KLAIM),                                              # _=2
         ],
     )
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "LAPORAN CHECKPOINT" in f))
     assert laporan, frames
-    assert "Delegation requested but NOT dispatched" not in laporan
+    assert "Delegasi diminta tetapi TIDAK dispatch" not in laporan
     assert state.delegasi_terpakai == {"verifier"}
 
 
@@ -120,9 +120,9 @@ def test_ledger_delegasi_di_reset_di_awal_turn():
     basi.delegasi_terpakai.add("verifier")
     frames, deps, state = _jalankan(PESAN_VERIFIER, JALAN_TULIS_KLAIM, state=basi)
     assert state is basi
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "LAPORAN CHECKPOINT" in f))
     assert laporan, frames
-    assert "Delegation requested but NOT dispatched" in laporan
+    assert "Delegasi diminta tetapi TIDAK dispatch" in laporan
     assert basi.delegasi_terpakai == set()
 
 
@@ -130,9 +130,9 @@ def test_permintaan_tanpa_peran_tetap_senyap():
     frames, deps, state = _jalankan(
         "Tambahkan confirm password di form registrasi.", JALAN_TULIS_KLAIM
     )
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "LAPORAN CHECKPOINT" in f))
     assert laporan, frames
-    assert "Delegation requested but NOT dispatched" not in laporan
+    assert "Delegasi diminta tetapi TIDAK dispatch" not in laporan
 
 
 def test_klaim_jawab_normal_membawa_disclosure():
@@ -143,13 +143,13 @@ def test_klaim_jawab_normal_membawa_disclosure():
     # disclosure ("7 pytest passed" while worker/verifier stayed unrun).
     frames, deps, state = _jalankan(PESAN_VERIFIER, [_Resp(KLAIM), _Resp(KLAIM)])
     badan = "".join(f for f in frames if "token" in f)
-    assert "Delegation requested but NOT dispatched" in badan, frames
+    assert "Delegasi diminta tetapi TIDAK dispatch" in badan, frames
     assert "`verifier`" in badan
     # the disclosure is part of the SAVED assistant message too, so the
     # next turn's context still shows the pipeline was dropped.
     disimpan = [m for m in deps.context_manager.history
                 if m.get("role") == "assistant"]
-    assert any("Delegation requested but NOT dispatched" in str(m.get("content"))
+    assert any("Delegasi diminta tetapi TIDAK dispatch" in str(m.get("content"))
                for m in disimpan)
 
 
@@ -157,4 +157,4 @@ def test_jawab_normal_tanpa_klaim_tetap_senyap():
     panjang = "Berikut penjelasan rinci tentang arsitektur proyek ini. " * 6
     frames, deps, state = _jalankan(PESAN_VERIFIER, [_Resp(panjang)])
     badan = "".join(f for f in frames if "token" in f)
-    assert "Delegation requested but NOT dispatched" not in badan
+    assert "Delegasi diminta tetapi TIDAK dispatch" not in badan

@@ -212,7 +212,17 @@ from pathlib import Path
 # checkpoint wording to UNVERIFIED); (2) plain-language data-loss
 # complaints ("data hilang setelah restart") open the advisory failure
 # thread, so the persistence root cause answers even without jargon.
-BACKEND_VERSION = "0.10.16"
+# Bumped 0.10.16 -> 0.10.17 for UPDATE-025 commit 13 (owner report:
+# "Orion cenderung menggunakan bahasa Inggris, walaupun tahu usernya
+# menggunakan bahasa Indonesia"). The SYSTEM_PROMPT LANGUAGE RULE
+# existed and still lost: every deterministic block the loop appends
+# (checkpoint template, disclosures, soft-limit warning, ask_user
+# questions) spoke English, and the model mirrors the dominant system
+# voice. Teeth, zero prompt tokens: deterministic per-turn language
+# detection (guard_rules.deteksi_bahasa), a one-line reminder in the
+# TARGET language on the ephemeral per-iteration context message, and
+# every user-facing literal rendered through _L(state, en, id).
+BACKEND_VERSION = "0.10.17"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

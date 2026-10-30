@@ -235,6 +235,14 @@ async def _keepalive(coro, hasil: list, interval: float | None = None):
         raise
 
 
+def _L(state, en: str, idn: str) -> str:
+    """UPDATE-025 commit 13: user-facing literals follow the detected
+    turn language (state.bahasa_turn). The model mirrors the system
+    voice; an English-only template out-votes the prompt's LANGUAGE
+    RULE, so the templates now speak the user's language."""
+    return idn if getattr(state, "bahasa_turn", "") == "id" else en
+
+
 def _referensi_belum_dibaca(state, project_path) -> list:
     """UPDATE-025 commit 12: the shared condition behind BOTH the
     checkpoint disclosure (commit 11) and the in-turn reconciliation
@@ -289,24 +297,40 @@ def _blok_referensi_belum_dibaca(state, project_path) -> str:
     refs = _referensi_belum_dibaca(state, project_path)
     if not refs:
         return ""
-    teks = (
-        "\n\n**⚠️ Saved reference attachments were NOT consulted this "
-        "turn:**\n"
-        + "\n".join(f"- `.orion/attachments/{r}`" for r in refs)
-        + "\n\nUI files changed while these user-provided references "
-        "sat unread this turn. Re-read them with read_file and reconcile "
-        "the design tokens (colors, fonts, spacing, layout) against the "
-        "rendered result before calling the work done."
-    )
+    daftar = "\n".join(f"- `.orion/attachments/{r}`" for r in refs)
+    if getattr(state, "bahasa_turn", "") == "id":
+        teks = (
+            "\n\n**⚠️ Lampiran referensi tersimpan TIDAK dibuka turn ini:**\n"
+            + daftar
+            + "\n\nFile UI berubah sementara referensi bawaan user ini tidak "
+            "dibaca sama sekali turn ini. Baca ulang dengan read_file dan "
+            "rekonsiliasi token desain (warna, font, spasi, layout) terhadap "
+            "hasil render sebelum menyebut pekerjaan selesai."
+        )
+    else:
+        teks = (
+            "\n\n**⚠️ Saved reference attachments were NOT consulted this "
+            "turn:**\n"
+            + daftar
+            + "\n\nUI files changed while these user-provided references "
+            "sat unread this turn. Re-read them with read_file and reconcile "
+            "the design tokens (colors, fonts, spacing, layout) against the "
+            "rendered result before calling the work done."
+        )
     if getattr(state, "nudge_referensi", 0):
         # >>> commit 12 escalation: the model was challenged INSIDE the
         # turn and closed anyway — the user must see that, not just the
         # plain gap.
-        teks += (
+        teks += _L(
+            state,
             "\n\nOrion was reminded mid-turn (REFERENCE RECONCILIATION) "
             "and still closed without reading them: every design token "
             "in this turn's work must be treated as UNVERIFIED against "
-            "the user's reference."
+            "the user's reference.",
+            "\n\nOrion sudah diingatkan di tengah turn (REFERENCE "
+            "RECONCILIATION) namun tetap menutup tanpa membacanya: semua "
+            "token desain hasil turn ini harus dianggap BELUM "
+            "TERVERIFIKASI terhadap referensi user.",
         )
     return teks
 
@@ -329,7 +353,9 @@ def _blok_persistensi_bila_perlu(state, tool_executor) -> str:
     if project_facts.ada_persistensi(proj):
         return ""
     state.fakta_persistensi_disampaikan = True
-    return project_facts.blok_persistensi(proj)
+    return project_facts.blok_persistensi(
+        proj, bahasa=getattr(state, "bahasa_turn", "") or "en"
+    )
 
 
 def _tutup_utas_bila_disarankan(state, konten) -> None:
@@ -372,40 +398,72 @@ def _blok_delegasi_akhir(state, klaim: bool = False) -> str:
         return ""
     if mati:
         baris = "\n".join(
-            f"- ⚠️ `{r}` ended early (status {nasib[r][0]}, retries {nasib[r][1]})"
+            _L(
+                state,
+                f"- ⚠️ `{r}` ended early (status {nasib[r][0]}, retries {nasib[r][1]})",
+                f"- ⚠️ `{r}` mati lebih dulu (status {nasib[r][0]}, retries {nasib[r][1]})",
+            )
             for r in mati
         )
         if belum:
             baris += "\n" + "\n".join(
-                f"- ⚠️ `{r}` was never dispatched" for r in belum
+                _L(state, f"- ⚠️ `{r}` was never dispatched",
+                   f"- ⚠️ `{r}` tidak pernah dispatch")
+                for r in belum
             )
-        paragraf = (
+        paragraf = _L(
+            state,
             "The conclusions above rest on the dead sub-run's salvaged "
             "partial findings plus main-agent self-checks — NOT the "
-            "ordered independent pipeline."
+            "ordered independent pipeline.",
+            "Kesimpulan di atas bertumpu pada temuan parsial selamatan "
+            "dari sub-run yang mati plus pemeriksaan mandiri agen utama "
+            "— BUKAN pipeline independen yang Anda perintahkan.",
         )
         if belum or klaim:
-            paragraf += (
+            paragraf += _L(
+                state,
                 " Self-run checks (builds, verify_*, pytest) are NOT "
-                "independent verification."
+                "independent verification.",
+                " Pemeriksaan mandiri (build, verify_*, pytest) BUKAN "
+                "verifikasi independen.",
             )
-        paragraf += (
+        paragraf += _L(
+            state,
             " Dispatch the missing role(s) on a next turn, or tell the "
-            "user plainly why they were skipped."
+            "user plainly why they were skipped.",
+            " Dispatch role yang hilang pada turn berikutnya, atau "
+            "katakan terus terang kepada user kenapa role itu dilewati.",
         )
         return (
-            "\n\n**⚠️ Sub-agent pipeline broke this turn:**\n"
-            f"{baris}\n\n{paragraf}"
+            _L(
+                state,
+                "\n\n**⚠️ Sub-agent pipeline broke this turn:**\n",
+                "\n\n**⚠️ Pipeline sub-agent putus turn ini:**\n",
+            )
+            + f"{baris}\n\n{paragraf}"
         )
     baris = "\n".join(f"- ⚠️ `{r}`" for r in belum)
     return (
-        "\n\n**⚠️ Delegation requested but NOT dispatched this turn:**\n"
-        f"{baris}\n\n"
-        "This turn's request named the role(s) above, but zero "
-        "successful delegate_* calls reached them. Self-run checks "
-        "(builds, verify_*, pytest) are NOT independent verification. "
-        "Dispatch the missing role(s), or tell the user plainly why "
-        "they were skipped."
+        _L(
+            state,
+            "\n\n**⚠️ Delegation requested but NOT dispatched this turn:**\n",
+            "\n\n**⚠️ Delegasi diminta tetapi TIDAK dispatch turn ini:**\n",
+        )
+        + f"{baris}\n\n"
+        + _L(
+            state,
+            "This turn's request named the role(s) above, but zero "
+            "successful delegate_* calls reached them. Self-run checks "
+            "(builds, verify_*, pytest) are NOT independent verification. "
+            "Dispatch the missing role(s), or tell the user plainly why "
+            "they were skipped.",
+            "Permintaan turn ini menyebut role di atas, tetapi nol "
+            "panggilan delegate_* yang sukses sampai ke mereka. "
+            "Pemeriksaan mandiri (build, verify_*, pytest) BUKAN "
+            "verifikasi independen. Dispatch role yang hilang, atau "
+            "katakan terus terang kepada user kenapa mereka dilewati.",
+        )
     )
 
 
@@ -736,6 +794,23 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.permintaan_turn_ini = _permintaan_pengguna_terakhir(
             deps.context_manager.get_history()
         )
+        # >>> UPDATE-025 commit 13 (owner: Orion answers in English to an
+        # Indonesian user): the LANGUAGE RULE in SYSTEM_PROMPT was losing
+        # to the loop's own English system-voice (checkpoint template,
+        # disclosure blocks). Detect the turn language deterministically;
+        # user-facing literals below render in it, and a one-line reminder
+        # in the TARGET language rides the per-iteration context message
+        # (ephemeral — never stored in history).
+        state.bahasa_turn = guard_rules.deteksi_bahasa(state.permintaan_turn_ini)
+        if state.bahasa_turn == "id" and isinstance(deps.context_message, dict):
+            deps.context_message["content"] = str(
+                deps.context_message.get("content", "")
+            ) + (
+                "\n[BAHASA] Pengguna berbahasa Indonesia pada turn ini: tulis "
+                "SELURUH prose Anda — jawaban, laporan checkpoint, pertanyaan "
+                "— dalam bahasa Indonesia. Identifier kode, path file, nama "
+                "tool, dan keluaran log tetap apa adanya."
+            )
         state.todo_ids_awal_turn = {
             str(t.get("id")) for t in state.sisa_todo(deps.todo_manager)
         }
@@ -809,7 +884,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     f'"{_permintaan}"' if _permintaan else "(not captured)"
                 )
                 _status_aksi = (
-                    state.last_tool_note or "(no tool executed yet this turn)"
+                    state.last_tool_note
+                    or _L(
+                        state,
+                        "(no tool executed yet this turn)",
+                        "(belum ada tool yang jalan turn ini)",
+                    )
                 )
                 _todo_pending = state.sisa_todo(deps.todo_manager)
                 if _todo_pending:
@@ -823,8 +903,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         f"{len(_todo_pending)} pending — " + "; ".join(_baris_todo)
                     )
                 else:
-                    _status_todo = "none"
-                warning_msg = (
+                    _status_todo = _L(state, "none", "tidak ada")
+                warning_msg = _L(
+                    state,
                     f"\n\n**[SYSTEM WARNING - SOFT LIMIT]**\n"
                     f"I have reached {_} iterations (80% of the {max_iter} iteration limit).\n"
                     f"To avoid burning tokens, I will pause here for a moment.\n\n"
@@ -835,7 +916,18 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     f"**Your options:**\n"
                     f"1. Type **'lanjut'** / **'continue'** if I am on the right track — "
                     f"when I resume, the request quoted above comes first.\n"
-                    f"2. Give new instructions if I seem to be going in circles or off track.\n"
+                    f"2. Give new instructions if I seem to be going in circles or off track.\n",
+                    f"\n\n**[PERINGATAN SISTEM - BATAS LUNAK]**\n"
+                    f"Saya mencapai {_} iterasi (80% dari batas {max_iter} iterasi).\n"
+                    f"Untuk menghindari pemborosan token, saya jeda sebentar di sini.\n\n"
+                    f"**Status saat ini:**\n"
+                    f"- Permintaan yang sedang saya jawab turn ini: {_status_permintaan}\n"
+                    f"- Aksi terakhir: {_status_aksi}\n"
+                    f"- Daftar todo: {_status_todo}\n\n"
+                    f"**Pilihan Anda:**\n"
+                    f"1. Ketik **'lanjut'** / **'continue'** bila saya di jalur yang benar — "
+                    f"saat saya lanjut, permintaan yang dikutip di atas jadi prioritas pertama.\n"
+                    f"2. Beri instruksi baru bila saya terlihat berputar-putar atau melenceng.\n",
                 )
 
                 # Save to history so Orion remembers it was already warned
@@ -845,7 +937,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
 
                 # Send to the frontend and PAUSE
                 yield sse.ev('token', text=warning_msg)
-                yield sse.ev('ask_user', question='Soft limit reached. Continue, or give new instructions?')
+                yield sse.ev('ask_user', question=_L(
+                    state,
+                    'Soft limit reached. Continue, or give new instructions?',
+                    'Batas lunak tercapai. Lanjutkan, atau beri instruksi baru?',
+                ))
                 yield sse.ev('done')
                 print(
                     "[ORION SOFT LIMIT] Reached 80% of iterations. Waiting for user instructions."
@@ -2117,21 +2213,43 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     )
                     deps.context_manager.add_message(
                         "user",
-                        "[SYSTEM - REFERENCE RECONCILIATION]: you are closing "
-                        "a turn that changed UI files while the user's saved "
-                        "reference attachments were never read: "
-                        + ", ".join(f"`{r}`" for r in _refs)
-                        + ". Before this turn may end, EITHER read them with "
-                        "read_file and reconcile the design tokens (colors, "
-                        "fonts, spacing, layout) against what you built, OR "
-                        "state PLAINLY in your closing report, token by "
-                        "token, WHERE your result deviates from the user's "
-                        "reference and WHY. A completion claim without "
-                        "either is a false claim.",
+                        _L(
+                            state,
+                            "[SYSTEM - REFERENCE RECONCILIATION]: you are closing "
+                            "a turn that changed UI files while the user's saved "
+                            "reference attachments were never read: "
+                            + ", ".join(f"`{r}`" for r in _refs)
+                            + ". Before this turn may end, EITHER read them with "
+                            "read_file and reconcile the design tokens (colors, "
+                            "fonts, spacing, layout) against what you built, OR "
+                            "state PLAINLY in your closing report, token by "
+                            "token, WHERE your result deviates from the user's "
+                            "reference and WHY. A completion claim without "
+                            "either is a false claim.",
+                            "[SISTEM - REKONSILIASI REFERENSI]: Anda hendak "
+                            "menutup turn yang mengubah file UI sementara "
+                            "lampiran referensi tersimpan milik user belum "
+                            "dibaca sama sekali: "
+                            + ", ".join(f"`{r}`" for r in _refs)
+                            + ". Sebelum turn ini boleh berakhir, BACA dulu "
+                            "dengan read_file lalu rekonsiliasi token desain "
+                            "(warna, font, spasi, layout) terhadap apa yang "
+                            "Anda bangun, ATAU nyatakan TERANG-TERANGAN di "
+                            "laporan penutup, token per token, DI MANA hasil "
+                            "Anda menyimpang dari referensi user dan MENGAPA. "
+                            "Klaim selesai tanpa salah satu dari keduanya "
+                            "adalah klaim palsu.",
+                        ),
                     )
                     yield deps.kirim_status(
-                        '📖 UI changed with saved references unread - '
-                        'reconciliation owed before this turn can close...'
+                        _L(
+                            state,
+                            '📖 UI changed with saved references unread - '
+                            'reconciliation owed before this turn can close...',
+                            '📖 UI berubah sementara referensi tersimpan belum '
+                            'dibaca - rekonsiliasi wajib sebelum turn ini '
+                            'boleh ditutup...',
+                        )
                     )
                     continue
                 match keputusan:
@@ -2267,11 +2385,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
                         continue
                     case loop_guards.Keputusan.CHECKPOINT:
-                        checkpoint_report = (
+                        checkpoint_report = _L(
+                            state,
                             "\n\n---\n\n"
                             "## ✅ TASK COMPLETED - CHECKPOINT REPORT\n\n"
                             "**Status:** Task completed\n\n"
-                            "**Files changed:**\n"
+                            "**Files changed:**\n",
+                            "\n\n---\n\n"
+                            "## ✅ TUGAS SELESAI - LAPORAN CHECKPOINT\n\n"
+                            "**Status:** Tugas selesai\n\n"
+                            "**File yang berubah:**\n",
                         )
 
                         # Use the list of files ACTUALLY changed ON THIS TURN ONLY,
@@ -2282,7 +2405,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 state.files_changed_this_turn[-10:]
                             )  # At most the last 10 files
                         else:
-                            checkpoint_report += "- No files changed"
+                            checkpoint_report += _L(
+                                state,
+                                "- No files changed",
+                                "- Tidak ada file yang berubah",
+                            )
 
                         # >>> CRITICAL FIX: prevent todo items from silently "disappearing".
                         # Previously, if the user asked for 3 features but Orion only
@@ -2300,9 +2427,17 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 for t in pending_items
                             )
                             pending_warning = (
-                                f"\n\n**⚠️ WARNING: There are todo items still NOT finished:**\n"
-                                f"{pending_list}\n\n"
-                                f"This task is NOT 100% complete -- the items above have not been done."
+                                _L(
+                                    state,
+                                    "\n\n**⚠️ WARNING: There are todo items still NOT finished:**\n",
+                                    "\n\n**⚠️ PERINGATAN: Masih ada item todo yang BELUM selesai:**\n",
+                                )
+                                + f"{pending_list}\n\n"
+                                + _L(
+                                    state,
+                                    "This task is NOT 100% complete -- the items above have not been done.",
+                                    "Tugas ini BELUM 100% selesai -- item di atas belum dikerjakan.",
+                                )
                             )
 
                         checkpoint_report += pending_warning
@@ -2370,10 +2505,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
                         _tutup_utas_bila_disarankan(state, content)
 
-                        checkpoint_report += (
+                        checkpoint_report += _L(
+                            state,
                             "\n\n**Next steps:**\n"
                             "Please review the changes above. Is there anything to adjust, or shall I continue to the next task?\n\n"
-                            "---\n"
+                            "---\n",
+                            "\n\n**Langkah berikutnya:**\n"
+                            "Silakan tinjau perubahan di atas. Ada yang perlu disesuaikan, atau saya lanjut ke tugas berikut?\n\n"
+                            "---\n",
                         )
 
                         # Show the checkpoint report in chat
@@ -2387,7 +2526,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
 
                         # PAUSE: wait for the user's response
-                        yield sse.ev('ask_user', question='Task complete. Is there anything to adjust, or shall I continue to the next task?')
+                        yield sse.ev('ask_user', question=_L(
+                            state,
+                            'Task complete. Is there anything to adjust, or shall I continue to the next task?',
+                            'Tugas selesai. Ada yang perlu disesuaikan, atau saya lanjut ke tugas berikutnya?',
+                        ))
                         yield sse.ev('done')
                         print(
                             "[ORION TASK COMPLETE] Task finished. Waiting for user response to continue."

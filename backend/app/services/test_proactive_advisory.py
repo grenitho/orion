@@ -127,7 +127,7 @@ def test_blok_persistensi_menumpang_frame_saat_proyek_tanpa_db(tmp_path):
         _Resp(JAWAB_SARAN),      # advisory present: no challenge, fact rides
     ], state=basi, executor=_TEProj(tmp_path))
     badan = "".join(f for f in frames if "token" in f)
-    assert "NO persistence layer" in badan, frames
+    assert "TIDAK punya lapisan persistensi" in badan, frames
     assert "SQLite + SQLAlchemy" in badan
     assert state.fakta_persistensi_disampaikan is True
     assert state.utas_gagal == ""          # model advisory closed the thread
@@ -142,7 +142,7 @@ def test_blok_persistensi_menumpang_frame_saat_proyek_tanpa_db(tmp_path):
         _Resp(JAWAB_SARAN),
     ], state=basi, executor=_TEProj(tmp_path))
     badan2 = "".join(f for f in frames2 if "token" in f)
-    assert "NO persistence layer" in badan2   # new thread => flag reset
+    assert "TIDAK punya lapisan persistensi" in badan2  # new thread => flag reset
 
 
 def test_persistensi_ada_maka_blok_senyap(tmp_path):
@@ -157,5 +157,5 @@ def test_persistensi_ada_maka_blok_senyap(tmp_path):
         _Resp(JAWAB_SARAN),
     ], state=basi, executor=_TEProj(tmp_path))
     badan = "".join(f for f in frames if "token" in f)
-    assert "NO persistence layer" not in badan
+    assert "TIDAK punya lapisan persistensi" not in badan
     assert state.fakta_persistensi_disampaikan is False

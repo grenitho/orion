@@ -71,10 +71,33 @@ def ada_persistensi(project_path: str) -> bool:
     return False
 
 
-def blok_persistensi(project_path: str) -> str:
+def blok_persistensi(project_path: str, bahasa: str = "en") -> str:
     """The fixed advisory block: fact + what was checked + the owner's
     options. Deterministic content — the model weaves it, never invents
-    it, and cannot forget it."""
+    it, and cannot forget it. UPDATE-025 commit 13: rendered in the
+    detected turn language so the system voice matches the user's."""
+    if bahasa == "id":
+        return (
+            "\n\n**📦 Fakta terdeteksi — proyek ini TIDAK punya lapisan "
+            "persistensi.** Sudah diperiksa dan tidak ada: file "
+            "`*.db`/`*.sqlite*` apa pun, ORM/driver "
+            "(sqlalchemy/peewee/psycopg/pymongo/redis/…) di requirements "
+            "atau pyproject, dan modul gaya `database.py`/`models.py`. "
+            "Data yang ditambah lewat aplikasi karenanya hidup HANYA di "
+            "memori proses: lenyap setiap backend restart dan tidak "
+            "pernah bertahan antar-sesi. Bila alur yang gagal "
+            "mengharapkan catatan tambahan tetap ada, celah struktural "
+            "inilah — bukan typo di kode — kandidat penyebab pertama.\n"
+            "Opsi Anda, dari yang terkecil:\n"
+            "1. **SQLite + SQLAlchemy** — satu file, aman untuk trial, query sungguhan;\n"
+            "2. **JSON-file store** — penyimpanan permanen paling sederhana untuk satu user;\n"
+            "3. **Tetap in-memory** — sah untuk trial sekali pakai, tetapi "
+            "kehilangan data saat restart adalah PERILAKU YANG DIHARAPKAN, bukan bug.\n"
+            "Katakan mana yang Anda pilih dan pipeline akan "
+            "mengimplementasikan serta memverifikasinya. (Blok ini menyala "
+            "sekali per utas kegagalan terbuka; pemindaiannya deterministik "
+            "— tidak pernah menebak.)"
+        )
     return (
         "\n\n**📦 Detected fact — this project has NO persistence layer.** "
         "Checked and absent: any `*.db`/`*.sqlite*` file, any ORM/driver "

@@ -181,7 +181,9 @@ def test_soft_limit_mengutip_permintaan_turn_dan_tanpa_placeholder():
     frames, st, deps = _jalankan(
         history, responses=_LLM([_Resp("Sebentar, saya cek dulu.")]), max_iter=5
     )
-    warning = "".join(f for f in frames if "SOFT LIMIT" in f)
+    warning = "".join(
+        f for f in frames if "SOFT LIMIT" in f or "BATAS LUNAK" in f
+    )
     assert warning, f"soft-limit frame must be emitted; got {frames}"
     # The incident: the raw template placeholder reached the user.
     assert "[mention the last task]" not in warning
@@ -189,13 +191,13 @@ def test_soft_limit_mengutip_permintaan_turn_dan_tanpa_placeholder():
     # The real request is quoted...
     assert PERMINTAAN in warning
     # ...the status lines exist and degrade honestly...
-    assert "(no tool executed yet this turn)" in warning
-    assert "Todo list: none" in warning
+    assert "(belum ada tool yang jalan turn ini)" in warning
+    assert "Daftar todo: tidak ada" in warning
     # ...and the resume contract is stated.
-    assert "the request quoted above comes first" in warning
+    assert "permintaan yang dikutip di atas jadi prioritas pertama" in warning
     # The frozen tail of the pause sequence is untouched.
     assert any(
-        "Soft limit reached. Continue, or give new instructions?" in f
+        "Batas lunak tercapai. Lanjutkan, atau beri instruksi baru?" in f
         for f in frames
     )
     assert "done" in frames[-1]
@@ -227,7 +229,9 @@ def test_soft_limit_menyebut_tool_terakhir_dan_todo_pending():
         todos=[],
         max_iter=5,
     )
-    warning = "".join(f for f in frames if "SOFT LIMIT" in f)
+    warning = "".join(
+        f for f in frames if "SOFT LIMIT" in f or "BATAS LUNAK" in f
+    )
     assert warning, frames
     assert "update_todos" in warning          # last action named
     assert "Jawab pertanyaan frontend" in warning  # pending todo listed

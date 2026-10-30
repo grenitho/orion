@@ -125,14 +125,14 @@ def test_pipeline_pecah_terungkap_tanpa_klaim_dan_tanpa_file(monkeypatch):
     ])
     assert state.nasib_role.get(sa.EXPLORER, ("",))[0] == "error"
     badan = "".join(f for f in frames if "token" in f)
-    assert "Sub-agent pipeline broke this turn" in badan, frames
-    assert "`explorer` ended early (status error, retries 2)" in badan
-    assert "`worker` was never dispatched" in badan
-    assert "`verifier` was never dispatched" in badan
+    assert "Pipeline sub-agent putus turn ini" in badan, frames
+    assert "`explorer` mati lebih dulu (status error, retries 2)" in badan
+    assert "`worker` tidak pernah dispatch" in badan
+    assert "`verifier` tidak pernah dispatch" in badan
     # the disclosure is durable: saved assistant message carries it too
     disimpan = [m for m in deps.context_manager.history
                 if m.get("role") == "assistant"]
-    assert any("Sub-agent pipeline broke this turn" in str(m.get("content"))
+    assert any("Pipeline sub-agent putus turn ini" in str(m.get("content"))
                for m in disimpan)
 
 
@@ -150,7 +150,7 @@ def test_skip_kondisional_sah_tetap_senyap(monkeypatch):
     ])
     assert state.nasib_role.get(sa.EXPLORER) == ("ok", 0)
     badan = "".join(f for f in frames if "token" in f)
-    assert "Sub-agent pipeline broke this turn" not in badan
+    assert "Pipeline sub-agent putus turn ini" not in badan
     assert _blok_delegasi_akhir(state) == ""
 
 
@@ -170,7 +170,7 @@ def test_ledger_nasib_di_reset_di_awal_turn(monkeypatch):
     assert state is basi
     assert basi.nasib_role == {sa.EXPLORER: ("ok", 0)}   # stale entry wiped
     badan = "".join(f for f in frames if "token" in f)
-    assert "Sub-agent pipeline broke this turn" not in badan
+    assert "Pipeline sub-agent putus turn ini" not in badan
 
 
 def test_satu_blok_gabungan_tanpa_kontradiksi(monkeypatch):
@@ -189,10 +189,10 @@ def test_satu_blok_gabungan_tanpa_kontradiksi(monkeypatch):
         _Resp(KLAIM_TEKS),
     ])
     badan = "".join(f for f in frames if "token" in f)
-    assert badan.count("Sub-agent pipeline broke this turn") == 1
+    assert badan.count("Pipeline sub-agent putus turn ini") == 1
     assert "Delegation requested but NOT dispatched" not in badan
-    assert "`verifier` ended early (status error, retries 2)" in badan
-    assert "`verifier` was never dispatched" not in badan   # no contradiction
-    assert "`explorer` was never dispatched" in badan
-    assert "`worker` was never dispatched" in badan
-    assert badan.count("Self-run checks") == 1              # one paragraph
+    assert "`verifier` mati lebih dulu (status error, retries 2)" in badan
+    assert "`verifier` tidak pernah dispatch" not in badan   # no contradiction
+    assert "`explorer` tidak pernah dispatch" in badan
+    assert "`worker` tidak pernah dispatch" in badan
+    assert badan.count("Pemeriksaan mandiri") == 1              # one paragraph

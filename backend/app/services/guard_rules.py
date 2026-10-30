@@ -183,6 +183,36 @@ def utas_tentang_data(teks: str) -> bool:
     return any(k in rendah for k in KATA_DATA)
 
 
+# >>> UPDATE-025 commit 13 (owner: "Orion cenderung memakai bahasa Inggris
+# walau user berbahasa Indonesia"): deterministic user-language detection.
+# The SYSTEM_PROMPT LANGUAGE RULE already exists and still lost — because
+# every deterministic block the loop appends (checkpoint template,
+# disclosures) spoke English, so the model mirrored the dominant system
+# voice. Detection lets those blocks speak the USER's language; lexical,
+# cheap, and testable, like every other guard here.
+KATA_ID = (
+    "yang", "dan", "untuk", "dengan", "tidak", "sudah", "belum", "saya",
+    "kita", "anda", "kamu", "tolong", "apakah", "kenapa", "mengapa",
+    "berapa", "ini", "itu", "ada", "bisa", "mau", "jadi", "karena",
+    "saat", "akan", "atau", "juga", "masih", "sekali", "mohon", "pakai",
+    "buat", "kalau", "jika", "terima", "kasih", "sekalian", "dong",
+)
+KATA_EN = (
+    " the ", " and ", " for ", " with ", "please", " i ", " my ", " we ",
+    " you ", " is ", " are ", " want ", " need ", " because ", " when ",
+    " what ", " how ", "thanks", " should ", " would ", " could ",
+    " check ", " make ", " use ",
+)
+
+
+def deteksi_bahasa(teks: str) -> str:
+    """'id' when the user's message reads Indonesian, else 'en'."""
+    rendah = f" {(teks or '').lower()} "
+    id_ = sum(rendah.count(f" {k} ") for k in KATA_ID)
+    en_ = sum(rendah.count(k) for k in KATA_EN)
+    return "id" if id_ > en_ else "en"
+
+
 def kata_saran(teks: str) -> bool:
     """True when the reply carries root-cause/options wording — the
     proactivity that CLOSES the failure thread. Deliberately lexical:

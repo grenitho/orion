@@ -140,6 +140,10 @@ class SessionState:
     # loop trap). Also flags the escalated checkpoint wording when the
     # model closed anyway.
     nudge_referensi: int = 0
+    # >>> UPDATE-025 commit 13: the detected language of this turn's user
+    # request ("id"/"en"); every user-facing deterministic block renders
+    # in it, so the system voice stops out-voting the LANGUAGE RULE.
+    bahasa_turn: str = ""
 
     # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow incident): a todo
     # can be marked 'completed' by the model with zero work behind it
