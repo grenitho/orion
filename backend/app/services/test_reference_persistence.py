@@ -237,3 +237,113 @@ def test_checkpoint_senyap_bila_referensi_dibaca_lebih_dulu(tmp_path):
     assert laporan, frames
     assert "NOT consulted" not in laporan
     assert state.lampiran_dibaca_turn_ini == {REF}
+
+
+# ---------------------------------------------------- commit 12: in-turn gate
+
+
+def test_nudge_referensi_menyala_sebelum_tutup_lalu_dibaca(tmp_path):
+    _buat_referensi(tmp_path, "invoiceflow.html")
+    frames, state, _ = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("UI selesai dibangun."),                                 # 1 -> gate
+            _Resp("", tool_calls=[
+                _tool_call("read_file", json.dumps({"file_path": REF}))]),  # 2
+            _Resp("UI selesai setelah rekonsiliasi token."),               # 3 -> close
+        ],
+        executor=_TERef(tmp_path),
+    )
+    gabungan = "".join(frames)
+    assert "reconciliation owed" in gabungan          # the in-turn challenge
+    assert state.nudge_referensi == 1
+    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    assert laporan, frames
+    assert "NOT consulted" not in laporan             # read -> silent closing
+
+
+def test_nudge_dianggalkan_mengeskalsasi_blok_checkpoint(tmp_path):
+    _buat_referensi(tmp_path, "invoiceflow.html")
+    frames, state, _ = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("UI selesai dibangun."),                                 # 1 -> gate
+            _Resp("Semua tugas selesai dan terverifikasi."),               # 2 -> defiance
+        ],
+        executor=_TERef(tmp_path),
+    )
+    assert sum("reconciliation owed" in f for f in frames) == 1  # cap 1
+    assert state.nudge_referensi == 1
+    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    assert "NOT consulted" in laporan
+    assert "UNVERIFIED" in laporan                    # escalated wording
+
+
+def test_nudge_senyap_tanpa_referensi_tersimpan(tmp_path):
+    frames, state, _ = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),
+            _Resp("UI selesai dibangun."),
+        ],
+        executor=_TERef(tmp_path),
+    )
+    assert "reconciliation owed" not in "".join(frames)
+    assert state.nudge_referensi == 0
+
+
+def test_nudge_reset_per_turn(tmp_path):
+    _buat_referensi(tmp_path, "invoiceflow.html")
+    ex = _TERef(tmp_path)
+    state = SessionState()
+    _jalankan(
+        "kerjakan UI",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),
+            _Resp("selesai."),
+            _Resp("selesai sungguh."),
+        ],
+        executor=ex,
+        state=state,
+    )
+    assert state.nudge_referensi == 1
+    # turn berikut mulai dari nol lagi (cap bukan akumulasi lintas turn)
+    _jalankan(
+        "lanjutkan UI",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),
+            _Resp("selesai."),
+            _Resp("selesai sungguh."),
+        ],
+        executor=ex,
+        state=state,
+    )
+    assert state.nudge_referensi == 1
+
+
+# --------------------------------------- commit 12: keluhan bahasa sederhana
+
+
+def test_keluhan_data_polos_membuka_utas():
+    from app.services import guard_rules
+
+    for kalimat in (
+        "data pelanggan hilang lagi setelah restart",
+        "kok daftar pelanggan kosong lagi tiap saya mulai ulang?",
+        "my customers disappear after every restart",
+        "faktur yang saya buat kemarin tidak tersimpan",
+    ):
+        assert guard_rules.utas_gagal_dari(kalimat), kalimat
+
+
+def test_kalimat_biasa_tidak_membuka_utas():
+    from app.services import guard_rules
+
+    for kalimat in (
+        "port berapa yang dipakai backend InvoiceFlow sekarang?",
+        "faktur PDF sudah bisa diunduh, terima kasih",
+        "field nama masih kosong, tolong isi dulu",
+    ):
+        assert guard_rules.utas_gagal_dari(kalimat) == "", kalimat

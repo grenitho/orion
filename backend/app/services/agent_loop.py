@@ -235,16 +235,15 @@ async def _keepalive(coro, hasil: list, interval: float | None = None):
         raise
 
 
-def _blok_referensi_belum_dibaca(state, project_path) -> str:
-    """UPDATE-025 commit 11 (owner incident: Orion invented indigo
-    #4f46e5 while the green/gold handoff it was given sat unread): when
-    UI files change on a turn that never opened the saved reference
-    attachments, say so at the checkpoint. Deterministic: the reference
-    list is the .orion/attachments/ directory itself, the consultation
-    is this turn's read_file ledger. Disclosure, not rejection.
+def _referensi_belum_dibaca(state, project_path) -> list:
+    """UPDATE-025 commit 12: the shared condition behind BOTH the
+    checkpoint disclosure (commit 11) and the in-turn reconciliation
+    gate (commit 12): UI files changed this turn, saved reference
+    attachments exist, none was read this turn. Returns the reference
+    names (empty list = condition false).
     """
     if not getattr(state, "files_changed_this_turn", None):
-        return ""
+        return []
     _UI = (".jsx", ".tsx", ".vue", ".css", ".scss", ".html")
 
     def _ada_ui(entri) -> bool:
@@ -255,17 +254,42 @@ def _blok_referensi_belum_dibaca(state, project_path) -> str:
         return _p.lower().endswith(_UI)
 
     if not any(_ada_ui(f) for f in state.files_changed_this_turn):
-        return ""
+        return []
     dirr = os.path.join(project_path or ".", ".orion", "attachments")
     try:
         refs = sorted(os.listdir(dirr))
     except OSError:
-        return ""
+        return []
+    if not refs:
+        return []
+    if getattr(state, "lampiran_dibaca_turn_ini", None):
+        return []
+    return refs
+
+
+def _perlu_nudge_referensi(state, tool_executor) -> bool:
+    """One in-turn reconciliation challenge per turn (commit 12)."""
+    if getattr(state, "nudge_referensi", 0):
+        return False
+    return bool(
+        _referensi_belum_dibaca(
+            state, getattr(tool_executor, "project_path", ".")
+        )
+    )
+
+
+def _blok_referensi_belum_dibaca(state, project_path) -> str:
+    """UPDATE-025 commit 11 (owner incident: Orion invented indigo
+    #4f46e5 while the green/gold handoff it was given sat unread): when
+    UI files change on a turn that never opened the saved reference
+    attachments, say so at the checkpoint. Deterministic: the reference
+    list is the .orion/attachments/ directory itself, the consultation
+    is this turn's read_file ledger. Disclosure, not rejection.
+    """
+    refs = _referensi_belum_dibaca(state, project_path)
     if not refs:
         return ""
-    if getattr(state, "lampiran_dibaca_turn_ini", None):
-        return ""
-    return (
+    teks = (
         "\n\n**⚠️ Saved reference attachments were NOT consulted this "
         "turn:**\n"
         + "\n".join(f"- `.orion/attachments/{r}`" for r in refs)
@@ -274,6 +298,17 @@ def _blok_referensi_belum_dibaca(state, project_path) -> str:
         "the design tokens (colors, fonts, spacing, layout) against the "
         "rendered result before calling the work done."
     )
+    if getattr(state, "nudge_referensi", 0):
+        # >>> commit 12 escalation: the model was challenged INSIDE the
+        # turn and closed anyway — the user must see that, not just the
+        # plain gap.
+        teks += (
+            "\n\nOrion was reminded mid-turn (REFERENCE RECONCILIATION) "
+            "and still closed without reading them: every design token "
+            "in this turn's work must be treated as UNVERIFIED against "
+            "the user's reference."
+        )
+    return teks
 
 
 def _blok_persistensi_bila_perlu(state, tool_executor) -> str:
@@ -715,6 +750,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.saran_count = 0
         # >>> UPDATE-025 commit 11: per-turn reference-consultation ledger.
         state.lampiran_dibaca_turn_ini = set()
+        # >>> UPDATE-025 commit 12: per-turn reconciliation-challenge cap.
+        state.nudge_referensi = 0
         _utas_baru = guard_rules.utas_gagal_dari(state.permintaan_turn_ini)
         if _utas_baru:
             state.utas_gagal = _utas_baru
@@ -2058,6 +2095,45 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     maks_nudge=MAX_TODO_NUDGE,
                     maks_verifikasi=MAX_VERIFIKASI,
                 )
+                # >>> UPDATE-025 commit 12 (owner incident 2026-10-30: the
+                # checkpoint disclosure FIRED — "references NOT consulted" —
+                # and Orion still opened with "semua tugas selesai dan
+                # terverifikasi", because every evidence check ran AFTER the
+                # claim was already spoken: the blindfold came off past the
+                # finish line). The reconciliation demand now lands INSIDE
+                # the turn, at the exact second Orion tries to close it:
+                # one challenge per turn; read the references or carry the
+                # escalated disclosure out with you. <<<
+                if keputusan in (
+                    loop_guards.Keputusan.CHECKPOINT,
+                    loop_guards.Keputusan.JAWAB_NORMAL,
+                ) and _perlu_nudge_referensi(state, deps.tool_executor):
+                    state.nudge_referensi += 1
+                    _refs = _referensi_belum_dibaca(
+                        state, getattr(deps.tool_executor, "project_path", ".")
+                    )
+                    deps.context_manager.add_message(
+                        "assistant", content, reasoning_content=reasoning_content
+                    )
+                    deps.context_manager.add_message(
+                        "user",
+                        "[SYSTEM - REFERENCE RECONCILIATION]: you are closing "
+                        "a turn that changed UI files while the user's saved "
+                        "reference attachments were never read: "
+                        + ", ".join(f"`{r}`" for r in _refs)
+                        + ". Before this turn may end, EITHER read them with "
+                        "read_file and reconcile the design tokens (colors, "
+                        "fonts, spacing, layout) against what you built, OR "
+                        "state PLAINLY in your closing report, token by "
+                        "token, WHERE your result deviates from the user's "
+                        "reference and WHY. A completion claim without "
+                        "either is a false claim.",
+                    )
+                    yield deps.kirim_status(
+                        '📖 UI changed with saved references unread - '
+                        'reconciliation owed before this turn can close...'
+                    )
+                    continue
                 match keputusan:
                     case loop_guards.Keputusan.TERUSKAN:
                         print(

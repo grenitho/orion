@@ -203,7 +203,16 @@ from pathlib import Path
 # reminder no longer bans "any documentation file" (only stale .orion/
 # claims; user references become MANDATORY reading); and the checkpoint
 # discloses UI work shipped while saved references sat unread.
-BACKEND_VERSION = "0.10.15"
+# Bumped 0.10.15 -> 0.10.16 for UPDATE-025 commit 12 (owner paste: the
+# commit-11 disclosure FIRED — "references NOT consulted" — and Orion
+# still opened with "semua tugas selesai dan terverifikasi": every
+# evidence check ran AFTER the claim was spoken). Two teeth: (1) the
+# REFERENCE RECONCILIATION challenge now fires INSIDE the turn at the
+# exact closing second (once per turn; defiance escalates the
+# checkpoint wording to UNVERIFIED); (2) plain-language data-loss
+# complaints ("data hilang setelah restart") open the advisory failure
+# thread, so the persistence root cause answers even without jargon.
+BACKEND_VERSION = "0.10.16"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

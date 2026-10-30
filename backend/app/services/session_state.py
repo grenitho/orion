@@ -135,6 +135,11 @@ class SessionState:
     # The checkpoint uses it to disclose UI work that shipped while the
     # user's own design references sat unread.
     lampiran_dibaca_turn_ini: set = field(default_factory=set)
+    # >>> UPDATE-025 commit 12: how many times this turn the in-loop
+    # REFERENCE RECONCILIATION challenge fired (cap 1 — a nudge, not a
+    # loop trap). Also flags the escalated checkpoint wording when the
+    # model closed anyway.
+    nudge_referensi: int = 0
 
     # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow incident): a todo
     # can be marked 'completed' by the model with zero work behind it

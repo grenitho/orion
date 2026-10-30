@@ -122,8 +122,20 @@ def stream_perlu_done_susulan(sudah_mengirim_done: bool) -> bool:
 POLA_UTAS_GAGAL = re.compile(
     r"(?:masih|tetap|terus|still|keep|keeps)\s+(?:gagal|fail\w*|error\w*)"
     r"|tidak terhubung|belum bisa terhubung|cannot connect|connection refused"
-    r"|could not connect|keeps failing|still fails?",
-    re.I,
+    r"|could not connect|keeps failing|still fails?"
+    # >>> UPDATE-025 commit 12 (owner: "saya dan user awam tidak selalu
+    # ingat kalimat teknis"): a PLAIN data-loss complaint — no jargon,
+    # just "my data is gone again after restart" — is a failure report
+    # too. It opens the same advisory thread, so gate 5.5 owes a root
+    # cause + options and the persistence-fact scan rides the answer:
+    # the structural cause ("no database at all") answers the complaint
+    # even when the owner never says the word SQLite.
+    r"|(?:data|daftar|pelanggan|faktur|invoice|customer|record)s?\b.{0,40}?"
+    r"(?:hilang|kosong|mundur|reset|tidak tersimpan|tidak kesimpan|tidak ke-simpan"
+    r"|disappear\w*|gone|lost|missing)"
+    r"|(?:hilang|kosong|tidak tersimpan|disappear\w*|gone|lost|missing).{0,40}?"
+    r"(?:setelah|tiap|setiap|habis|every|after).{0,30}?(?:restart|mulai ulang|refresh|reload)",
+    re.I | re.S,
 )
 KATA_SARAN = (
     "penyebab",
