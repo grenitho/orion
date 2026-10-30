@@ -957,7 +957,10 @@ async def chat_with_orion(request: ChatRequest):
     from app.services.attachments import build_user_content, describe_attachments
 
     _lamp_desc = describe_attachments(request.attachments)
-    _content_parts, _riwayat_text = build_user_content(request.message, request.attachments)
+    _content_parts, _riwayat_text = build_user_content(
+        request.message, request.attachments,
+        project_path=context_manager.project_path,
+    )
     # >>> PHASE C STEP 2: per-turn mutable state now lives in one SessionState
     # (app/services/session_state.py) instead of loose locals inside the
     # generator. The attachment image parts are single-use: injected into

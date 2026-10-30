@@ -41,6 +41,7 @@ from __future__ import annotations
 import base64
 import binascii
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -170,7 +171,32 @@ def _ekstrak_dokumen(nama: str, ekstensi: str, mentah: bytes) -> tuple[str | Non
     return None, str(payload)
 
 
-def build_user_content(message: str, attachments: list | None = None) -> tuple[list, str]:
+def _simpan_referensi(project_path: str | None, nama: str, mentah: bytes):
+    """UPDATE-025 commit 11 (owner incident: invoiceflow.html "not on
+    disk" two turns after attaching it): attachments used to die with
+    the message that carried them — the inline copy is summarized/pruned
+    away and no file ever existed, so a multi-turn implementation task
+    lost its own reference and the model improvised a design. Persist
+    text-ish attachments under ``.orion/attachments/`` so ANY later turn
+    can read_file them again. Returns the project-relative path or None.
+    """
+    if not project_path:
+        return None
+    try:
+        dirr = os.path.join(project_path, ".orion", "attachments")
+        os.makedirs(dirr, exist_ok=True)
+        aman = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(nama))[:80]
+        if not aman:
+            aman = "lampiran.txt"
+        with open(os.path.join(dirr, aman), "wb") as fh:
+            fh.write(mentah)
+        return f".orion/attachments/{aman}"
+    except OSError:
+        return None
+
+
+def build_user_content(message: str, attachments: list | None = None,
+                       project_path: str | None = None) -> tuple[list, str]:
     """
     Turn the user message + attachments into (content_parts, history_summary).
 
@@ -181,7 +207,7 @@ def build_user_content(message: str, attachments: list | None = None) -> tuple[l
       ringkasan -> string for context_manager.add_message(). Contains the
                    user message + attachment placeholders, WITHOUT base64.
     """
-    hasil = proses(message, attachments)
+    hasil = proses(message, attachments, project_path=project_path)
     if not hasil.parts:
         # no attachments: return plain text (not a list) so the old
         # behaviour stays 100% unchanged
@@ -189,7 +215,8 @@ def build_user_content(message: str, attachments: list | None = None) -> tuple[l
     return hasil.parts, hasil.ringkasan
 
 
-def proses(message: str, attachments: list | None = None) -> HasilLampiran:
+def proses(message: str, attachments: list | None = None,
+           project_path: str | None = None) -> HasilLampiran:
     """The processing core. Split out so it is easy to unit-test."""
     out = HasilLampiran()
     pesan = (message or "").strip()
@@ -257,9 +284,16 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
                 f"\n\n----- ATTACHED DOCUMENT CONTENTS: {nama} (extracted) -----\n{teks_dok}"
                 + f"\n----- END OF {nama} -----"
             )
+            _rel_doc = _simpan_referensi(project_path, nama, mentah)
             baris_ringkasan.append(
                 f"[DOCUMENT ATTACHMENT: {nama} ({len(mentah) // 1024} KB, "
-                f"{len(teks_dok)} chars extracted) — its text is in this message]"
+                f"{len(teks_dok)} chars extracted) — its text is in this message"
+                + (
+                    f"; a durable copy lives at {_rel_doc} — read_file it on any "
+                    "later turn, it survives context summarization"
+                    if _rel_doc else ""
+                )
+                + "]"
             )
             continue
 
@@ -283,9 +317,17 @@ def proses(message: str, attachments: list | None = None) -> HasilLampiran:
                 + ("\n----- [TRUNCATED, the file is longer than this] -----" if terpotong else "")
                 + f"\n----- END OF {nama} -----"
             )
+            _rel_teks = _simpan_referensi(project_path, nama, mentah)
             baris_ringkasan.append(
                 f"[TEXT ATTACHMENT: {nama} ({len(mentah) // 1024} KB"
-                + (", truncated" if terpotong else "") + ") — its contents are in this message]"
+                + (", truncated" if terpotong else "")
+                + ") — its contents are in this message"
+                + (
+                    f"; a durable copy lives at {_rel_teks} — read_file it on "
+                    "any later turn, it survives context summarization"
+                    if _rel_teks else ""
+                )
+                + "]"
             )
             continue
 

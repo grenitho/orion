@@ -195,7 +195,15 @@ from pathlib import Path
 # the other claimed "zero successful delegate_* calls reached them".
 # _blok_delegasi_akhir merges both into ONE fate-accurate, claim-aware
 # block used by both turn endings (JAWAB_NORMAL and CHECKPOINT).
-BACKEND_VERSION = "0.10.14"
+# Bumped 0.10.14 -> 0.10.15 for UPDATE-025 commit 11 (owner incident:
+# InvoiceFlow frontend rebuilt in invented indigo while the attached
+# green/gold reference was lost): attachments now persist under
+# .orion/attachments/ (survive summarize/prune, re-readable any turn,
+# exempt from the read_file redundancy guard); the option-answer
+# reminder no longer bans "any documentation file" (only stale .orion/
+# claims; user references become MANDATORY reading); and the checkpoint
+# discloses UI work shipped while saved references sat unread.
+BACKEND_VERSION = "0.10.15"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

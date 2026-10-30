@@ -130,6 +130,11 @@ class SessionState:
     utas_gagal: str = ""
     saran_count: int = 0
     fakta_persistensi_disampaikan: bool = False
+    # >>> UPDATE-025 commit 11: paths of saved reference attachments
+    # (.orion/attachments/…) that read_file actually opened this turn.
+    # The checkpoint uses it to disclose UI work that shipped while the
+    # user's own design references sat unread.
+    lampiran_dibaca_turn_ini: set = field(default_factory=set)
 
     # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow incident): a todo
     # can be marked 'completed' by the model with zero work behind it

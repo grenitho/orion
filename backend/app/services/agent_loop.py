@@ -235,6 +235,47 @@ async def _keepalive(coro, hasil: list, interval: float | None = None):
         raise
 
 
+def _blok_referensi_belum_dibaca(state, project_path) -> str:
+    """UPDATE-025 commit 11 (owner incident: Orion invented indigo
+    #4f46e5 while the green/gold handoff it was given sat unread): when
+    UI files change on a turn that never opened the saved reference
+    attachments, say so at the checkpoint. Deterministic: the reference
+    list is the .orion/attachments/ directory itself, the consultation
+    is this turn's read_file ledger. Disclosure, not rejection.
+    """
+    if not getattr(state, "files_changed_this_turn", None):
+        return ""
+    _UI = (".jsx", ".tsx", ".vue", ".css", ".scss", ".html")
+
+    def _ada_ui(entri) -> bool:
+        # ledger entries read "- `src/App.vue` (write_file)" — take the
+        # backticked path, fall back to the raw string.
+        _m = re.findall(r"`([^`]+)`", str(entri))
+        _p = _m[0] if _m else str(entri)
+        return _p.lower().endswith(_UI)
+
+    if not any(_ada_ui(f) for f in state.files_changed_this_turn):
+        return ""
+    dirr = os.path.join(project_path or ".", ".orion", "attachments")
+    try:
+        refs = sorted(os.listdir(dirr))
+    except OSError:
+        return ""
+    if not refs:
+        return ""
+    if getattr(state, "lampiran_dibaca_turn_ini", None):
+        return ""
+    return (
+        "\n\n**⚠️ Saved reference attachments were NOT consulted this "
+        "turn:**\n"
+        + "\n".join(f"- `.orion/attachments/{r}`" for r in refs)
+        + "\n\nUI files changed while these user-provided references "
+        "sat unread this turn. Re-read them with read_file and reconcile "
+        "the design tokens (colors, fonts, spacing, layout) against the "
+        "rendered result before calling the work done."
+    )
+
+
 def _blok_persistensi_bila_perlu(state, tool_executor) -> str:
     """UPDATE-025 commit 9: the deterministic persistence-fact rider.
 
@@ -672,6 +713,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # >>> UPDATE-025 commit 9: the advisory challenge is one-shot PER
         # TURN (the failure THREAD itself stays sticky across turns).
         state.saran_count = 0
+        # >>> UPDATE-025 commit 11: per-turn reference-consultation ledger.
+        state.lampiran_dibaca_turn_ini = set()
         _utas_baru = guard_rules.utas_gagal_dari(state.permintaan_turn_ini)
         if _utas_baru:
             state.utas_gagal = _utas_baru
@@ -882,7 +925,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "The user is ANSWERING a question/set of options that YOU yourself gave in your previous message.\n"
                                 "1. ANSWER DIRECTLY based on the context of your previous recommendation.\n"
                                 "2. Do NOT ask back 'what is it for'.\n"
-                                "3. Do NOT call the read_file tool to read .orion/ or any documentation file.\n"
+                                # >>> UPDATE-025 commit 11: the old item 3
+                                # banned reading "any documentation file" —
+                                # which swallowed the user's OWN design
+                                # handoffs (FRONTEND_HANDOFF.md stayed unread
+                                # while the model invented a palette). The
+                                # ban now covers only stale .orion/ claims;
+                                # user references are MANDATORY reading.
+                                "3. Do NOT call read_file on `.orion/` context files (stale claims from earlier sessions).\n"
+                                "3b. Reference files the USER attached or named (design handoffs, prototypes, specs) are MANDATORY reading via read_file when the task implements them; durable copies live under .orion/attachments/.\n"
                                 "4. Focus 100% on what the user chose and execute immediately.\n"
                                 "[END OF REMINDER]"
                             )
@@ -1481,7 +1532,22 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
 
                         elif func_name == "read_file":
                             file_path = func_args.get("file_path", "")
-                            if file_path in state.analyzed_files:
+                            # >>> UPDATE-025 commit 11: remember when the
+                            # saved reference attachments were consulted,
+                            # so the checkpoint can disclose UI work that
+                            # shipped without ever opening them.
+                            if ".orion/attachments/" in str(file_path).replace(
+                                "\\", "/"
+                            ):
+                                state.lampiran_dibaca_turn_ini.add(str(file_path))
+                                # >>> reference copies are EXEMPT from the
+                                # redundancy guard: after summarization the
+                                # inline copy is gone, re-reading the durable
+                                # copy is the whole point.
+                                _referensi = True
+                            else:
+                                _referensi = False
+                            if file_path in state.analyzed_files and not _referensi:
                                 result = f"[SYSTEM WARNING] REDUNDANCY DETECTED: You already read '{file_path}' in this session. The information is already in your memory. Do NOT re-read it. Continue the analysis or execution based on what you already know."
                             else:
                                 yield deps.kirim_status(f' Reading file: {file_path}')
@@ -1497,7 +1563,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             # Build a unique key based on the file AND its line range
                             range_key = f"{file_path}:{start}-{end}"
 
-                            if range_key in state.analyzed_files:
+                            # >>> UPDATE-025 commit 11: same reference ledger
+                            # + redundancy exemption as the read_file branch.
+                            _referensi = ".orion/attachments/" in str(
+                                file_path
+                            ).replace("\\", "/")
+                            if _referensi:
+                                state.lampiran_dibaca_turn_ini.add(str(file_path))
+
+                            if range_key in state.analyzed_files and not _referensi:
                                 result = f"[SYSTEM WARNING] REDUNDANCY DETECTED: You already read lines {start}-{end} of '{file_path}' in this session. Use the information you already have."
                             else:
                                 yield deps.kirim_status(f'📖 Reading {file_path} (lines {start}-{end})')
@@ -2207,6 +2281,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # construction here) — no duplicate gap statement.
                         checkpoint_report += _blok_delegasi_akhir(
                             state, klaim=True
+                        )
+                        # >>> UPDATE-025 commit 11: UI work vs unread refs.
+                        checkpoint_report += _blok_referensi_belum_dibaca(
+                            state,
+                            getattr(deps.tool_executor, "project_path", "."),
                         )
                         # >>> UPDATE-025 commit 9: same persistence fact and
                         # same thread-closing rule on the checkpoint ending.
