@@ -304,7 +304,16 @@ from pathlib import Path
 # run_terminal when the app is unreachable, and operate the changed
 # controls (browser_click — a toggle that never flips is a bug no
 # build can see).
-BACKEND_VERSION = "0.10.23"
+# Bumped 0.10.23 -> 0.10.24 for UPDATE-025 commit 20 (owner directive
+# 2026-10-31: "orion harus berhasil membangun invoiceflow fullstack, kalau
+# tidak dia tidak layak dipublish"): the InvoiceFlow exam transcript showed
+# Orion losing 80 iterations to two EXECUTION defects, not honesty ones -
+# (1) edit_file matched LF SEARCH blocks against CRLF Windows sources so
+# every block missed (now: verbatim -> LF -> CRLF fallback, style kept);
+# (2) run_terminal answered an empty stdout with "Success, no output.",
+# which read as health and fed a confabulation loop (now: the empty case
+# names the mangled-quoting suspect and pushes a script file).
+BACKEND_VERSION = "0.10.24"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

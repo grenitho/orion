@@ -342,8 +342,13 @@ class ToolExecutor:
         # =======
         # [new code]
         # >>>>>>> REPLACE
+        # >>> UPDATE-025 commit 20: the marker separators tolerate CRLF so
+        # a diff authored (or relayed) with Windows endings still parses;
+        # the per-block line-ending fallback below then handles the file
+        # side of the same mismatch. <<<
         pattern = re.compile(
-            r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE", re.DOTALL
+            r"<<<<<<< SEARCH\r?\n(.*?)\r?\n=======\r?\n(.*?)\r?\n>>>>>>> REPLACE",
+            re.DOTALL,
         )
         matches = pattern.findall(diff)
 
@@ -358,11 +363,41 @@ class ToolExecutor:
             search_block = search_block.strip("\n")
             replace_block = replace_block.strip("\n")
 
-            if search_block not in new_content:
-                return f"Error: SEARCH block not found in the original file. There may be differing whitespace/newlines.\n\nYour SEARCH block:\n---\n{search_block}\n---"
+            # >>> UPDATE-025 commit 20 (field transcript 2026-10-31,
+            # InvoiceFlow App.jsx, 80 iterations lost): Windows sources
+            # carry CRLF while model-authored SEARCH blocks carry LF, so
+            # EVERY block missed on Windows projects and the model
+            # confabulated around "not found" instead of editing. Match
+            # the block verbatim first, then re-cast both blocks into
+            # the other line-ending style; the replacement writes back
+            # whichever style actually matched, so the file keeps its
+            # own endings. <<<
+            pasangan = None
+            for _ubah in (
+                lambda b: b,
+                lambda b: b.replace("\r\n", "\n"),
+                lambda b: b.replace("\n", "\r\n"),
+            ):
+                _s, _r = _ubah(search_block), _ubah(replace_block)
+                if _s in new_content:
+                    pasangan = (_s, _r)
+                    break
+            if pasangan is None:
+                return (
+                    f"Error: SEARCH block not found in the original file. "
+                    f"There may be differing whitespace/newlines "
+                    f"(the block was tried verbatim, as LF and as CRLF). "
+                    f"The block may also come from a TRUNCATED read (tool "
+                    f"results over 15000 chars are cut) or from stale "
+                    f"memory: re-read the exact region with read_file_range "
+                    f"and rebuild the block from CURRENT content before "
+                    f"retrying. Do NOT rewrite the whole file to work "
+                    f"around a miss."
+                    f"\n\nYour SEARCH block:\n---\n{search_block}\n---"
+                )
 
             # Replace only the first occurrence to avoid duplicates when blocks are identical
-            new_content = new_content.replace(search_block, replace_block, 1)
+            new_content = new_content.replace(pasangan[0], pasangan[1], 1)
             success_count += 1
 
         backup_warning = self._backup_before_overwrite(abs_path, file_path)
@@ -1229,7 +1264,21 @@ class ToolExecutor:
                     f"try installing the required packages. If it is a syntax error, fix the code."
                 )
 
-            return output.strip() if output.strip() else "Success, no output."
+            if output.strip():
+                return output.strip()
+            # >>> UPDATE-025 commit 20: "Success, no output." read like a
+            # healthy result and fed the 80-iteration confabulation loop
+            # of 2026-10-31 ("wait, print produced nothing?"). Exit 0 with
+            # an EMPTY stdout on Windows usually means the shell ate
+            # nested quotes (python -c "..." under PowerShell), so name
+            # that suspect and push the model toward a script file. <<<
+            return (
+                "Success: exit code 0 but stdout was EMPTY. If you expected "
+                "output, the shell probably mangled nested quotes in your "
+                "command (classic on Windows PowerShell with python -c "
+                '"..."); write a small script file and run THAT instead, '
+                "or fix the quoting, then retry."
+            )
 
         except Exception as e:
             # Fallback kill for any other error (cross-platform)

@@ -2276,7 +2276,19 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         str(result) if result is not None else "Tool returned None"
                     )
                     if not res_str.strip():
-                        res_str = "Executed successfully, no output."
+                        # >>> UPDATE-025 commit 20: the old "Executed
+                        # successfully, no output." smiled at the model and
+                        # fed the 2026-10-31 confabulation loop ("wait, print
+                        # produced nothing?"). Empty is an OBSERVATION, not a
+                        # verdict: tell the model to verify the effect before
+                        # it claims anything. <<<
+                        res_str = (
+                            f"Tool '{func_name}' returned EMPTY output and no "
+                            "error. Empty is not proof of success: verify the "
+                            "effect on disk or state (read the target back, "
+                            "git_status, re-run with corrected quoting) before "
+                            "claiming any result."
+                        )
 
                     # >>> SMART TRUNCATION <<<
                     if len(res_str) > 15000:
@@ -2285,6 +2297,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "\n[Do NOT use 'read_file' again for this file.]"
                             "\n[CORRECT APPROACH: Use 'search_code' to find keywords/lines, "
                             "then use 'read_file_range' with specific start_line and end_line.]"
+                            "\n[An edit_file SEARCH block built from this truncated view WILL "
+                            "miss beyond the cut - re-read the exact region first.]"
                         )
 
                     tool_results.append(
