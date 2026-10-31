@@ -151,6 +151,11 @@ class SessionState:
     # end-of-turn disclosure when the model closed anyway.
     gaya_diperiksa_turn_ini: bool = False
     nudge_gaya: int = 0
+    # >>> UPDATE-025 commit 19: how many times this turn the VISUAL CLAIM
+    # CHALLENGE fired (cap 1): the one-shot that intercepts a closing
+    # message claiming visual verification ("diverifikasi pada file…")
+    # while the ledger holds no getComputedStyle evidence.
+    tantang_klaim_visual: int = 0
     # >>> UPDATE-025 commit 13: the detected language of this turn's user
     # request ("id"/"en"); every user-facing deterministic block renders
     # in it, so the system voice stops out-voting the LANGUAGE RULE.

@@ -288,7 +288,23 @@ from pathlib import Path
 # ignored. Labels keep their slot names (Fallback 1 = legacy slot,
 # Fallback 2 = Cloudflare slot) so logs stay comparable across
 # versions; only the ORDER changed.
-BACKEND_VERSION = "0.10.22"
+# Bumped 0.10.22 -> 0.10.23 for UPDATE-025 commit 19 (field report
+# 2026-10-31, InvoiceFlow dark theme, owner: "sepertinya orion tidak
+# menggunakan playwright untuk memverifikasi hasilnya"): the 0.10.21
+# tooth FIRED correctly (challenge + UNVERIFIED escalation both
+# printed) but Orion IGNORED the challenge and closed claiming
+# "sudah selesai dan diverifikasi pada file …" — a file read wearing
+# the costume of visual verification, while the owner himself fixed
+# dark-mode text colors. Two teeth: (1) TANTANG_KLAIM_VISUAL — one
+# challenge per turn quoting the model's own claim sentence verbatim
+# (guard_rules.kalimat_klaim_visual, negation-aware so the honest OR
+# branch never trips it): earn the claim with getComputedStyle now or
+# rewrite the closing without it; (2) the computed-style challenge
+# recipe now names the two hidden blockers: start the dev server with
+# run_terminal when the app is unreachable, and operate the changed
+# controls (browser_click — a toggle that never flips is a bug no
+# build can see).
+BACKEND_VERSION = "0.10.23"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

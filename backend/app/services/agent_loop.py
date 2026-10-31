@@ -452,6 +452,30 @@ def _perlu_nudge_gaya(state, deps) -> bool:
     )
 
 
+def _perlu_tantang_klaim_visual(state, deps, konten) -> bool:
+    """UPDATE-025 commit 19 (field report 2026-10-31, InvoiceFlow dark
+    theme): the computed-style challenge can be IGNORED — and Orion
+    then closed claiming "sudah selesai dan diverifikasi pada file…",
+    a file read wearing the costume of visual verification while the
+    owner himself had to fix dark-mode text colors. One challenge per
+    turn intercepts that exact sentence: same premise as the style
+    disclosure (UI changed + saved references + browser tools + no
+    getComputedStyle evidence) PLUS a positively-framed verification
+    claim in the closing text (guard_rules.kalimat_klaim_visual —
+    negation-aware, so the honest OR branch never trips it)."""
+    if getattr(state, "tantang_klaim_visual", 0):
+        return False
+    if getattr(state, "gaya_diperiksa_turn_ini", False):
+        return False
+    if not _tool_browser_mcp(deps):
+        return False
+    if not _ui_berubah_dan_referensi(
+        state, getattr(deps.tool_executor, "project_path", ".")
+    ):
+        return False
+    return bool(guard_rules.kalimat_klaim_visual(konten))
+
+
 def _blok_gaya_tanpa_verifikasi(state, deps) -> str:
     """UPDATE-025 commit 17: end-of-turn twin of the COMPUTED-STYLE
     VERIFICATION gate — ONE emitter on BOTH endings (house rule #4,
@@ -1027,6 +1051,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # >>> UPDATE-025 commit 17: per-turn computed-style ledger + cap.
         state.gaya_diperiksa_turn_ini = False
         state.nudge_gaya = 0
+        # >>> UPDATE-025 commit 19: per-turn visual-claim challenge cap.
+        state.tantang_klaim_visual = 0
         _utas_baru = guard_rules.utas_gagal_dari(state.permintaan_turn_ini)
         if _utas_baru:
             state.utas_gagal = _utas_baru
@@ -2552,9 +2578,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "(getComputedStyle → color, backgroundColor, "
                             "fontFamily, fontSize, borderRadius) on the "
                             "elements you changed and compare them token by "
-                            "token, OR state PLAINLY in your closing report "
-                            "which visual properties remain UNVERIFIED "
-                            "against the rendered result. Claiming visual "
+                            "token. If the rendered app is not reachable, "
+                            "start its dev server with run_terminal and "
+                            "navigate to the printed URL; operate the "
+                            "controls you changed (browser_click — a toggle "
+                            "that never flips is a bug no build can see). A "
+                            "failed navigation is not a licence to close "
+                            "silently. OR state PLAINLY in your closing "
+                            "report which visual properties remain "
+                            "UNVERIFIED against the rendered result. Claiming visual "
                             "compliance from reading source code alone — or "
                             "from a passing build — is self-certification, "
                             "not verification.",
@@ -2570,8 +2602,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "gaya terkomputasi dengan `" + _evaluate + "` "
                             "(getComputedStyle → color, backgroundColor, "
                             "fontFamily, fontSize, borderRadius) pada elemen "
-                            "yang Anda ubah dan bandingkan token per token, "
-                            "ATAU nyatakan TERANG-TERANGAN di laporan "
+                            "yang Anda ubah dan bandingkan token per token. "
+                            "Bila app render tidak terjangkau, nyalakan dev "
+                            "server-nya dengan run_terminal lalu navigate ke "
+                            "URL yang dicetak; operasikan kontrol yang Anda "
+                            "ubah (browser_click — toggle yang tidak pernah "
+                            "berubah adalah bug yang tak terlihat oleh build "
+                            "apa pun). Navigasi yang gagal bukan izin untuk "
+                            "menutup diam-diam. ATAU nyatakan "
+                            "TERANG-TERANGAN di laporan "
                             "penutup properti visual mana yang masih BELUM "
                             "TERVERIFIKASI terhadap hasil render. Mengklaim "
                             "kepatuhan visual hanya dari membaca kode "
@@ -2588,6 +2627,71 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             '🎨 UI berubah sementara tool browser terhubung - '
                             'verifikasi gaya terkomputasi wajib sebelum turn '
                             'ini boleh ditutup...',
+                        )
+                    )
+                    continue
+                # >>> UPDATE-025 commit 19 (field report 2026-10-31: the
+                # dark-theme turn ignored the 🎨 challenge AND closed with
+                # "sudah selesai dan diverifikasi pada file …" — the
+                # disclosure covered the lie for the user, but nothing
+                # confronted the model with its own sentence). One
+                # challenge per turn quotes the claim verbatim and forces
+                # the choice: run getComputedStyle now, or rewrite the
+                # closing without the claim. Ledger-generated, not a
+                # simulation — same honesty contract as commit 14. <<<
+                if keputusan in (
+                    loop_guards.Keputusan.CHECKPOINT,
+                    loop_guards.Keputusan.JAWAB_NORMAL,
+                ) and _perlu_tantang_klaim_visual(state, deps, content):
+                    state.tantang_klaim_visual += 1
+                    _kutip = guard_rules.kalimat_klaim_visual(content)
+                    deps.context_manager.add_message(
+                        "assistant", content, reasoning_content=reasoning_content
+                    )
+                    deps.context_manager.add_message(
+                        "user",
+                        _L(
+                            state,
+                            "[SYSTEM - VISUAL CLAIM CHALLENGE]: your closing "
+                            "claims verification — \"" + _kutip + "\" — but "
+                            "this turn's ledger holds no getComputedStyle "
+                            "evidence while browser tools are connected. "
+                            "Reading a file or passing a build is not visual "
+                            "verification. BEFORE this turn may end, EITHER "
+                            "run the computed-style check now (start the dev "
+                            "server with run_terminal if the app is not "
+                            "reachable, then browser_navigate + "
+                            "browser_evaluate with getComputedStyle), OR "
+                            "rewrite your closing to state PLAINLY which "
+                            "visual properties remain UNVERIFIED. This "
+                            "challenge is generated from the turn's own "
+                            "ledger — not a simulation.",
+                            "[SISTEM - TANTANGAN KLAIM VISUAL]: penutup Anda "
+                            "mengklaim verifikasi — \"" + _kutip + "\" — "
+                            "tetapi ledger turn ini tidak memuat bukti "
+                            "getComputedStyle sementara tool browser "
+                            "terhubung. Membaca file atau build yang lulus "
+                            "bukan verifikasi visual. SEBELUM turn ini boleh "
+                            "berakhir, JALANKAN pemeriksaan computed-style "
+                            "sekarang (nyalakan dev server dengan run_terminal "
+                            "bila app tidak terjangkau, lalu browser_navigate "
+                            "+ browser_evaluate dengan getComputedStyle), "
+                            "ATAU tulis ulang penutup Anda tanpa klaim itu: "
+                            "nyatakan TERANG-TERANGAN properti visual mana "
+                            "yang masih BELUM TERVERIFIKASI. Tantangan ini "
+                            "dihasilkan dari ledger turn ini sendiri — "
+                            "bukan simulasi.",
+                        ),
+                    )
+                    yield deps.kirim_status(
+                        _L(
+                            state,
+                            '🎯 Visual verification claimed without '
+                            'rendered-style evidence - the claim must be '
+                            "earned or withdrawn...",
+                            '🎯 Klaim verifikasi visual tanpa bukti gaya '
+                            'render - klaim harus dibuktikan atau '
+                            'ditarik...',
                         )
                     )
                     continue

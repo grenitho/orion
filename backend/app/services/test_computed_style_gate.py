@@ -230,6 +230,9 @@ def test_nudge_gaya_setelah_rekonsiliasi_lalu_dipenuhi(tmp_path):
     assert "mcp__playwright__browser_evaluate" in teks
     assert "getComputedStyle" in teks
     assert "self-certification" in teks
+    # commit 19 recipe: dev-server step + operate the changed controls
+    assert "dev server with run_terminal" in teks
+    assert "browser_click" in teks
     # both MCP calls were dispatched through the manager, in order
     assert [n for n, _ in mcp.calls] == [
         "mcp__playwright__browser_navigate",
@@ -384,3 +387,117 @@ def test_perlu_nudge_gaya_matriks_kondisi(tmp_path):
     assert _blok_gaya_tanpa_verifikasi(st, deps) == ""
     deps.mcp = _MCP()
     assert _blok_gaya_tanpa_verifikasi(st, deps) != ""
+
+
+# ------------------------------------- commit 19: visual-claim challenge
+
+
+KLAIM_1 = "Semua sudah selesai dan diverifikasi pada file src/App.vue."
+KLAIM_2 = "Pekerjaan diverifikasi sepenuhnya, tugas selesai."
+
+
+def test_klaim_visual_ditantang_dan_dikutip_verbatim(tmp_path):
+    """Replay of the 2026-10-31 dark-theme turn: the model ignores the
+    🎨 challenge and closes with a verification claim — the new gate
+    intercepts the claim, quotes it, and forces earn-or-withdraw."""
+    _buat_referensi_bertoken(tmp_path)
+    ex = _TERef(tmp_path)
+    mcp = _MCP()
+    frames, state, deps = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("", tool_calls=[
+                _tool_call("read_file", json.dumps({"file_path": REF}))]), # 1
+            _Resp(KLAIM_1),                                                # 2 -> style gate
+            _Resp(KLAIM_2),                                                # 3 -> claim challenge
+            _Resp("Laporan penutup: pekerjaan selesai."),                  # 4 -> close
+        ],
+        executor=ex,
+        mcp=mcp,
+    )
+    assert state.nudge_gaya == 1
+    assert state.tantang_klaim_visual == 1
+    kutip = [
+        str(m.get("content", ""))
+        for m in deps.context_manager.history
+        if str(m.get("content", "")).startswith(
+            ("[SYSTEM - VISUAL CLAIM CHALLENGE]",
+             "[SISTEM - TANTANGAN KLAIM VISUAL]")
+        )
+    ]
+    assert len(kutip) == 1
+    assert KLAIM_2 in kutip[0]                 # quoted verbatim
+    assert "not a simulation" in kutip[0]
+    assert sum("🎯" in f for f in frames) == 1
+    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    assert "NOT verified against rendered styles" in laporan
+    assert mcp.calls == []                     # model never ran the check
+
+
+def test_klaim_visual_senyap_bila_cabang_or_jujur(tmp_path):
+    """The honest OR branch ("belum terverifikasi" / "unverified") must
+    NEVER trip the challenge — negation-aware keywords."""
+    _buat_referensi_bertoken(tmp_path)
+    ex = _TERef(tmp_path)
+    mcp = _MCP()
+    frames, state, deps = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("", tool_calls=[
+                _tool_call("read_file", json.dumps({"file_path": REF}))]), # 1
+            _Resp("Tugas selesai."),                                       # 2 -> style gate
+            _Resp("Tugas selesai. Warna dark mode BELUM TERVERIFIKASI "
+                  "terhadap hasil render; saya tidak menjalankan "
+                  "pemeriksaan gaya dan properti remains unverified."),   # 3 -> honest close
+        ],
+        executor=ex,
+        mcp=mcp,
+    )
+    assert state.tantang_klaim_visual == 0
+    assert not any("VISUAL CLAIM CHALLENGE" in f for f in frames)
+    assert not any("TANTANGAN KLAIM VISUAL" in f for f in frames)
+    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    assert "NOT verified against rendered styles" in laporan  # disclosure tetap
+
+
+def test_klaim_visual_senyap_bila_bukti_ada(tmp_path):
+    _buat_referensi_bertoken(tmp_path)
+    ex = _TERef(tmp_path)
+    mcp = _MCP()
+    frames, state, deps = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("", tool_calls=[
+                _tool_call("read_file", json.dumps({"file_path": REF}))]), # 1
+            _Resp("", tool_calls=[_tool_call(
+                "mcp__playwright__browser_evaluate", EVAL_GCS)]),          # 2 -> evidence
+            _Resp("Tugas selesai, warna diverifikasi terhadap render."),   # 3 -> claim OK
+        ],
+        executor=ex,
+        mcp=mcp,
+    )
+    assert state.gaya_diperiksa_turn_ini is True
+    assert state.tantang_klaim_visual == 0
+    assert not any("VISUAL CLAIM CHALLENGE" in f for f in frames)
+    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    assert "NOT verified against rendered styles" not in laporan
+
+
+def test_kalimat_klaim_visual_unit():
+    dari_guard = __import__(
+        "app.services.guard_rules", fromlist=["kalimat_klaim_visual"]
+    )
+    assert dari_guard.kalimat_klaim_visual(
+        "Semua sudah selesai dan diverifikasi pada file x."
+    ) == "Semua sudah selesai dan diverifikasi pada file x."
+    # honest wording never trips
+    assert dari_guard.kalimat_klaim_visual("colors remain unverified.") == ""
+    assert dari_guard.kalimat_klaim_visual("warna BELUM TERVERIFIKASI.") == ""
+    assert dari_guard.kalimat_klaim_visual("") == ""
+    # first claiming sentence only, capped
+    teks = "Intro polos dulu. " + KLAIM_2 + " Kalimat sesudahnya."
+    assert dari_guard.kalimat_klaim_visual(teks) == KLAIM_2
+    assert len(dari_guard.kalimat_klaim_visual("x diverifikasi " * 100)) <= 200

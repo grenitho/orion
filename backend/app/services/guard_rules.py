@@ -60,6 +60,46 @@ def kata_klaim(teks: str) -> bool:
     return any(k in rendah for k in KATA_KLAIM)
 
 
+# >>> UPDATE-025 commit 19 (field report 2026-10-31, InvoiceFlow dark
+# theme: Orion ignored the COMPUTED-STYLE VERIFICATION challenge, closed,
+# and claimed "sudah selesai dan diverifikasi pada file …" — a file read
+# wearing the costume of visual verification). Narrow, negation-aware
+# claim words: "unverified" / "belum terverifikasi" (the HONEST OR
+# branch) must never trip this, so bare "verified" is deliberately NOT a
+# keyword — only positively-framed verification claims are.
+KLAIM_VISUAL = (
+    "diverifikasi",
+    "memverifikasi",
+    "saya verifikasi",
+    "sudah diperiksa",
+    "telah diperiksa",
+    "i verified",
+    "verified by",
+    "verified with",
+    "verified on",
+    "verified in",
+    "verified against",
+    "verified that",
+)
+
+
+def kalimat_klaim_visual(teks: str) -> str:
+    """The first sentence of `teks` carrying a visual-verification claim
+    (empty string = no claim). The challenge quotes it verbatim — the
+    commit-14 lesson: a challenge that does not quote the real thing
+    gets rationalized away as noise."""
+    if not teks:
+        return ""
+    rendah = teks.lower()
+    if not any(k in rendah for k in KLAIM_VISUAL):
+        return ""
+    for kalimat in re.split(r"(?<=[.!?\n])", teks):
+        potongan = kalimat.strip()
+        if potongan and any(k in potongan.lower() for k in KLAIM_VISUAL):
+            return potongan[:200]
+    return teks.strip()[:200]
+
+
 def klaim_perlu_ditantang(
     is_task_complete: bool,
     ada_file_berubah: bool,
