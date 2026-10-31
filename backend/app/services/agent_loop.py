@@ -452,6 +452,31 @@ def _perlu_nudge_gaya(state, deps) -> bool:
     )
 
 
+def _perlu_tantang_klaim_implementasi(state, konten) -> bool:
+    """UPDATE-025 commit 21 (InvoiceFlow exam, 2026-10-31): TWO turns
+    closed with "telah diimplementasikan … lolos pemeriksaan sintaks"
+    while the ledger held zero mutated files, and the browser review
+    showed nothing had changed. One challenge per turn quotes the claim
+    sentence verbatim and forces the choice: edit now, or withdraw."""
+    return (
+        state.tantang_klaim_implementasi < 1
+        and not state.files_changed_this_turn
+        and bool(guard_rules.kalimat_klaim_implementasi(konten))
+    )
+
+
+def _perlu_tantang_perintah_tool(state) -> bool:
+    """UPDATE-025 commit 21: the owner ordered "kali ini gunakan mcp
+    playwright untuk mengamati visual frontendnya" and Orion closed
+    without a single browser call - twice. A named tool order may be
+    declined, but only plainly, never silently."""
+    return (
+        state.tantang_perintah_tool < 1
+        and bool(state.perintah_tool_eksplisit)
+        and state.panggilan_browser_turn_ini == 0
+    )
+
+
 def _perlu_tantang_klaim_visual(state, deps, konten) -> bool:
     """UPDATE-025 commit 19 (field report 2026-10-31, InvoiceFlow dark
     theme): the computed-style challenge can be IGNORED — and Orion
@@ -1053,6 +1078,21 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.nudge_gaya = 0
         # >>> UPDATE-025 commit 19: per-turn visual-claim challenge cap.
         state.tantang_klaim_visual = 0
+        # >>> UPDATE-025 commit 21: per-turn honesty-teeth caps + the
+        # user's explicit tool order, scanned once at turn start from the
+        # newest non-system user message (the instruction itself). <<<
+        state.tantang_klaim_implementasi = 0
+        state.tantang_perintah_tool = 0
+        state.panggilan_browser_turn_ini = 0
+        state.perintah_tool_eksplisit = ""
+        for _m in reversed(getattr(deps.context_manager, "history", None) or []):
+            if _m.get("role") != "user":
+                continue
+            _teks = str(_m.get("content", ""))
+            if _teks.startswith(("[SYSTEM", "[SISTEM")):
+                continue
+            state.perintah_tool_eksplisit = guard_rules.kalimat_perintah_tool(_teks)
+            break
         _utas_baru = guard_rules.utas_gagal_dari(state.permintaan_turn_ini)
         if _utas_baru:
             state.utas_gagal = _utas_baru
@@ -1826,6 +1866,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 and not str(result).lstrip().startswith("[MCP")
                             ):
                                 state.gaya_diperiksa_turn_ini = True
+                            # >>> UPDATE-025 commit 21: any SUCCESSFUL
+                            # browser-tool call counts towards honouring
+                            # an explicit tool order; "[MCP …]" failures
+                            # do not (same fate-accuracy rule as the
+                            # computed-style ledger above). <<<
+                            if "__browser_" in str(func_name) and not str(
+                                result
+                            ).lstrip().startswith("[MCP"):
+                                state.panggilan_browser_turn_ini += 1
                             # >>> UPDATE-025 hotfix-2: surface the shared
                             # pre-call notice (logging-first, per the
                             # reviewer's suggestion): log it AND prepend
@@ -2706,6 +2755,99 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             '🎯 Klaim verifikasi visual tanpa bukti gaya '
                             'render - klaim harus dibuktikan atau '
                             'ditarik...',
+                        )
+                    )
+                    continue
+                # >>> UPDATE-025 commit 21: the two honesty teeth, ordered
+                # after the visual-claim arm so a closing carrying both a
+                # visual claim and an implementation claim faces the
+                # visual one first (one interception per closing attempt,
+                # each cap 1/turn). Ledger-generated; zero prompt text. <<<
+                if keputusan in (
+                    loop_guards.Keputusan.CHECKPOINT,
+                    loop_guards.Keputusan.JAWAB_NORMAL,
+                    loop_guards.Keputusan.TANTANG_KLAIM,
+                ) and _perlu_tantang_klaim_implementasi(state, content):
+                    state.tantang_klaim_implementasi += 1
+                    _kutip = guard_rules.kalimat_klaim_implementasi(content)
+                    deps.context_manager.add_message(
+                        "assistant", content, reasoning_content=reasoning_content
+                    )
+                    deps.context_manager.add_message(
+                        "user",
+                        _L(
+                            state,
+                            "[SYSTEM - IMPLEMENTATION CLAIM CHALLENGE]: your closing "
+                            "claims implementation - \"" + _kutip + "\" - but this "
+                            "turn's ledger holds ZERO successful write/edit operations "
+                            "on project files. A claim of work without a single mutated "
+                            "file is not work. BEFORE this turn may end, EITHER perform "
+                            "the edits now with write_file/edit_file, OR rewrite your "
+                            "closing to state PLAINLY that nothing was changed this "
+                            "turn. This challenge is generated from the turn's own "
+                            "ledger - not a simulation.",
+                            "[SISTEM - TANTANGAN KLAIM IMPLEMENTASI]: penutup Anda "
+                            "mengklaim implementasi - \"" + _kutip + "\" - tetapi "
+                            "ledger turn ini memuat NOL operasi tulis/edit yang sukses "
+                            "pada file proyek. Klaim kerja tanpa satu pun file berubah "
+                            "bukan kerja. SEBELUM turn ini boleh berakhir, LAKUKAN "
+                            "suntingannya sekarang dengan write_file/edit_file, ATAU "
+                            "tulis ulang penutup Anda yang menyatakan TERANG-TERANGAN "
+                            "bahwa tidak ada yang diubah turn ini. Tantangan ini "
+                            "dihasilkan dari ledger turn ini sendiri - bukan simulasi.",
+                        ),
+                    )
+                    yield deps.kirim_status(
+                        _L(
+                            state,
+                            '✍️ Implementation claimed with zero mutated files - '
+                            'edit now or withdraw the claim...',
+                            '✍️ Klaim implementasi tanpa satu pun file berubah - '
+                            'sunting sekarang atau tarik klaim...',
+                        )
+                    )
+                    continue
+                if keputusan in (
+                    loop_guards.Keputusan.CHECKPOINT,
+                    loop_guards.Keputusan.JAWAB_NORMAL,
+                    loop_guards.Keputusan.TANTANG_KLAIM,
+                ) and _perlu_tantang_perintah_tool(state):
+                    state.tantang_perintah_tool += 1
+                    _kutip = state.perintah_tool_eksplisit
+                    deps.context_manager.add_message(
+                        "assistant", content, reasoning_content=reasoning_content
+                    )
+                    deps.context_manager.add_message(
+                        "user",
+                        _L(
+                            state,
+                            "[SYSTEM - EXPLICIT TOOL ORDER]: the user's instruction "
+                            "this turn ordered a tool by name - \"" + _kutip + "\" - "
+                            "but the ledger holds ZERO successful calls to browser/MCP "
+                            "tools. Silently ignoring a named tool is not allowed. "
+                            "BEFORE this turn may end, EITHER run the ordered tool now, "
+                            "OR state PLAINLY in your closing why it was not used and "
+                            "what you did instead. This challenge is generated from the "
+                            "turn's own ledger - not a simulation.",
+                            "[SISTEM - PERINTAH TOOL EKSPLISIT]: instruksi user turn "
+                            "ini menyebut tool berdasarkan namanya - \"" + _kutip + "\" "
+                            "- tetapi ledger memuat NOL panggilan sukses ke tool "
+                            "browser/MCP. Mengabaikan tool yang disebut namanya secara "
+                            "diam-diam tidak diizinkan. SEBELUM turn ini boleh berakhir, "
+                            "JALANKAN tool yang diperintahkan sekarang, ATAU nyatakan "
+                            "TERANG-TERANGAN di penutup Anda mengapa tool itu tidak "
+                            "dipakai dan apa yang Anda lakukan sebagai gantinya. "
+                            "Tantangan ini dihasilkan dari ledger turn ini sendiri - "
+                            "bukan simulasi.",
+                        ),
+                    )
+                    yield deps.kirim_status(
+                        _L(
+                            state,
+                            '🔧 Explicit tool order unexecuted - run it or explain '
+                            'plainly...',
+                            '🔧 Perintah tool eksplisit belum dijalankan - jalankan '
+                            'atau jelaskan terang-terangan...',
                         )
                     )
                     continue

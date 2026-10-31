@@ -313,7 +313,16 @@ from pathlib import Path
 # (2) run_terminal answered an empty stdout with "Success, no output.",
 # which read as health and fed a confabulation loop (now: the empty case
 # names the mangled-quoting suspect and pushes a script file).
-BACKEND_VERSION = "0.10.24"
+# Bumped 0.10.24 -> 0.10.25 for UPDATE-025 commit 21: the honesty half of
+# the InvoiceFlow-exam fix. Two ledger-driven challenges, cap 1/turn each,
+# quoting the model's own sentence verbatim: (1) TANTANG_KLAIM_IMPLEMENTASI
+# - a closing that claims implementation while the turn holds ZERO mutated
+# files ("telah diimplementasikan" over an empty ledger closed TWO turns on
+# 2026-10-31); (2) PERINTAH_TOOL_EKSPLISIT - the user ordered a tool by name
+# ("gunakan mcp playwright ...") and the ledger holds zero successful
+# browser/MCP calls: run it now or say plainly why not. Negation-aware
+# keywords keep the honest OR branches silent.
+BACKEND_VERSION = "0.10.25"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

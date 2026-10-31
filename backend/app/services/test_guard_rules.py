@@ -118,3 +118,39 @@ def test_done_disusulkan_hanya_ketika_belum_dikirim():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ------------------------- commit 21: implementation-claim & tool-order
+
+from app.services import guard_rules  # noqa: E402 (appended section)
+
+
+def test_kalimat_klaim_implementasi_unit():
+    assert guard_rules.kalimat_klaim_implementasi(
+        "UI telah diimplementasikan sepenuhnya."
+    ) == "UI telah diimplementasikan sepenuhnya."
+    # negated forms are the honest OR branch and must stay silent
+    assert guard_rules.kalimat_klaim_implementasi("belum diimplementasikan apa pun.") == ""
+    assert guard_rules.kalimat_klaim_implementasi("warna tidak diterapkan ulang.") == ""
+    assert guard_rules.kalimat_klaim_implementasi(
+        "I added a total row below the items."
+    ) == "I added a total row below the items."
+    assert guard_rules.kalimat_klaim_implementasi("") == ""
+    # first claiming sentence only, capped at 200 chars
+    # sentence split is on [.!?] - a dot inside a token (App.jsx) would cut
+    # the sentence early, same accepted weakness as kalimat_klaim_visual
+    teks = "Intro polos. Kotak sudah saya tambah kemarin. Sisanya."
+    assert guard_rules.kalimat_klaim_implementasi(teks) == (
+        "Kotak sudah saya tambah kemarin."
+    )
+    assert len(guard_rules.kalimat_klaim_implementasi("x diimplementasikan " * 60)) <= 200
+
+
+def test_kalimat_perintah_tool_unit():
+    assert guard_rules.kalimat_perintah_tool(
+        "ubah warna dan gunakan mcp playwright untuk mengamati."
+    ) == "ubah warna dan gunakan mcp playwright untuk mengamati."
+    assert guard_rules.kalimat_perintah_tool("ubah warna subtab.") == ""
+    assert guard_rules.kalimat_perintah_tool(
+        "cek dulu. lalu browser_click pada tab aktif."
+    ) == "lalu browser_click pada tab aktif."

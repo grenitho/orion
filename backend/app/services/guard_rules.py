@@ -100,6 +100,79 @@ def kalimat_klaim_visual(teks: str) -> str:
     return teks.strip()[:200]
 
 
+KLAIM_IMPLEMENTASI = (
+    "diimplementasikan",
+    "diimplementasi",
+    "saya implementasikan",
+    "diterapkan",
+    "saya terapkan",
+    "implemented",
+    "i added",
+    "saya tambah",
+    "added the",
+    "added a",
+    "added an",
+)
+
+# A negation immediately before the keyword turns a claim into an honest
+# OR-branch sentence ("belum diimplementasikan", "not added") - such a
+# sentence must NEVER trip the challenge.
+_NEGASI_SEBELUM = ("belum", "tidak", "bukan", "not", "never", "no")
+
+KATA_PERINTAH_TOOL = (
+    "playwright",
+    "browser_navigate",
+    "browser_click",
+    "browser_evaluate",
+    "browser_screenshot",
+    "gunakan mcp",
+    "pakai mcp",
+    "use mcp",
+    "lewat mcp",
+    "via mcp",
+)
+
+
+def _ternegasi(rendah: str, idx: int) -> bool:
+    kata = rendah[:idx].split()
+    return bool(kata) and kata[-1] in _NEGASI_SEBELUM
+
+
+def _kalimat_pertama_berkata(teks: str, katalog) -> str:
+    """First sentence of `teks` carrying a NON-negated keyword hit
+    (empty string = none). The challenge quotes it verbatim - the
+    commit-14 lesson: an unquoted challenge gets rationalized away."""
+    if not teks:
+        return ""
+    rendah = teks.lower()
+    if not any(k in rendah for k in katalog):
+        return ""
+    for kalimat in re.split(r"(?<=[.!?\n])", teks):
+        potongan = kalimat.strip()
+        if not potongan:
+            continue
+        rp = potongan.lower()
+        for k in katalog:
+            idx = rp.find(k)
+            if idx >= 0 and not _ternegasi(rp, idx):
+                return potongan[:200]
+    return ""
+
+
+def kalimat_klaim_implementasi(teks: str) -> str:
+    """UPDATE-025 commit 21 (InvoiceFlow exam, 2026-10-31): two turns
+    closed with "telah diimplementasikan …" over a ledger holding ZERO
+    mutated files. The first claiming sentence is what the challenge
+    quotes back; negated forms stay honest-branch safe."""
+    return _kalimat_pertama_berkata(teks, KLAIM_IMPLEMENTASI)
+
+
+def kalimat_perintah_tool(teks: str) -> str:
+    """First sentence of the user's instruction naming a tool the model
+    is ordered to use (empty = no explicit order this turn)."""
+    return _kalimat_pertama_berkata(teks, KATA_PERINTAH_TOOL)
+
+
 def klaim_perlu_ditantang(
     is_task_complete: bool,
     ada_file_berubah: bool,

@@ -156,6 +156,15 @@ class SessionState:
     # message claiming visual verification ("diverifikasi pada file…")
     # while the ledger holds no getComputedStyle evidence.
     tantang_klaim_visual: int = 0
+    # >>> UPDATE-025 commit 21: honesty-teeth ledgers. mutasi is the
+    # existing files_changed_this_turn; these cap the two new challenges
+    # at 1/turn and record the user's explicit tool order plus the count
+    # of successful browser/MCP calls that either honours it or leaves
+    # the order unexecuted. <<<
+    tantang_klaim_implementasi: int = 0
+    tantang_perintah_tool: int = 0
+    perintah_tool_eksplisit: str = ""
+    panggilan_browser_turn_ini: int = 0
     # >>> UPDATE-025 commit 13: the detected language of this turn's user
     # request ("id"/"en"); every user-facing deterministic block renders
     # in it, so the system voice stops out-voting the LANGUAGE RULE.
