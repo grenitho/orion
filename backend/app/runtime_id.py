@@ -274,7 +274,21 @@ from pathlib import Path
 # BOTH endings; mid-turn challenge 1×/turn after the reconciliation
 # gate, hex tokens extracted deterministically from the user's own
 # reference files, never hardcoded per project.
-BACKEND_VERSION = "0.10.21"
+# Bumped 0.10.21 -> 0.10.22 for UPDATE-025 commit 18 (owner request
+# 2026-10-31 while Orion built the InvoiceFlow dark theme): the router
+# half of the wizard-router commit. Three owner pains, three teeth:
+# (1) the Cloudflare accounts queued LAST (behind the glm legacy
+# FALLBACK) and were never reached — Cloudflare is promoted to tier 3,
+# legacy FALLBACK demoted to tier 4; (2) the only Gemini off-switch was
+# gutting DEFAULT_MODEL — GEMINI_DISABLED now skips tier 1 explicitly
+# (the wizard checkbox writes it); (3) the last-resort slot was
+# hardwired — ROUTER_FALLBACK (provider_<n> | cloudflare | none, wizard
+# dropdown) moves one configured group to the very end of the queue,
+# labelled "(Last Resort)"; unknown/credential-less values warn and are
+# ignored. Labels keep their slot names (Fallback 1 = legacy slot,
+# Fallback 2 = Cloudflare slot) so logs stay comparable across
+# versions; only the ORDER changed.
+BACKEND_VERSION = "0.10.22"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

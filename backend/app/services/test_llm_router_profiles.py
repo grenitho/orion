@@ -34,7 +34,8 @@ import pytest
 
 from app.services import llm_router
 
-_ENV_PREFIXES = ("PROVIDER_", "GEMINI_API_KEY_", "FALLBACK_", "CLOUDFLARE_")
+_ENV_PREFIXES = ("PROVIDER_", "GEMINI_API_KEY_", "FALLBACK_", "CLOUDFLARE_",
+               "GEMINI_DISABLED", "ROUTER_FALLBACK")
 
 
 @pytest.fixture()

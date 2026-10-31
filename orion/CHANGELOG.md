@@ -3,6 +3,34 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.5] - 2026-10-31
+
+Companion backend: **0.10.22** (UPDATE-025 commits 16–18).
+
+### Added
+- **One-click "Install Playwright MCP" button in the MCP tool-servers
+  panel** (UPDATE-025 commit 18): writes the official `@playwright/mcp`
+  server into `<project>/.orion/mcp.json` through the same atomic
+  `apply_config_op` transaction as the demo install — no hand-written
+  JSON, no memorized config. Platform-aware (`cmd /c npx …` on Windows,
+  plain `npx` elsewhere); re-clicking is a safe reinstall. Plugging the
+  server arms the backend 0.10.21 computed-style verification tooth:
+  UI-changing turns then owe rendered-style evidence (getComputedStyle
+  via browser_evaluate) or an honest UNVERIFIED disclosure.
+- **Router section in the Setup Wizard (step 4)**: an explicit
+  "Disable Gemini tier" checkbox (writes `GEMINI_DISABLED=true`; no more
+  gutting the primary-model field to silence the Gemini keys) and a
+  "Last-resort fallback" dropdown (`none` / `cloudflare` / any configured
+  `provider_N`, writes `ROUTER_FALLBACK`). Both mirror the live `.env`
+  state when the wizard opens, and unknown values degrade to `none`.
+
+### Changed
+- Model router try-order (backend 0.10.22): **Cloudflare now runs BEFORE
+  the legacy FALLBACK tier**, so configured Cloudflare accounts actually
+  receive traffic instead of sitting behind the glm fallback;
+  `ROUTER_FALLBACK` can still demote one group to the very end, labelled
+  "(Last Resort)" in logs.
+
 ## [0.4.1] - 2026-10-26
 
 ### Added

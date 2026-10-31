@@ -191,19 +191,37 @@ def build_execution_queue() -> list:
     """Assemble the try-order of every configured model.
 
     Tier 1: Gemini rotated keys (shuffled -- equal peers, load balancing).
+            Skipped entirely when GEMINI_DISABLED is truthy — the Setup
+            Wizard's explicit "disable Gemini" checkbox (UPDATE-025
+            commit 18): an owner who runs on providers/Cloudflare alone
+            no longer has to gut DEFAULT_MODEL to silence the tier.
     Tier 2: PROVIDER_<N>_* groups in numeric order, models as written
             (configured order = priority).
-    Tier 3: legacy FALLBACK_* endpoint (shuffled).
-    Tier 4: Cloudflare AI (shuffled).
+    Tier 3: Cloudflare AI (shuffled) — PROMOTED above the legacy tier by
+            UPDATE-025 commit 18 (owner: the Cloudflare accounts sat
+            BEHIND the glm legacy fallback and were never reached).
+    Tier 4: legacy FALLBACK_* endpoint (shuffled).
+    Last resort: ROUTER_FALLBACK (wizard dropdown: provider_<n> |
+            cloudflare | none) MOVES one configured group to the very
+            end of the queue, labelled "(Last Resort)"; unknown or
+            credential-less values warn and are ignored (fail-safe).
     Only tiers that actually have credentials are queued.
     """
-    execution_queue = []
+    execution_queue: list = []
 
     # --- TIER 1: GEMINI (N API KEYS - SHUFFLED FOR LOAD BALANCING) ---
     gemini_temperature = float(os.getenv("GEMINI_TEMPERATURE", "1.0"))
     primary_model = os.getenv("DEFAULT_MODEL", "gemini/gemini-3.5-flash")
     gemini_keys = _scan_gemini_keys()
-    if gemini_keys and primary_model:
+    gemini_disabled = os.getenv("GEMINI_DISABLED", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    if gemini_disabled and gemini_keys and primary_model:
+        print(
+            "[LLM_ROUTER] GEMINI_DISABLED is set: tier 1 (Gemini keys) "
+            "skipped by explicit owner choice."
+        )
+    if gemini_keys and primary_model and not gemini_disabled:
         gemini_models = []
         for i, api_key in enumerate(gemini_keys):
             gemini_models.append(
@@ -219,19 +237,45 @@ def build_execution_queue() -> list:
         execution_queue.extend(gemini_models)
 
     # --- TIER 2: FIRST-CLASS PROVIDERS (CONFIGURED ORDER = PRIORITY) ---
+    provider_tiers: list = []
     for entry in _scan_provider_entries():
-        for model_name in entry["models"]:
-            execution_queue.append(
+        models = [
+            {
+                "model": model_name,
+                "api_key": entry["api_key"],
+                "base_url": entry["base_url"],
+                "provider": entry["label"],
+                "temperature": entry["temperature"],
+            }
+            for model_name in entry["models"]
+        ]
+        provider_tiers.append((entry["index"], models))
+
+    # --- TIER 3: CLOUDFLARE (SHUFFLED; promoted above legacy, C18) ---
+    cf_account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+    cf_api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+    cf_models = [
+        m.strip() for m in os.getenv("CLOUDFLARE_MODELS", "").split(",") if m.strip()
+    ]
+    cf_temperature = float(os.getenv("CLOUDFLARE_TEMPERATURE", "0.4"))
+    cf_tier: list = []
+    if cf_account_id and cf_api_token:
+        cf_base_url = (
+            f"https://api.cloudflare.com/client/v4/accounts/{cf_account_id}/ai/v1"
+        )
+        for cf_model in cf_models:
+            cf_tier.append(
                 {
-                    "model": model_name,
-                    "api_key": entry["api_key"],
-                    "base_url": entry["base_url"],
-                    "provider": entry["label"],
-                    "temperature": entry["temperature"],
+                    "model": f"cloudflare/{cf_model}",
+                    "api_key": cf_api_token,
+                    "base_url": cf_base_url,
+                    "provider": "Cloudflare (Fallback 2)",
+                    "temperature": cf_temperature,
                 }
             )
+        random.shuffle(cf_tier)
 
-    # --- TIER 3: LEGACY FALLBACK (SHUFFLED) ---
+    # --- TIER 4: LEGACY FALLBACK (SHUFFLED) ---
     fallback_api_key = os.getenv("FALLBACK_API_KEY")
     fallback_base_url = os.getenv(
         "FALLBACK_BASE_URL", "https://openrouter.ai/api/v1"
@@ -240,8 +284,8 @@ def build_execution_queue() -> list:
         m.strip() for m in os.getenv("FALLBACK_MODELS", "").split(",") if m.strip()
     ]
     fallback_temperature = float(os.getenv("FALLBACK_TEMPERATURE", "0.4"))
+    legacy_tier: list = []
     if fallback_api_key:
-        tier3_models = []
         for fb_model in fallback_models:
             safe_model_name = fb_model
             if not any(
@@ -256,7 +300,7 @@ def build_execution_queue() -> list:
             ):
                 safe_model_name = f"openai/{fb_model}"
 
-            tier3_models.append(
+            legacy_tier.append(
                 {
                     "model": safe_model_name,
                     "api_key": fallback_api_key,
@@ -265,33 +309,53 @@ def build_execution_queue() -> list:
                     "temperature": fallback_temperature,
                 }
             )
-        random.shuffle(tier3_models)
-        execution_queue.extend(tier3_models)
+        random.shuffle(legacy_tier)
 
-    # --- TIER 4: CLOUDFLARE (SHUFFLED) ---
-    cf_account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-    cf_api_token = os.getenv("CLOUDFLARE_API_TOKEN")
-    cf_models = [
-        m.strip() for m in os.getenv("CLOUDFLARE_MODELS", "").split(",") if m.strip()
-    ]
-    cf_temperature = float(os.getenv("CLOUDFLARE_TEMPERATURE", "0.4"))
-    if cf_account_id and cf_api_token:
-        cf_base_url = (
-            f"https://api.cloudflare.com/client/v4/accounts/{cf_account_id}/ai/v1"
-        )
-        tier4_models = []
-        for cf_model in cf_models:
-            tier4_models.append(
-                {
-                    "model": f"cloudflare/{cf_model}",
-                    "api_key": cf_api_token,
-                    "base_url": cf_base_url,
-                    "provider": "Cloudflare (Fallback 2)",
-                    "temperature": cf_temperature,
-                }
+    # --- LAST RESORT: ROUTER_FALLBACK moves ONE group to the tail ---
+    router_fallback = os.getenv("ROUTER_FALLBACK", "").strip().lower()
+    last_resort: list = []
+    if router_fallback and router_fallback != "none":
+        _rf_match = _provider_group_pattern.match(router_fallback)
+        if _rf_match:
+            _wanted = int(_rf_match.group(1))
+            _hit = [n for n, _ in provider_tiers if n == _wanted]
+            if _hit:
+                last_resort = [
+                    {**e, "provider": f"{e['provider']} (Last Resort)"}
+                    for _n, entries in provider_tiers if _n == _wanted
+                    for e in entries
+                ]
+                provider_tiers = [
+                    (n, entries) for n, entries in provider_tiers if n != _wanted
+                ]
+            else:
+                print(
+                    f"[LLM_ROUTER] ROUTER_FALLBACK={router_fallback!r} names a "
+                    "provider group without credentials - ignored."
+                )
+        elif router_fallback == "cloudflare":
+            if cf_tier:
+                last_resort = [
+                    {**e, "provider": f"{e['provider']} (Last Resort)"}
+                    for e in cf_tier
+                ]
+                cf_tier = []
+            else:
+                print(
+                    "[LLM_ROUTER] ROUTER_FALLBACK='cloudflare' but no "
+                    "Cloudflare credentials - ignored."
+                )
+        else:
+            print(
+                f"[LLM_ROUTER] ROUTER_FALLBACK={router_fallback!r} not "
+                "understood (provider_<n> | cloudflare | none) - ignored."
             )
-        random.shuffle(tier4_models)
-        execution_queue.extend(tier4_models)
+
+    for _n, entries in provider_tiers:
+        execution_queue.extend(entries)
+    execution_queue.extend(cf_tier)
+    execution_queue.extend(legacy_tier)
+    execution_queue.extend(last_resort)
 
     if not execution_queue:
         raise Exception(

@@ -14,7 +14,11 @@ These tests pin the contract a .env author relies on:
      deepseek/..., groq/...);
   3. priority is explicit and stable: Gemini keys first, then provider
      groups in numeric order (models in written order, NO shuffle), then
-     the legacy FALLBACK_* tier, then Cloudflare;
+     Cloudflare, then the legacy FALLBACK_* tier (UPDATE-025 commit 18
+     promoted Cloudflare above the legacy glm fallback so the
+     Cloudflare accounts actually get traffic); ROUTER_FALLBACK
+     (provider_<n> | cloudflare | none) moves one group to the very
+     end, labelled "(Last Resort)"; GEMINI_DISABLED skips tier 1;
   4. per-group temperature is honoured, garbage falls back to the default;
   5. legacy-only configurations behave exactly like before UPDATE-011.
 
@@ -31,7 +35,8 @@ import pytest
 
 from app.services import llm_router
 
-_ENV_PREFIXES = ("PROVIDER_", "GEMINI_API_KEY_", "FALLBACK_", "CLOUDFLARE_")
+_ENV_PREFIXES = ("PROVIDER_", "GEMINI_API_KEY_", "FALLBACK_", "CLOUDFLARE_",
+               "GEMINI_DISABLED", "ROUTER_FALLBACK")
 
 
 @pytest.fixture()
@@ -152,8 +157,9 @@ def test_tier_priority_gemini_providers_fallback_cloudflare(env):
 
     assert labels[0] == "Gemini Key 1 (Primary)"
     assert labels[1:3] == ["DeepSeek (Provider 1)", "Claude (Provider 2)"]
-    assert labels[3] == "OpenRouter (Fallback 1)"
-    assert labels[4] == "Cloudflare (Fallback 2)"
+    # UPDATE-025 commit 18: Cloudflare promoted ABOVE the legacy tier
+    assert labels[3] == "Cloudflare (Fallback 2)"
+    assert labels[4] == "OpenRouter (Fallback 1)"
 
 
 def test_legacy_fallback_only_unchanged(env):
@@ -195,3 +201,82 @@ def test_get_ai_response_routes_through_provider_queue(env, monkeypatch):
     assert len(calls) == 1
     assert calls[0]["temperature"] == 0.2
     assert llm_router.litellm.api_key == "sk-p1"
+
+
+# --------------------------------------- UPDATE-025 commit 18: router wizard
+
+
+def test_gemini_disabled_melewati_tier_satu(env):
+    env.setenv("GEMINI_API_KEY_1", "k1")
+    env.setenv("DEFAULT_MODEL", "gemini/gemini-3.5-flash")
+    env.setenv("GEMINI_DISABLED", "true")
+    env.setenv("PROVIDER_1_NAME", "DeepSeek")
+    env.setenv("PROVIDER_1_API_KEY", "sk-ds")
+    env.setenv("PROVIDER_1_MODELS", "deepseek/deepseek-chat")
+
+    queue = llm_router.build_execution_queue()
+    labels = [t["provider"] for t in queue]
+    assert labels == ["DeepSeek (Provider 1)"]
+
+    # checkbox off -> tier 1 returns, byte-identical contract
+    env.setenv("GEMINI_DISABLED", "")
+    queue = llm_router.build_execution_queue()
+    assert queue[0]["provider"] == "Gemini Key 1 (Primary)"
+
+
+def test_router_fallback_memindah_provider_ke_ekor(env):
+    env.setenv("PROVIDER_1_NAME", "DeepSeek")
+    env.setenv("PROVIDER_1_API_KEY", "sk-ds")
+    env.setenv("PROVIDER_1_MODELS", "deepseek/deepseek-chat")
+    env.setenv("PROVIDER_2_NAME", "Claude")
+    env.setenv("PROVIDER_2_API_KEY", "sk-ant")
+    env.setenv("PROVIDER_2_MODELS", "anthropic/claude-sonnet-4-5")
+    env.setenv("ROUTER_FALLBACK", "provider_1")
+
+    queue = llm_router.build_execution_queue()
+    labels = [t["provider"] for t in queue]
+    assert labels == [
+        "Claude (Provider 2)",
+        "DeepSeek (Provider 1) (Last Resort)",
+    ]
+
+
+def test_router_fallback_cloudflare_ke_ekor(env):
+    env.setenv("CLOUDFLARE_ACCOUNT_ID", "acc")
+    env.setenv("CLOUDFLARE_API_TOKEN", "tok")
+    env.setenv("CLOUDFLARE_MODELS", "@cf/llama")
+    env.setenv("FALLBACK_API_KEY", "sk-or")
+    env.setenv("FALLBACK_MODELS", "openai/gpt-5")
+    env.setenv("ROUTER_FALLBACK", "cloudflare")
+
+    queue = llm_router.build_execution_queue()
+    labels = [t["provider"] for t in queue]
+    assert labels == [
+        "OpenRouter (Fallback 1)",
+        "Cloudflare (Fallback 2) (Last Resort)",
+    ]
+
+
+def test_router_fallback_tak_dikenal_atau_kosong_diiaskan(env):
+    base = dict(
+        PROVIDER_1_NAME="DeepSeek",
+        PROVIDER_1_API_KEY="sk-ds",
+        PROVIDER_1_MODELS="deepseek/deepseek-chat",
+        CLOUDFLARE_ACCOUNT_ID="acc",
+        CLOUDFLARE_API_TOKEN="tok",
+        CLOUDFLARE_MODELS="@cf/llama",
+    )
+    for k, v in base.items():
+        env.setenv(k, v)
+    default_labels = [
+        t["provider"] for t in llm_router.build_execution_queue()
+    ]
+    assert default_labels == [
+        "DeepSeek (Provider 1)",
+        "Cloudflare (Fallback 2)",
+    ]
+    # garbage, unknown group and "none" all degrade to the default order
+    for junk in ("provider_9", "blah", "none", ""):
+        env.setenv("ROUTER_FALLBACK", junk)
+        labels = [t["provider"] for t in llm_router.build_execution_queue()]
+        assert labels == default_labels, junk

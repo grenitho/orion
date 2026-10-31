@@ -42,6 +42,10 @@ interface ScannedEnv {
     geminiKeys: Array<{ index: number; masked: string }>;
     defaultModel: string;
     providers: ScannedProvider[];
+    // >>> UPDATE-025 commit 18: router switches mirrored from .env so the
+    // wizard form always shows the LIVE routing state.
+    geminiDisabled: boolean;
+    routerFallback: string;
 }
 
 interface RawProvider { name: string; apiKey: string; baseUrl: string; models: string; temperature: string; }
@@ -139,10 +143,14 @@ function parseEnvText(text: string): {
     gemini: Map<number, string>;
     providers: Map<number, RawProvider>;
     defaultModel: string;
+    geminiDisabled: boolean;
+    routerFallback: string;
 } {
     const gemini = new Map<number, string>();
     const providers = new Map<number, RawProvider>();
     let defaultModel = '';
+    let geminiDisabled = false;
+    let routerFallback = '';
     for (const raw of text.split(/\r?\n/)) {
         const line = raw.trim();
         if (!line || line.startsWith('#')) { continue; }
@@ -156,6 +164,11 @@ function parseEnvText(text: string): {
             continue;
         }
         if (key === 'DEFAULT_MODEL') { defaultModel = value; continue; }
+        if (key === 'GEMINI_DISABLED') {
+            geminiDisabled = ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+            continue;
+        }
+        if (key === 'ROUTER_FALLBACK') { routerFallback = value; continue; }
         const pk = key.match(/^PROVIDER_(\d+)_(NAME|API_KEY|BASE_URL|MODELS|TEMPERATURE)$/);
         if (pk) {
             const n = parseInt(pk[1], 10);
@@ -168,7 +181,7 @@ function parseEnvText(text: string): {
             else { g.temperature = value; }
         }
     }
-    return { gemini, providers, defaultModel };
+    return { gemini, providers, defaultModel, geminiDisabled, routerFallback };
 }
 
 function scanEnvFile(backendDir: string): ScannedEnv {
@@ -179,6 +192,8 @@ function scanEnvFile(backendDir: string): ScannedEnv {
         geminiKeys: [],
         defaultModel: '',
         providers: [],
+        geminiDisabled: false,
+        routerFallback: '',
     };
     if (!result.exists) { return result; }
     try {
@@ -187,6 +202,8 @@ function scanEnvFile(backendDir: string): ScannedEnv {
             result.geminiKeys.push({ index: idx, masked: maskSecret(parsed.gemini.get(idx) || '') });
         }
         result.defaultModel = parsed.defaultModel;
+        result.geminiDisabled = parsed.geminiDisabled;
+        result.routerFallback = parsed.routerFallback;
         for (const n of [...parsed.providers.keys()].sort((a, b) => a - b)) {
             const g = parsed.providers.get(n) as RawProvider;
             result.providers.push({ n, name: g.name, maskedKey: maskSecret(g.apiKey), baseUrl: g.baseUrl, models: g.models });
@@ -816,6 +833,16 @@ export class SetupWizardPanel {
             .filter(g => g.apiKey && g.models);
 
         const defaultModel = String(msg.defaultModel || '').trim() || existing.defaultModel || 'gemini/gemini-3.5-flash-lite';
+        // >>> UPDATE-025 commit 18: router switches. The checkbox is the
+        // explicit Gemini off-switch (GEMINI_DISABLED); the dropdown moves
+        // one configured group to the very end of the execution queue
+        // (ROUTER_FALLBACK). Unknown dropdown values degrade to "none" —
+        // the backend warns and ignores anyway, but the .env stays clean.
+        const geminiDisabled = msg.geminiDisabled === true;
+        const rfRaw = String(msg.routerFallback || '').trim().toLowerCase();
+        const routerFallback =
+            (rfRaw === 'cloudflare' || /^provider_[1-9][0-9]?$/.test(rfRaw))
+                ? rfRaw : '';
 
         // Keep every non-managed line (all comments, custom vars) untouched;
         // the managed block is rewritten at the end of the file.
@@ -827,6 +854,8 @@ export class SetupWizardPanel {
             const key = t.slice(0, eq).trim();
             return !/^GEMINI_API_KEY_\d+$/.test(key)
                 && key !== 'DEFAULT_MODEL'
+                && key !== 'GEMINI_DISABLED'
+                && key !== 'ROUTER_FALLBACK'
                 && !/^PROVIDER_\d+_(NAME|API_KEY|BASE_URL|MODELS|TEMPERATURE)$/.test(key);
         });
         while (kept.length && !kept[kept.length - 1].trim()) { kept.pop(); }
@@ -841,6 +870,8 @@ export class SetupWizardPanel {
             block.push('# GEMINI_API_KEY_1=   (no Gemini key saved yet)');
         }
         block.push('DEFAULT_MODEL=' + defaultModel);
+        if (geminiDisabled) { block.push('GEMINI_DISABLED=true'); }
+        if (routerFallback) { block.push('ROUTER_FALLBACK=' + routerFallback); }
         groups.forEach((g, i) => {
             const n = i + 1;
             if (g.name) { block.push('PROVIDER_' + n + '_NAME=' + g.name); }
@@ -1047,6 +1078,20 @@ ${envBanner}
             <input type="text" id="defaultModel" placeholder="gemini/gemini-3.5-flash-lite" style="flex:1 1 240px">
         </div>
         <details>
+            <summary>Router: Gemini switch &amp; last-resort fallback</summary>
+            <p class="desc">Try-order of the model router: Gemini keys, then provider groups in order, then <b>Cloudflare</b>, then the legacy fallback (glm/OpenRouter). Cloudflare runs BEFORE the legacy tier by default now, so Cloudflare accounts finally get traffic. The dropdown demotes one configured group to the very END of the queue (last resort); the checkbox skips the Gemini tier entirely even when keys are stored (writes <code>GEMINI_DISABLED=true</code> to .env — no more gutting the primary model field to silence Gemini).</p>
+            <div class="row" style="margin-top:6px">
+                <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="geminiDisabled"> Disable Gemini tier (skip stored Gemini keys)</label>
+            </div>
+            <div class="row" style="margin-top:6px">
+                <span class="muted">Last-resort fallback:</span>
+                <select id="routerFallback" style="flex:1 1 240px">
+                    <option value="">none (default order)</option>
+                    <option value="cloudflare">Cloudflare models (move to the very end)</option>
+                </select>
+            </div>
+        </details>
+        <details>
             <summary>Advanced: other providers (OpenRouter / OpenAI / Anthropic / DeepSeek / Qwen / Groq…)</summary>
             <p class="desc">Optional. Each group = one provider account. Groups are tried in order after the Gemini keys. A model name without <code>/</code> gets the <code>openai/</code> prefix (correct for every OpenAI-compatible endpoint); names like <code>anthropic/claude-…</code> go through as-is.</p>
             <div id="providerGroups"></div>
@@ -1224,6 +1269,19 @@ ${envBanner}
         }
         var dm = el('defaultModel');
         dm.value = (envFile && envFile.defaultModel) ? envFile.defaultModel : '';
+        var gd = el('geminiDisabled');
+        if (gd) { gd.checked = !!(envFile && envFile.geminiDisabled); }
+        var rf = el('routerFallback');
+        if (rf && envFile && envFile.providers) {
+            envFile.providers.forEach(function (p) {
+                var o = document.createElement('option');
+                o.value = 'provider_' + p.n;
+                o.textContent = 'provider_' + p.n + (p.name ? ' (' + p.name + ')' : '') + ' (move to the very end)';
+                rf.appendChild(o);
+            });
+            rf.value = (envFile.routerFallback && rf.querySelector('option[value="' + envFile.routerFallback + '"]'))
+                ? envFile.routerFallback : '';
+        }
         dm.placeholder = 'gemini/gemini-3.5-flash-lite';
         formDirty = false;
     }
@@ -1247,7 +1305,9 @@ ${envBanner}
             providers.push(item);
         });
         return { cmd: 'saveEnv', geminiKeys: geminiKeys, providers: providers,
-                 removedProviderNs: removedProviderNs, defaultModel: el('defaultModel').value };
+                 removedProviderNs: removedProviderNs, defaultModel: el('defaultModel').value,
+                 geminiDisabled: !!(el('geminiDisabled') && el('geminiDisabled').checked),
+                 routerFallback: el('routerFallback') ? el('routerFallback').value : '' };
     }
 
     // ---- sub-agent model card (UPDATE-018) --------------------------------

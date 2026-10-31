@@ -121,6 +121,31 @@ export class McpPanel {
         }
     }
 
+    /** >>> UPDATE-025 commit 18: one-click Playwright MCP install. The
+     *  computed-style tooth (backend 0.10.21) stays SILENT until a
+     *  browser server is plugged, and the owner had to hand-write
+     *  mcp.json to plug one — this button writes it through the same
+     *  atomic apply_config_op transaction as the demo install.
+     *  Platform-aware: Windows spawns `cmd /c npx`, everyone else
+     *  spawns `npx` directly. Re-clicking is a safe reinstall (op set). */
+    public static async installPlaywrightServer(): Promise<string> {
+        try {
+            const isWin = process.platform === 'win32';
+            const res = await postConfig({
+                op: 'set',
+                name: 'playwright',
+                spec: isWin
+                    ? { command: 'cmd', args: ['/c', 'npx', '@playwright/mcp@latest'] }
+                    : { command: 'npx', args: ['@playwright/mcp@latest'] },
+            });
+            return res.success
+                ? "Playwright MCP 'playwright' installed and started — browser tools (navigate, click, evaluate, snapshot…) are now offered to Orion, and the computed-style tooth (0.10.21) is armed for UI turns."
+                : ('Playwright install failed: ' + (res.error || 'unknown error'));
+        } catch (e: unknown) {
+            return 'Playwright install failed: ' + String(e instanceof Error ? e.message : e);
+        }
+    }
+
     private readonly panel: vscode.WebviewPanel;
     private readonly disposables: vscode.Disposable[] = [];
     private lastNote = '';
@@ -250,6 +275,10 @@ export class McpPanel {
                 this.lastNote = await McpPanel.installDemoServer();
                 await this.pushState();
                 return;
+            case 'playwright':
+                this.lastNote = await McpPanel.installPlaywrightServer();
+                await this.pushState();
+                return;
             case 'openJson': {
                 const cfg = String(msg.path || '');
                 if (!cfg) {
@@ -320,6 +349,7 @@ export class McpPanel {
   <button id="btnMaster" title="Master switch: stops/starts the whole MCP layer for this project (mcp_enabled in orion_config.json); mcp.json is preserved"></button>
   <button id="btnAdd">Add server</button>
   <button id="btnDemo">Install demo server</button>
+  <button id="btnPlaywright" title="One-click install of the official Playwright MCP server (browser tools: navigate, click, evaluate, snapshot). Arms the computed-style verification tooth (backend 0.10.21).">Install Playwright MCP</button>
   <button id="btnJson">Open mcp.json</button>
 </div>
 <div id="note" class="note hidden"></div>
@@ -431,6 +461,7 @@ export class McpPanel {
   };
   el('btnAdd').onclick = function () { openForm(null); };
   el('btnDemo').onclick = function () { post({ cmd: 'demo' }); };
+  el('btnPlaywright').onclick = function () { post({ cmd: 'playwright' }); };
   el('btnJson').onclick = function () {
     post({ cmd: 'openJson', path: STATE && STATE.status ? STATE.status.config_path : '' });
   };

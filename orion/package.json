@@ -13,7 +13,7 @@
   },
   "icon": "resources/orion-icon.png",
   "description": "Autonomous AI software engineer: plans with todo lists, edits code, runs tests and terminal commands with your approval, verifies its own work, and reports honestly \u2014 in your language.",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "engines": {
     "vscode": "^1.125.0"
   },
