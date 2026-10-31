@@ -140,6 +140,17 @@ class SessionState:
     # loop trap). Also flags the escalated checkpoint wording when the
     # model closed anyway.
     nudge_referensi: int = 0
+    # >>> UPDATE-025 commit 17: computed-style verification ledger.
+    # `gaya_diperiksa_turn_ini` flips True ONLY when an MCP
+    # browser_evaluate call carrying getComputedStyle is dispatched
+    # this turn — the sole deterministic evidence that the RENDERED
+    # styles were inspected (reading source code or a passing build is
+    # self-certification, the indigo-#4f46e5 lesson). `nudge_gaya`
+    # caps the mid-turn COMPUTED-STYLE VERIFICATION challenge at 1 per
+    # turn, same shape as nudge_referensi, and flags the escalated
+    # end-of-turn disclosure when the model closed anyway.
+    gaya_diperiksa_turn_ini: bool = False
+    nudge_gaya: int = 0
     # >>> UPDATE-025 commit 13: the detected language of this turn's user
     # request ("id"/"en"); every user-facing deterministic block renders
     # in it, so the system voice stops out-voting the LANGUAGE RULE.

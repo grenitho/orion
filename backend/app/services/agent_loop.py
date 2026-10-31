@@ -243,12 +243,14 @@ def _L(state, en: str, idn: str) -> str:
     return idn if getattr(state, "bahasa_turn", "") == "id" else en
 
 
-def _referensi_belum_dibaca(state, project_path) -> list:
-    """UPDATE-025 commit 12: the shared condition behind BOTH the
-    checkpoint disclosure (commit 11) and the in-turn reconciliation
-    gate (commit 12): UI files changed this turn, saved reference
-    attachments exist, none was read this turn. Returns the reference
-    names (empty list = condition false).
+def _ui_berubah_dan_referensi(state, project_path) -> list:
+    """UPDATE-025 commit 17: the shared PREMISE of the reference topic —
+    UI files changed this turn AND saved reference attachments exist —
+    WITHOUT the unread condition (commit 11's _referensi_belum_dibaca
+    adds it). The computed-style tooth needs the premise even when the
+    references WERE read: reading the handoff is not the same as
+    looking at the rendered result. Returns the reference names
+    (empty list = premise false).
     """
     if not getattr(state, "files_changed_this_turn", None):
         return []
@@ -268,6 +270,18 @@ def _referensi_belum_dibaca(state, project_path) -> list:
         refs = sorted(os.listdir(dirr))
     except OSError:
         return []
+    return refs
+
+
+def _referensi_belum_dibaca(state, project_path) -> list:
+    """UPDATE-025 commit 12: the shared condition behind BOTH the
+    checkpoint disclosure (commit 11) and the in-turn reconciliation
+    gate (commit 12): UI files changed this turn, saved reference
+    attachments exist, none was read this turn. Returns the reference
+    names (empty list = condition false). Commit 17: the premise
+    (UI changed + references exist) lives in _ui_berubah_dan_referensi.
+    """
+    refs = _ui_berubah_dan_referensi(state, project_path)
     if not refs:
         return []
     if getattr(state, "lampiran_dibaca_turn_ini", None):
@@ -362,6 +376,120 @@ def _blok_referensi_belum_dibaca(state, project_path) -> str:
             "RECONCILIATION) namun tetap menutup tanpa membacanya: semua "
             "token desain hasil turn ini harus dianggap BELUM "
             "TERVERIFIKASI terhadap referensi user.",
+        )
+    return teks
+
+
+def _tool_browser_mcp(deps) -> set:
+    """UPDATE-025 commit 17 (owner-approved Playwright MCP queue item;
+    incident lineage: the UI rebuilt in invented indigo #4f46e5 and
+    "verified" by `npm run build`, and the 2026-10-30 "fully follows
+    standard responsive design…" self-certification): namespaced
+    browser tools connected this turn (mcp__<server>__browser_*).
+    Empty set without MCP or without a Playwright-style server — the
+    whole tooth is silent unless the owner actually plugged one in via
+    <project>/.orion/mcp.json (zero backend code to connect, UPDATE-014
+    contract). Detection is by TOOL NAME, not server name: the owner
+    picks the server key freely."""
+    mcp = getattr(deps, "mcp", None)
+    if mcp is None:
+        return set()
+    try:
+        return {str(n) for n in mcp.tool_names() if "__browser_" in str(n)}
+    except Exception:
+        return set()
+
+
+def _token_desain_dari_referensi(project_path, maks: int = 14) -> list:
+    """UPDATE-025 commit 17: deterministic design-token extraction —
+    hex colors (#rrggbb / #rgb) found in the saved reference
+    attachments, file order, deduplicated, capped. Generic on purpose:
+    the backend NEVER hardcodes a project's palette; the user's own
+    handoff under .orion/attachments/ is the source of truth, exactly
+    like the reference list itself."""
+    dirr = os.path.join(project_path or ".", ".orion", "attachments")
+    try:
+        nama = sorted(os.listdir(dirr))
+    except OSError:
+        return []
+    token: list = []
+    for n in nama:
+        if not n.lower().endswith((".md", ".txt", ".html", ".css", ".json")):
+            continue
+        p = os.path.join(dirr, n)
+        if not os.path.isfile(p):
+            continue
+        try:
+            with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                isi = f.read()
+        except OSError:
+            continue
+        for t in re.findall(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b", isi):
+            t = t.lower()
+            if t not in token:
+                token.append(t)
+            if len(token) >= maks:
+                return token
+    return token
+
+
+def _perlu_nudge_gaya(state, deps) -> bool:
+    """UPDATE-025 commit 17: one COMPUTED-STYLE VERIFICATION challenge
+    per turn — UI changed, saved references exist, browser MCP tools
+    connected, no getComputedStyle evidence in this turn's ledger yet,
+    and the challenge has not fired. Reading the reference satisfies
+    the RECONCILIATION gate, never this one: source in ≠ pixels out."""
+    if getattr(state, "nudge_gaya", 0):
+        return False
+    if getattr(state, "gaya_diperiksa_turn_ini", False):
+        return False
+    if not _tool_browser_mcp(deps):
+        return False
+    return bool(
+        _ui_berubah_dan_referensi(
+            state, getattr(deps.tool_executor, "project_path", ".")
+        )
+    )
+
+
+def _blok_gaya_tanpa_verifikasi(state, deps) -> str:
+    """UPDATE-025 commit 17: end-of-turn twin of the COMPUTED-STYLE
+    VERIFICATION gate — ONE emitter on BOTH endings (house rule #4,
+    born that way this time). Deterministic fate: fires when UI files
+    changed, saved references exist, browser MCP tools are connected,
+    and the turn's ledger holds no getComputedStyle evidence.
+    Disclosure, not rejection — the model may still close; the user
+    sees exactly which visual claims lack rendered-style evidence."""
+    if getattr(state, "gaya_diperiksa_turn_ini", False):
+        return ""
+    if not _tool_browser_mcp(deps):
+        return ""
+    if not _ui_berubah_dan_referensi(
+        state, getattr(deps.tool_executor, "project_path", ".")
+    ):
+        return ""
+    teks = _L(
+        state,
+        "\n\n**⚠️ Visual claims were NOT verified against rendered "
+        "styles:**\nUI files changed and browser tools are connected, "
+        "but this turn's ledger holds no getComputedStyle evidence — "
+        "the colors, fonts and spacing the user actually sees were "
+        "never inspected. Treat every visual-compliance claim in this "
+        "turn as UNVERIFIED against the rendered result.",
+        "\n\n**⚠️ Klaim visual TIDAK diverifikasi terhadap gaya "
+        "render:**\nFile UI berubah dan tool browser terhubung, tetapi "
+        "ledger turn ini tidak memuat bukti getComputedStyle — warna, "
+        "font dan spasi yang benar-benar dilihat user tidak pernah "
+        "diperiksa. Anggap setiap klaim kepatuhan visual turn ini "
+        "BELUM TERVERIFIKASI terhadap hasil render.",
+    )
+    if getattr(state, "nudge_gaya", 0):
+        teks += _L(
+            state,
+            "\n\nOrion was reminded mid-turn (COMPUTED-STYLE "
+            "VERIFICATION) and still closed without running it.",
+            "\n\nOrion sudah diingatkan di tengah turn (VERIFIKASI GAYA "
+            "TERKOMPUTASI) namun tetap menutup tanpa menjalankannya.",
         )
     return teks
 
@@ -896,6 +1024,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.lampiran_dibaca_turn_ini = set()
         # >>> UPDATE-025 commit 12: per-turn reconciliation-challenge cap.
         state.nudge_referensi = 0
+        # >>> UPDATE-025 commit 17: per-turn computed-style ledger + cap.
+        state.gaya_diperiksa_turn_ini = False
+        state.nudge_gaya = 0
         _utas_baru = guard_rules.utas_gagal_dari(state.permintaan_turn_ini)
         if _utas_baru:
             state.utas_gagal = _utas_baru
@@ -1652,6 +1783,23 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 f'🔌 MCP {deps.mcp.status_label(func_name)} ...'
                             )
                             result = await deps.mcp.call(func_name, func_args)
+                            # >>> UPDATE-025 commit 17: the computed-style
+                            # ledger. A SUCCESSFUL browser_evaluate whose
+                            # arguments carry getComputedStyle is the only
+                            # deterministic evidence that the RENDERED styles
+                            # were inspected this turn — the indigo-#4f46e5
+                            # lesson: source in, pixels out, and nothing in
+                            # between but the model's say-so. Fate-accurate
+                            # both ways: mcp_manager's failure contract turns
+                            # every error into a "[MCP …]" string, and a
+                            # failed call is NOT evidence — the flag flips
+                            # only on a real result. <<<
+                            if (
+                                "__browser_evaluate" in str(func_name)
+                                and "getComputedStyle" in str(func_args)
+                                and not str(result).lstrip().startswith("[MCP")
+                            ):
+                                state.gaya_diperiksa_turn_ini = True
                             # >>> UPDATE-025 hotfix-2: surface the shared
                             # pre-call notice (logging-first, per the
                             # reviewer's suggestion): log it AND prepend
@@ -2338,6 +2486,111 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
                     )
                     continue
+                # >>> UPDATE-025 commit 17 (owner-approved Playwright MCP
+                # queue item; incident lineage: the UI rebuilt in invented
+                # indigo #4f46e5 "verified" by `npm run build`, and the
+                # 2026-10-30 "fully follows standard responsive design…"
+                # self-certification): reading the reference and
+                # reconciling tokens is STILL self-report — nothing forced
+                # Orion to LOOK at the rendered result. When a browser MCP
+                # server is connected (Playwright or kin, plugged via
+                # <project>/.orion/mcp.json — zero backend code, UPDATE-014
+                # contract), the closing moment now demands computed-style
+                # evidence: getComputedStyle through browser_evaluate
+                # against the hex tokens extracted from the user's OWN
+                # reference files, or a plain statement of which visual
+                # properties remain unverified. One challenge per turn,
+                # ordered AFTER the reference gate above (read first,
+                # compare second); disclosure not rejection — the OR
+                # branch always stands open. <<<
+                if keputusan in (
+                    loop_guards.Keputusan.CHECKPOINT,
+                    loop_guards.Keputusan.JAWAB_NORMAL,
+                ) and _perlu_nudge_gaya(state, deps):
+                    state.nudge_gaya += 1
+                    _proj = getattr(deps.tool_executor, "project_path", ".")
+                    _daftar_ref = ", ".join(
+                        f"`.orion/attachments/{r}`"
+                        for r in _ui_berubah_dan_referensi(state, _proj)
+                    )
+                    _token = _token_desain_dari_referensi(_proj)
+                    if _token:
+                        _hexes = ", ".join(_token)
+                        _baris_token = _L(
+                            state,
+                            f" The references carry these hex tokens: {_hexes}.",
+                            f" Referensi memuat token hex ini: {_hexes}.",
+                        )
+                    else:
+                        _baris_token = ""
+                    _alat = sorted(_tool_browser_mcp(deps))
+                    _navigate = next(
+                        (a for a in _alat if a.endswith("__browser_navigate")),
+                        _alat[0],
+                    )
+                    _evaluate = next(
+                        (a for a in _alat if a.endswith("__browser_evaluate")),
+                        _alat[0],
+                    )
+                    deps.context_manager.add_message(
+                        "assistant", content, reasoning_content=reasoning_content
+                    )
+                    deps.context_manager.add_message(
+                        "user",
+                        _L(
+                            state,
+                            "[SYSTEM - COMPUTED-STYLE VERIFICATION]: you are "
+                            "closing a turn that changed UI files while "
+                            "browser tools are connected, and the RENDERED "
+                            "styles were never inspected this turn. The "
+                            "user's saved references: "
+                            + _daftar_ref + "."
+                            + _baris_token
+                            + " Before this turn may end, EITHER open the "
+                            "rendered result with `" + _navigate + "` and "
+                            "extract computed styles with `" + _evaluate + "` "
+                            "(getComputedStyle → color, backgroundColor, "
+                            "fontFamily, fontSize, borderRadius) on the "
+                            "elements you changed and compare them token by "
+                            "token, OR state PLAINLY in your closing report "
+                            "which visual properties remain UNVERIFIED "
+                            "against the rendered result. Claiming visual "
+                            "compliance from reading source code alone — or "
+                            "from a passing build — is self-certification, "
+                            "not verification.",
+                            "[SISTEM - VERIFIKASI GAYA TERKOMPUTASI]: Anda "
+                            "hendak menutup turn yang mengubah file UI "
+                            "sementara tool browser terhubung, dan gaya "
+                            "RENDER tidak pernah diperiksa turn ini. "
+                            "Referensi tersimpan user: "
+                            + _daftar_ref + "."
+                            + _baris_token
+                            + " Sebelum turn ini boleh berakhir, BUKA hasil "
+                            "render dengan `" + _navigate + "` lalu ekstrak "
+                            "gaya terkomputasi dengan `" + _evaluate + "` "
+                            "(getComputedStyle → color, backgroundColor, "
+                            "fontFamily, fontSize, borderRadius) pada elemen "
+                            "yang Anda ubah dan bandingkan token per token, "
+                            "ATAU nyatakan TERANG-TERANGAN di laporan "
+                            "penutup properti visual mana yang masih BELUM "
+                            "TERVERIFIKASI terhadap hasil render. Mengklaim "
+                            "kepatuhan visual hanya dari membaca kode "
+                            "sumber — atau dari build yang lulus — adalah "
+                            "sertifikasi diri, bukan verifikasi.",
+                        ),
+                    )
+                    yield deps.kirim_status(
+                        _L(
+                            state,
+                            '🎨 UI changed with browser tools connected - '
+                            'computed-style verification owed before this '
+                            'turn can close...',
+                            '🎨 UI berubah sementara tool browser terhubung - '
+                            'verifikasi gaya terkomputasi wajib sebelum turn '
+                            'ini boleh ditutup...',
+                        )
+                    )
+                    continue
                 match keputusan:
                     case loop_guards.Keputusan.TERUSKAN:
                         print(
@@ -2605,6 +2858,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             state,
                             getattr(deps.tool_executor, "project_path", "."),
                         )
+                        # >>> UPDATE-025 commit 17: rendered styles vs
+                        # computed-style evidence (single emitter, both
+                        # endings — the twin lives in the JAWAB_NORMAL arm).
+                        checkpoint_report += _blok_gaya_tanpa_verifikasi(
+                            state, deps
+                        )
                         # >>> UPDATE-025 commit 14: unrecovered failed edits.
                         checkpoint_report += _blok_edit_gagal_akhir(state)
                         # >>> UPDATE-025 commit 9: same persistence fact and
@@ -2830,6 +3089,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             state,
                             getattr(deps.tool_executor, "project_path", "."),
                         )
+                        # >>> UPDATE-025 commit 17: computed-style disclosure
+                        # rides the normal ending too — single emitter, BOTH
+                        # endings from birth (house rule #4).
+                        _teks_jawab += _blok_gaya_tanpa_verifikasi(state, deps)
                         # >>> UPDATE-025 commit 14: unrecovered failed edits
                         # named at the normal ending too (single emitter,
                         # both endings — no duplicate voice).

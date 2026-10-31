@@ -258,7 +258,23 @@ from pathlib import Path
 # rule #4 (ONE emitter per topic on BOTH endings, lesson of commit 10)
 # now holds for the reference topic too. Not observed in the field —
 # the 2026-10-30 incident closed via CHECKPOINT — a structural gap fix.
-BACKEND_VERSION = "0.10.20"
+# Bumped 0.10.20 -> 0.10.21 for UPDATE-025 commit 17 (owner-approved
+# Playwright MCP queue item; incident lineage: the UI rebuilt in
+# invented indigo #4f46e5 "verified" by `npm run build`, and the
+# 2026-10-30 "fully follows standard responsive design…"
+# self-certification). Reading the reference is still self-report —
+# nothing forced Orion to LOOK at the rendered result. New tooth, zero
+# prompt tokens, zero new dependencies: when a browser MCP server is
+# connected (Playwright or kin, plugged by the owner via
+# <project>/.orion/mcp.json — the UPDATE-014 manager needs no backend
+# code for it), a UI-changing turn with saved references must produce
+# computed-style evidence — a SUCCESSFUL mcp__*__browser_evaluate
+# carrying getComputedStyle, recorded in the turn ledger — or carry the
+# "visual claims UNVERIFIED against rendered styles" disclosure out of
+# BOTH endings; mid-turn challenge 1×/turn after the reconciliation
+# gate, hex tokens extracted deterministically from the user's own
+# reference files, never hardcoded per project.
+BACKEND_VERSION = "0.10.21"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
