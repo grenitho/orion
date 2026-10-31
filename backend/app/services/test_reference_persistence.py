@@ -488,3 +488,43 @@ def test_satu_sumber_kalimat_anti_elakan(tmp_path):
         blok = _blok_referensi_belum_dibaca(st, str(tmp_path))
         assert _kalimat_referensi_ada(st) in blok
         assert potongan in blok
+
+
+# ------------------------------- commit 16: reference disclosure at BOTH ends
+#
+# Found while pinning commit 15's end-to-end test: a model that ignores the
+# nudge and closes with a >=50-char NON-claim text routes to JAWAB_NORMAL,
+# and that arm streamed the answer WITHOUT the reference block — "NOT
+# consulted" + UNVERIFIED only ever printed on the CHECKPOINT ending. House
+# rule #4: ONE emitter, BOTH endings. Not observed in the field (the
+# 2026-10-30 incident closed via CHECKPOINT because Orion claimed
+# completion); fixed proactively under the owner's standing directive
+# 2026-10-31 ("tidak perlu menunggu saya mengeluh").
+
+
+def test_jawab_normal_juga_membawa_blok_referensi_tereskalasi(tmp_path):
+    _buat_referensi(tmp_path, "FRONTEND_HANDOFF.md", "invoiceflow.html")
+    ex = _TERef(tmp_path)
+    frames, state, _ = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("UI selesai dibangun."),                                 # 1 -> gate
+            _Resp(                                                         # 2 -> NON-claim close
+                "Saya sudah memeriksa root proyek: FRONTEND_HANDOFF.md dan "
+                "invoiceflow.html tidak ada di sana, jadi hasilnya mengikuti "
+                "praktik standar responsive design pada umumnya."
+            ),
+        ],
+        executor=ex,
+    )
+    assert ex.dibaca == []                    # read_file never called
+    assert state.nudge_referensi == 1
+    # the turn ended on the JAWAB_NORMAL arm: no checkpoint report frame
+    assert not any("TASK COMPLETED" in f for f in frames), frames
+    jawaban = "".join(f for f in frames if '"type": "token"' in f)
+    assert "NOT consulted" in jawaban         # disclosure rides the normal end
+    assert "UNVERIFIED" in jawaban            # escalation intact
+    assert ".orion/attachments/FRONTEND_HANDOFF.md" in jawaban
+    # single emitter: exactly one copy of the block in the streamed answer
+    assert jawaban.count("NOT consulted") == 1

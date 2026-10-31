@@ -2816,6 +2816,20 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         _teks_jawab += _blok_delegasi_akhir(
                             state, klaim=guard_rules.kata_klaim(content)
                         )
+                        # >>> UPDATE-025 commit 16 (found while pinning
+                        # commit 15's end-to-end test; owner standing
+                        # directive 2026-10-31: report and fix gaps without
+                        # waiting for a complaint): the unread-reference
+                        # disclosure lived ONLY on the CHECKPOINT ending, so
+                        # a model that ignored the reconciliation nudge and
+                        # closed with a long-enough NON-claim text escaped
+                        # silently. House rule #4: ONE emitter, BOTH endings.
+                        # Same single emitter — the endings are exclusive
+                        # (each arm breaks), so no duplicate voice. <<<
+                        _teks_jawab += _blok_referensi_belum_dibaca(
+                            state,
+                            getattr(deps.tool_executor, "project_path", "."),
+                        )
                         # >>> UPDATE-025 commit 14: unrecovered failed edits
                         # named at the normal ending too (single emitter,
                         # both endings — no duplicate voice).

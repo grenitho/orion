@@ -248,7 +248,17 @@ from pathlib import Path
 # sentence with the checkpoint block (_kalimat_referensi_ada): the
 # attachments EXIST at those paths, and claiming absence without ever
 # calling read_file on the path is a false claim.
-BACKEND_VERSION = "0.10.19"
+# Bumped 0.10.19 -> 0.10.20 for UPDATE-025 commit 16 (found while
+# pinning commit 15's end-to-end test; fixed proactively under the
+# owner's standing directive 2026-10-31: report and fix gaps without
+# waiting for a complaint): the unread-reference disclosure and its
+# UNVERIFIED escalation printed ONLY on the CHECKPOINT ending — a model
+# that ignored the reconciliation nudge and closed with a long-enough
+# NON-claim text routed to JAWAB_NORMAL and escaped silently. House
+# rule #4 (ONE emitter per topic on BOTH endings, lesson of commit 10)
+# now holds for the reference topic too. Not observed in the field —
+# the 2026-10-30 incident closed via CHECKPOINT — a structural gap fix.
+BACKEND_VERSION = "0.10.20"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
