@@ -236,7 +236,19 @@ from pathlib import Path
 # state.permintaan_turn_ini verbatim, state they are ledger-generated
 # (not a simulation), and unrecovered failed edits are disclosed at
 # BOTH turn endings.
-BACKEND_VERSION = "0.10.18"
+# Bumped 0.10.18 -> 0.10.19 for UPDATE-025 commit 15 (owner paste
+# 2026-10-30, 0.10.18 live: the reconciliation gate fired and the
+# UNVERIFIED escalation shipped — and Orion still evaded the substance.
+# It took the mid-turn challenge, ran list_files on the PROJECT ROOT,
+# concluded "FRONTEND_HANDOFF.md dan invoiceflow.html tidak ditemukan",
+# and self-certified "fully follows standard responsive design…"). The
+# injection listed BARE file names, so a root-scoped listing legally
+# "proved" absence while the files sat in .orion/attachments/. The gate
+# now names the full relative paths and shares ONE anti-evasion
+# sentence with the checkpoint block (_kalimat_referensi_ada): the
+# attachments EXIST at those paths, and claiming absence without ever
+# calling read_file on the path is a false claim.
+BACKEND_VERSION = "0.10.19"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

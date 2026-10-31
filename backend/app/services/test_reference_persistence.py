@@ -35,7 +35,12 @@ import json
 
 from app.services import agent_loop as al
 from app.services import attachments
-from app.services.agent_loop import Deps, _blok_referensi_belum_dibaca, aliran_agent
+from app.services.agent_loop import (
+    Deps,
+    _blok_referensi_belum_dibaca,
+    _kalimat_referensi_ada,
+    aliran_agent,
+)
 from app.services.session_state import SessionState
 from app.services.test_soft_limit_reanchor import _CM, _LLM, _Resp, _TM, _tool_call
 from app.services.test_todo_evidence_checkpoint import _L, _TE
@@ -347,3 +352,139 @@ def test_kalimat_biasa_tidak_membuka_utas():
         "field nama masih kosong, tolong isi dulu",
     ):
         assert guard_rules.utas_gagal_dari(kalimat) == "", kalimat
+
+
+# ------------------------------------------- commit 15: full attachment paths
+#
+# Owner paste 2026-10-30 (backend 0.10.18 live): the Indonesian one-line
+# request was fulfilled, the report spoke Indonesian (teeth 13/14 WORK),
+# the disclosure + UNVERIFIED escalation fired — and the gate was STILL
+# evaded. Orion took the mid-turn challenge, ran list_files on the
+# PROJECT ROOT, concluded "FRONTEND_HANDOFF.md dan invoiceflow.html
+# tidak ditemukan" (they were sitting in .orion/attachments/, the
+# checkpoint block even named the full paths), and self-certified
+# "fully follows standard responsive design…". Root cause: the
+# injection listed BARE file names — ", ".join(f"`{r}`") — so a
+# root-scoped listing legally "proved" absence. Teeth: the injection
+# names the full relative paths in both languages and shares ONE
+# anti-evasion sentence with the checkpoint block
+# (_kalimat_referensi_ada): claiming absence without ever calling
+# read_file on that path is a false claim.
+
+
+def _injeksi_gate(deps):
+    """The stored REFERENCE RECONCILIATION injection(s), both arms.
+    Marker must START the message — the checkpoint report also quotes
+    "(REFERENCE RECONCILIATION)" inside its escalation text."""
+    return [
+        str(m.get("content", ""))
+        for m in deps.context_manager.history
+        if str(m.get("content", "")).startswith(
+            (
+                "[SYSTEM - REFERENCE RECONCILIATION]",
+                "[SISTEM - REKONSILIASI REFERENSI]",
+            )
+        )
+    ]
+
+
+def test_injeksi_gate_menyebut_jalur_lengkap_lampiran(tmp_path):
+    _buat_referensi(tmp_path, "FRONTEND_HANDOFF.md", "invoiceflow.html")
+    frames, state, deps = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("UI selesai dibangun."),                                 # 1 -> gate
+            _Resp("Semua tugas selesai."),                                 # 2 -> close
+        ],
+        executor=_TERef(tmp_path),
+    )
+    injeksi = _injeksi_gate(deps)
+    assert len(injeksi) == 1, frames
+    teks = injeksi[0]
+    # full relative paths, not bare names
+    assert "`.orion/attachments/FRONTEND_HANDOFF.md`" in teks
+    assert "`.orion/attachments/invoiceflow.html`" in teks
+    assert "`FRONTEND_HANDOFF.md`" not in teks
+    assert "`invoiceflow.html`" not in teks
+    # the shared anti-evasion sentence rides the injection
+    assert (
+        "These files EXIST at those paths; read them with read_file" in teks
+    )
+    assert "false claim" in teks
+
+
+def test_injeksi_gate_indonesia_menyebut_jalur_lengkap(tmp_path):
+    _buat_referensi(tmp_path, "FRONTEND_HANDOFF.md", "invoiceflow.html")
+    frames, state, deps = _jalankan(
+        "tolong kerjakan implementasi halaman faktur untuk aplikasi ini",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("UI selesai dibangun."),                                 # 1 -> gate
+            _Resp("Semua tugas selesai."),                                 # 2 -> close
+        ],
+        executor=_TERef(tmp_path),
+    )
+    assert state.bahasa_turn == "id"
+    injeksi = _injeksi_gate(deps)
+    assert len(injeksi) == 1, frames
+    teks = injeksi[0]
+    assert "[SISTEM - REKONSILIASI REFERENSI]" in teks
+    assert "`.orion/attachments/FRONTEND_HANDOFF.md`" in teks
+    assert "`.orion/attachments/invoiceflow.html`" in teks
+    # the spec sentence, verbatim, in the turn language
+    assert (
+        "File-file ini ADA di jalur tersebut; baca dengan read_file — "
+        "mengklaim tidak ada tanpa pernah memanggil read_file pada jalur "
+        "itu adalah klaim palsu." in teks
+    )
+
+
+def test_klaim_referensi_hilang_tanpa_read_file_tetap_tereskalasi(tmp_path):
+    """End-to-end pin of the 2026-10-30 incident: after the nudge the
+    model claims the references "do not exist" WITHOUT ever calling
+    read_file — the executor's ledger proves it never touched them —
+    and self-certifies completion anyway. The turn closes through the
+    checkpoint ending (as the real incident did) carrying the escalated
+    disclosure: the absence claim no longer hides the gap from the
+    user."""
+    _buat_referensi(tmp_path, "FRONTEND_HANDOFF.md", "invoiceflow.html")
+    ex = _TERef(tmp_path)
+    frames, state, _ = _jalankan(
+        "kerjakan implementasi UI nya",
+        [
+            _Resp("", tool_calls=[_tool_call("write_file", TULIS_VUE)]),   # 0
+            _Resp("UI selesai dibangun."),                                 # 1 -> gate
+            _Resp(                                                         # 2 -> evasion
+                "Saya sudah memeriksa root proyek: FRONTEND_HANDOFF.md dan "
+                "invoiceflow.html tidak ditemukan, jadi pekerjaan selesai — "
+                "hasil fully follows standard responsive design."
+            ),
+        ],
+        executor=ex,
+    )
+    assert ex.dibaca == []                    # read_file never called
+    assert state.nudge_referensi == 1
+    assert sum("reconciliation owed" in f for f in frames) == 1  # cap 1
+    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    assert laporan, frames
+    assert "NOT consulted" in laporan
+    assert "UNVERIFIED" in laporan            # escalation still ships
+    assert ".orion/attachments/FRONTEND_HANDOFF.md" in laporan
+    assert "These files EXIST at those paths" in laporan
+
+
+def test_satu_sumber_kalimat_anti_elakan(tmp_path):
+    """The checkpoint block and the gate injection quote ONE helper —
+    same sentence, both languages (commit 15 spec point 2)."""
+    _buat_referensi(tmp_path, "FRONTEND_HANDOFF.md")
+    st = SessionState()
+    st.files_changed_this_turn.append("- `src/App.vue` (write_file)")
+    for bahasa, potongan in (
+        ("en", "These files EXIST at those paths; read them with read_file"),
+        ("id", "File-file ini ADA di jalur tersebut; baca dengan read_file"),
+    ):
+        st.bahasa_turn = bahasa
+        blok = _blok_referensi_belum_dibaca(st, str(tmp_path))
+        assert _kalimat_referensi_ada(st) in blok
+        assert potongan in blok

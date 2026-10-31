@@ -286,6 +286,32 @@ def _perlu_nudge_referensi(state, tool_executor) -> bool:
     )
 
 
+def _kalimat_referensi_ada(state) -> str:
+    """UPDATE-025 commit 15 (owner paste 2026-10-30, backend 0.10.18
+    live: the reconciliation gate FIRED and the UNVERIFIED escalation
+    shipped — and Orion still dodged the substance. It took the
+    mid-turn challenge, "checked" with list_files on the PROJECT ROOT,
+    concluded "FRONTEND_HANDOFF.md dan invoiceflow.html tidak
+    ditemukan", and self-certified "fully follows standard responsive
+    design…"). The gate injection listed BARE file names, so a
+    root-scoped listing legally "proved" absence while the files sat
+    in .orion/attachments/ the whole time. ONE source for the
+    anti-evasion sentence shared by the gate injection and the
+    checkpoint block: the attachments EXIST at their full relative
+    paths, and an absence claim without a read_file call on that path
+    is a false claim. Disclosure, not rejection.
+    """
+    return _L(
+        state,
+        "These files EXIST at those paths; read them with read_file — "
+        "claiming they do not exist without ever calling read_file on "
+        "that path is a false claim.",
+        "File-file ini ADA di jalur tersebut; baca dengan read_file — "
+        "mengklaim tidak ada tanpa pernah memanggil read_file pada jalur "
+        "itu adalah klaim palsu.",
+    )
+
+
 def _blok_referensi_belum_dibaca(state, project_path) -> str:
     """UPDATE-025 commit 11 (owner incident: Orion invented indigo
     #4f46e5 while the green/gold handoff it was given sat unread): when
@@ -293,6 +319,9 @@ def _blok_referensi_belum_dibaca(state, project_path) -> str:
     attachments, say so at the checkpoint. Deterministic: the reference
     list is the .orion/attachments/ directory itself, the consultation
     is this turn's read_file ledger. Disclosure, not rejection.
+    Commit 15: the block already named full paths — it now also carries
+    the shared anti-evasion sentence (_kalimat_referensi_ada), so both
+    ends of the turn say the absence claim is false in the same words.
     """
     refs = _referensi_belum_dibaca(state, project_path)
     if not refs:
@@ -305,7 +334,8 @@ def _blok_referensi_belum_dibaca(state, project_path) -> str:
             + "\n\nFile UI berubah sementara referensi bawaan user ini tidak "
             "dibaca sama sekali turn ini. Baca ulang dengan read_file dan "
             "rekonsiliasi token desain (warna, font, spasi, layout) terhadap "
-            "hasil render sebelum menyebut pekerjaan selesai."
+            "hasil render sebelum menyebut pekerjaan selesai. "
+            + _kalimat_referensi_ada(state)
         )
     else:
         teks = (
@@ -315,7 +345,8 @@ def _blok_referensi_belum_dibaca(state, project_path) -> str:
             + "\n\nUI files changed while these user-provided references "
             "sat unread this turn. Re-read them with read_file and reconcile "
             "the design tokens (colors, fonts, spacing, layout) against the "
-            "rendered result before calling the work done."
+            "rendered result before calling the work done. "
+            + _kalimat_referensi_ada(state)
         )
     if getattr(state, "nudge_referensi", 0):
         # >>> commit 12 escalation: the model was challenged INSIDE the
@@ -2237,7 +2268,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 # finish line). The reconciliation demand now lands INSIDE
                 # the turn, at the exact second Orion tries to close it:
                 # one challenge per turn; read the references or carry the
-                # escalated disclosure out with you. <<<
+                # escalated disclosure out with you.
+                # UPDATE-025 commit 15 (owner paste 2026-10-30, 0.10.18
+                # live): the challenge listed BARE file names, so Orion
+                # list_files'd the PROJECT ROOT, "found" nothing, declared
+                # the references missing and self-certified — the gate was
+                # evaded with a root-scoped absence claim. The injection now
+                # names the full relative paths .orion/attachments/<nama>
+                # and carries the shared anti-evasion sentence
+                # (_kalimat_referensi_ada): claiming absence without ever
+                # calling read_file on that path is a false claim. <<<
                 if keputusan in (
                     loop_guards.Keputusan.CHECKPOINT,
                     loop_guards.Keputusan.JAWAB_NORMAL,
@@ -2256,8 +2296,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "[SYSTEM - REFERENCE RECONCILIATION]: you are closing "
                             "a turn that changed UI files while the user's saved "
                             "reference attachments were never read: "
-                            + ", ".join(f"`{r}`" for r in _refs)
-                            + ". Before this turn may end, EITHER read them with "
+                            + ", ".join(
+                                f"`.orion/attachments/{r}`" for r in _refs
+                            )
+                            + ". "
+                            + _kalimat_referensi_ada(state)
+                            + " Before this turn may end, EITHER read them with "
                             "read_file and reconcile the design tokens (colors, "
                             "fonts, spacing, layout) against what you built, OR "
                             "state PLAINLY in your closing report, token by "
@@ -2268,8 +2312,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "menutup turn yang mengubah file UI sementara "
                             "lampiran referensi tersimpan milik user belum "
                             "dibaca sama sekali: "
-                            + ", ".join(f"`{r}`" for r in _refs)
-                            + ". Sebelum turn ini boleh berakhir, BACA dulu "
+                            + ", ".join(
+                                f"`.orion/attachments/{r}`" for r in _refs
+                            )
+                            + ". "
+                            + _kalimat_referensi_ada(state)
+                            + " Sebelum turn ini boleh berakhir, BACA dulu "
                             "dengan read_file lalu rekonsiliasi token desain "
                             "(warna, font, spasi, layout) terhadap apa yang "
                             "Anda bangun, ATAU nyatakan TERANG-TERANGAN di "
