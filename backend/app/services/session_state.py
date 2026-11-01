@@ -188,14 +188,42 @@ class SessionState:
     terminal_ok: int = 0
     bukti_todo: dict = field(default_factory=dict)
     # >>> END OF hotfix-2 fields <<<
+    # >>> UPDATE-025 commit 25: verification-debt ledger + stagnation
+    # counters. InvoiceFlow transcript 2026-11-01: FOUR one-shot closing
+    # challenges fired in ONE closing sequence (reference gate, computed
+    # style, explicit tool order, visual claim) and the model paid all of
+    # them with a plain disclosure — the ordered Playwright check was
+    # never dispatched, zero browser calls in the whole transcript. A
+    # one-shot OR-branch tooth can be paid with words; a SESSION-scoped
+    # debt ledger makes the unpaid order ride the per-turn TASK ANCHOR
+    # (commit 24) until the check lands in a ledger or a decline about an
+    # OLDER debt reaches the user, and widens the iteration ceiling while
+    # it stays open. Per-turn caps stay 1: the philosophy (disclosure not
+    # rejection, no ritual loops) is untouched. <<<
+    debt_verifikasi: list = field(default_factory=list)
+    debt_disampaikan: list = field(default_factory=list)
+    turn_ke: int = 0
+    nir_mutasi_beruntun: int = 0
+    tulis_akhir_iterasi: int = 0
+    edit_gagal_beruntun: int = 0
+    tantang_stagnasi: int = 0
+    # >>> END OF UPDATE-025 commit 25 fields <<<
 
     def catat_file_berubah(self, entri: str) -> None:
         """Record one piece of real-work evidence (a successfully changed file)."""
         self.files_changed_this_turn.append(entri)
+        # >>> UPDATE-025 commit 25: a successful write breaks the
+        # failed-edit streak (the stagnation detector counts CONSECUTIVE
+        # failures; one success proves the loop is still working). <<<
+        self.edit_gagal_beruntun = 0
 
     def catat_edit_gagal(self, path: str, alasan: str) -> None:
         """Record ONE failed write_file/edit_file attempt (UPDATE-022 ledger)."""
         self._edit_urutan += 1
+        # >>> UPDATE-025 commit 25: consecutive-failure streak for the
+        # stagnation detector (transcript: 9 failed edits of App.jsx in
+        # one turn, read-edit-fail thrash across 12 compressions). <<<
+        self.edit_gagal_beruntun += 1
         self.edit_gagal.append(
             {"urutan": self._edit_urutan, "path": path, "alasan": alasan}
         )
@@ -204,6 +232,60 @@ class SessionState:
         """Record ONE successful write_file/edit_file (UPDATE-022 ledger)."""
         self._edit_urutan += 1
         self.edit_sukses.append({"urutan": self._edit_urutan, "path": path})
+        # >>> UPDATE-025 commit 25: success breaks the failure streak. <<<
+        self.edit_gagal_beruntun = 0
+
+    def cap_iterasi_maks(self, basis: int) -> int:
+        """UPDATE-025 commit 25: adaptive iteration ceiling.
+
+        ``basis + 4`` per OPEN verification debt: a turn that carries an
+        unpaid ordered verification gets room to actually perform it
+        (transcript 2026-11-01: the turn burned its budget on read-edit
+        thrash, then closed with the ordered check still undone). The
+        caller clamps to the safety brake; debts are session-scoped so a
+        carried debt widens the NEXT turn's ceiling too — paying it is
+        cheaper than carrying it.
+        """
+        return basis + 4 * len(self.debt_verifikasi)
+
+    def catat_debt_verifikasi(self, jenis: str, perintah: str) -> None:
+        """Open ONE verification debt (idempotent per jenis while open).
+
+        ``jenis``: gaya | perintah_tool | implementasi | nihil_mutasi |
+        stagnasi | stall. ``perintah``: the user's own ordered sentence,
+        verbatim-truncated — the anchor rides the USER's words, never a
+        vocabulary keyword (commit 23 lesson). Never raises: bookkeeping
+        must not kill a turn.
+        """
+        try:
+            if any(d.get("jenis") == jenis for d in self.debt_verifikasi):
+                return
+            self.debt_verifikasi.append(
+                {
+                    "jenis": jenis,
+                    "perintah": str(perintah)[:300],
+                    "turn_dibuat": self.turn_ke,
+                }
+            )
+        except Exception:  # noqa: BLE001 - ledger must never break a turn
+            pass
+
+    def utang_verifikasi_terbuka(self) -> list:
+        """Copies of the open debts (anchor + emitters read this)."""
+        return [dict(d) for d in self.debt_verifikasi]
+
+    def tutup_debt_verifikasi(self, jenis: str) -> bool:
+        """Close ONE open debt: evidence landed, or a decline about an
+        OLDER debt reached the user. Returns True when something closed.
+        """
+        sebelum = len(self.debt_verifikasi)
+        self.debt_verifikasi = [
+            d for d in self.debt_verifikasi if d.get("jenis") != jenis
+        ]
+        if len(self.debt_verifikasi) != sebelum:
+            self.debt_disampaikan.append(jenis)
+            return True
+        return False
 
     def edit_gagal_belum_pulih(self) -> list:
         """Failed edits that NEVER succeeded afterwards, oldest first.
@@ -269,6 +351,13 @@ class SessionState:
         self.edit_sukses = []
         self._edit_urutan = 0
         self.current_iter = 0
+        # >>> UPDATE-025 commit 25: per-turn stagnation counters reset;
+        # the debt ledger is SESSION-scoped and deliberately survives. <<<
+        self.nir_mutasi_beruntun = 0
+        self.tulis_akhir_iterasi = 0
+        self.edit_gagal_beruntun = 0
+        self.tantang_stagnasi = 0
+        self.turn_ke += 1
 
     def sisa_todo(self, todo_manager) -> list:
         """Todo items still pending/in_progress ([] when todo_manager is absent).

@@ -362,7 +362,26 @@ from pathlib import Path
 # commit whose every added/modified staged path is a build artifact is
 # REFUSED (ritual-commit guard: npm-build churn must never become
 # "perubahan telah disimpan").
-BACKEND_VERSION = "0.10.28"
+# Bumped 0.10.28 -> 0.10.29 for UPDATE-025 commit 25 (InvoiceFlow field
+# exam 2026-11-01: FOUR one-shot closing challenges fired in ONE closing
+# sequence and the model paid all of them with a plain disclosure — the
+# ordered Playwright check was never dispatched; ~10 failed edits thrashed
+# overlapping ranges across ~12 compressions): (1) a SESSION-scoped
+# verification-debt ledger — every closing challenge now opens a debt that
+# rides the per-turn TASK ANCHOR until a ledger entry pays it or a decline
+# about an OLDER debt reaches the user; the named-tool challenge gets a
+# SECOND shot per turn while zero browser calls exist; open debts widen the
+# iteration ceiling by 4 each; (2) a stagnation detector — 6+ no-mutation
+# iterations or 3+ consecutive failed writes on a mutation-verb task gets
+# ONE named-counts challenge per turn, and 12+/3+ together trips a circuit
+# breaker that stops the thrash with a debt recorded; (3) sub-agent
+# reliability — max iterations 6 -> 10, consecutive duplicate messages are
+# dropped at MiniContext.add (the wire shape providers reject as "Missing
+# corresponding tool call for tool response message"), and a dead sub-run
+# leaves its tool trace + last fragment as a usable partial summary;
+# (4) untagged planning monologue riding a tool-call message no longer
+# reaches the user frame (deterministic shape classifier).
+BACKEND_VERSION = "0.10.29"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

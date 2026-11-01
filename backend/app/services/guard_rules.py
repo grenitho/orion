@@ -218,6 +218,26 @@ def kalimat_perintah_kerja(teks: str) -> str:
     return _kalimat_pertama_berkata(teks, KATA_KERJA_MUTASI)
 
 
+def stagnasi_perlu_ditantang(
+    nir_mutasi_beruntun: int,
+    edit_gagal_beruntun: int,
+    sudah_ditantang: int,
+    maks_tantangan: int,
+) -> bool:
+    """UPDATE-025 commit 25: the stagnation-challenge decision. PURE.
+
+    Fires from SIX consecutive iterations without one successful mutation
+    OR THREE consecutive failed writes (the InvoiceFlow transcript of
+    2026-11-01 thrashed ~10 failed edits of ``App.jsx`` across overlapping
+    line ranges before closing unverified). One-shot per turn, same soft
+    philosophy as UPDATE-023: a challenge, not a loop.
+    """
+    return (
+        (nir_mutasi_beruntun >= 6 or edit_gagal_beruntun >= 3)
+        and sudah_ditantang < maks_tantangan
+    )
+
+
 def ada_penolakan_jujur(teks: str) -> bool:
     """The honest OR branch: the closing plainly says nothing changed.
     Such a closing must NEVER trip the zero-mutation challenge."""

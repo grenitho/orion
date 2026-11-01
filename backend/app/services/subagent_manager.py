@@ -126,7 +126,11 @@ CFG_MODELS = "subagent_models"
 # shares the same profile.
 ROLE_PROFILE_KEYS = {EXPLORER: "explorer", VERIFIER: "verifier", WORKER: "workers"}
 
-DEFAULT_MAX_ITER = 6
+# >>> UPDATE-025 commit 25 (transcript 2026-11-01): 6 iterations was proven
+# too thin — a sub-run that spends three rounds orienting leaves three for
+# the actual verification, and the verifier died mid-check. 10 keeps the
+# sub-run honest without inviting sprawl; the config cap (1..30) stands.
+DEFAULT_MAX_ITER = 10
 # >>> UPDATE-024 Commit 3: backoff for the single quiet retry a pinned
 # profile call gets on failure (see _llm_with_profile).
 PROFILE_RETRY_BACKOFF_SEC = 1.5
@@ -374,6 +378,18 @@ class MiniContext:
         self.history: list[dict] = []
 
     def add(self, role: str, content: str) -> None:
+        # >>> UPDATE-025 commit 25: drop a consecutive duplicate (same
+        # role, same content) — the 2026-11-01 transcript showed identical
+        # message pairs riding into one provider call, which is exactly
+        # the shape some providers reject as "Missing corresponding tool
+        # call for tool response message". Dedup at the door, not at the
+        # wire. <<<
+        if (
+            self.history
+            and self.history[-1].get("role") == role
+            and self.history[-1].get("content") == content
+        ):
+            return
         self.history.append({"role": role, "content": content})
 
     def messages(self) -> list[dict]:
@@ -625,7 +641,13 @@ async def run_subagent(
                 }
         status = "capped" if tool_calls else "error"
         return {
-            "summary": last_content or "(the sub-agent produced no report)",
+            # >>> UPDATE-025 commit 25: a dead sub-run still owes the
+            # caller whatever it learned — the tool trace and the last
+            # report fragment ARE a partial summary; "(no report)" erases
+            # work the caller could have used. <<<
+            "summary": last_content
+            or _salvage()
+            or "(the sub-agent produced no report)",
             "iterations": max_iter,
             "tool_calls": tool_calls,
             "status": status,

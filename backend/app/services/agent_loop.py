@@ -37,7 +37,7 @@ from typing import AsyncIterator, Callable
 import tiktoken
 
 from app.services import guard_rules, loop_guards, project_facts, research_rules
-from app.services import sse, tool_dispatch
+from app.services import sse, stream_utils, tool_dispatch
 from app.services import subagent_manager, tool_guards
 from app.services.llm_router import get_ai_response
 # >>> UPDATE-024 Commit 1: the jsonl writer moved to perf_log.py so
@@ -469,9 +469,16 @@ def _perlu_tantang_perintah_tool(state) -> bool:
     """UPDATE-025 commit 21: the owner ordered "kali ini gunakan mcp
     playwright untuk mengamati visual frontendnya" and Orion closed
     without a single browser call - twice. A named tool order may be
-    declined, but only plainly, never silently."""
+    declined, but only plainly, never silently.
+
+    UPDATE-025 commit 25 (transcript 2026-11-01): the single shot was
+    PAID WITH WORDS — one challenge, one disclosure, turn closed, zero
+    browser calls. While the named order still has ZERO browser calls the
+    cap becomes TWO: the second shot names the carrying debt. Once any
+    browser call lands the order is honoured and no shot is needed."""
+    cap = 2 if state.panggilan_browser_turn_ini == 0 else 1
     return (
-        state.tantang_perintah_tool < 1
+        state.tantang_perintah_tool < cap
         and bool(state.perintah_tool_eksplisit)
         and state.panggilan_browser_turn_ini == 0
     )
@@ -579,7 +586,46 @@ def _blok_gaya_tanpa_verifikasi(state, deps) -> str:
             "\n\nOrion sudah diingatkan di tengah turn (VERIFIKASI GAYA "
             "TERKOMPUTASI) namun tetap menutup tanpa menjalankannya.",
         )
+    # >>> UPDATE-025 commit 25: a gaya debt from an EARLIER turn closes
+    # here — this disclosure IS the plain decline about an older debt
+    # reaching the user (the OR branch paying out). A debt created THIS
+    # turn stays open: it rides the next turn's TASK ANCHOR. <<<
+    for _d in state.utang_verifikasi_terbuka():
+        if _d.get("jenis") == "gaya" and _d.get("turn_dibuat", 0) < state.turn_ke:
+            state.tutup_debt_verifikasi("gaya")
     return teks
+
+
+def _blok_debt_verifikasi(state) -> str:
+    """UPDATE-025 commit 25: end-of-turn twin for OPEN verification debts
+    OTHER than the computed-style one (that has its own emitter above).
+    Debts created THIS turn stay open (this block is the user's first
+    sight of them); debts created in an EARLIER turn close here — the
+    decline about an older debt reached the user, which is exactly the
+    OR branch paying out. Returns '' when nothing but gaya is open."""
+    terbuka = [
+        d for d in state.utang_verifikasi_terbuka() if d.get("jenis") != "gaya"
+    ]
+    if not terbuka:
+        return ""
+    baris = [
+        f"- [{d.get('jenis')}] \"{str(d.get('perintah', '')).strip()}\""
+        for d in terbuka[:6]
+    ]
+    for d in terbuka:
+        if d.get("turn_dibuat", 0) < state.turn_ke:
+            state.tutup_debt_verifikasi(str(d.get("jenis")))
+    return _L(
+        state,
+        "\n\n**⚠️ Verification debt still open:** the ordered checks below "
+        "were challenged this session but never landed in a ledger and "
+        "were never plainly declined — treat every related claim as "
+        "UNVERIFIED:\n" + "\n".join(baris),
+        "\n\n**⚠️ Utang verifikasi masih terbuka:** pemeriksaan berperintah "
+        "di bawah sudah ditantang sesi ini tetapi tidak pernah mendarat di "
+        "ledger dan tidak pernah ditolak terang-terangan — anggap setiap "
+        "klaim terkait BELUM TERVERIFIKASI:\n" + "\n".join(baris),
+    )
 
 
 def _blok_edit_gagal_akhir(state) -> str:
@@ -1017,7 +1063,7 @@ def _pesanan_verbatim(messages, batas: int = 3, lebar: int = 200) -> str:
     return "\n".join(kutip)
 
 
-def blok_jangkar_tugas(history, todo_manager=None) -> str:
+def blok_jangkar_tugas(history, todo_manager=None, debt=None) -> str:
     """UPDATE-025 commit 24: the per-turn TASK ANCHOR block.
 
     Rides the per-turn context message (like the inbox and findings
@@ -1030,7 +1076,12 @@ def blok_jangkar_tugas(history, todo_manager=None) -> str:
       3. a stale-ban override note, ONLY when a [SUMMARY OF PREVIOUS
          SESSION] message exists: workflow bans inside compressed
          history (e.g. "bypass Playwright") lose to the user's latest
-         explicit instruction.
+         explicit instruction,
+      4. UPDATE-025 commit 25: OPEN VERIFICATION DEBTS — the user's own
+         ordered sentences, unpaid from earlier turns (the 2026-11-01
+         transcript closed with an ordered Playwright check never
+         dispatched; a one-shot challenge paid with words must not be
+         the end of the story).
     Returns '' when there is nothing to anchor (byte-identical stream).
     """
     bagian: list = []
@@ -1053,6 +1104,20 @@ def blok_jangkar_tugas(history, todo_manager=None) -> str:
             bagian.append(
                 "OPEN TODOS (verbatim, still unfinished):\n" + "\n".join(baris)
             )
+    # >>> UPDATE-025 commit 25: verification debts ride the anchor —
+    # the user's OWN ordered sentences, unpaid. Anchored on the user's
+    # words, not a vocabulary keyword (commit 23 lesson). <<<
+    if debt:
+        baris = [
+            f"- [{d.get('jenis')}] {str(d.get('perintah', '')).strip()[:200]}"
+            for d in debt[:6]
+        ]
+        bagian.append(
+            "VERIFICATION DEBT (the user's own ordered sentences, still "
+            "UNPAID from earlier turns): perform the ordered check with the "
+            "named tool, OR decline it PLAINLY in your closing — carrying "
+            "it silently is not an option:\n" + "\n".join(baris)
+        )
     perintah: list = []
     lewati_current = False
     for msg in reversed(history or []):
@@ -1160,6 +1225,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
     if not isinstance(max_iter, int) or max_iter < 1:
         max_iter = 20
     max_iter = min(max_iter, 200)   # safety brake: prevent an endless loop
+    # >>> UPDATE-025 commit 25: adaptive ceiling — every OPEN verification
+    # debt widens the budget by 4 iterations so a debt carried from an
+    # earlier turn gets room to be PAID instead of re-disclosed. The
+    # safety brake still wins (min last). <<<
+    max_iter = min(max(max_iter, state.cap_iterasi_maks(max_iter)), 200)
 
     # >>> NEW: the token budget threshold is read from config, not hardcoded.
     # Match it to the actual model's context window (leave a buffer for output).
@@ -1274,6 +1344,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.tantang_nihil_mutasi = 0
         state.panggilan_browser_turn_ini = 0
         state.perintah_tool_eksplisit = ""
+        # >>> UPDATE-025 commit 25: per-turn stagnation counters reset and
+        # the turn index advances (debt AGE is measured in turns). The
+        # debt ledger itself is SESSION-scoped on purpose: an unpaid
+        # ordered verification must survive compression AND turn ends,
+        # riding the TASK ANCHOR until paid or plainly declined. <<<
+        state.turn_ke += 1
+        state.nir_mutasi_beruntun = 0
+        state.tulis_akhir_iterasi = 0
+        state.edit_gagal_beruntun = 0
+        state.tantang_stagnasi = 0
         for _m in reversed(getattr(deps.context_manager, "history", None) or []):
             if _m.get("role") != "user":
                 continue
@@ -1292,6 +1372,40 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # Never use `_` as a throwaway variable inside this loop
         # (see test_loop_counter_guard.py which guards this).
         for _ in range(max_iter):
+            # >>> UPDATE-025 commit 25: per-iteration mutation bookkeeping
+            # for the stagnation detector (PURE counters; the gate and the
+            # breaker live in loop_guards). A successful write anywhere in
+            # an iteration resets the streak at the NEXT top-of-loop; the
+            # transcript of 2026-11-01 thrashed ~10 failed edits of App.jsx
+            # across overlapping ranges while the counters below stayed
+            # honest about it. <<<
+            _tulis_kini = len(state.files_changed_this_turn)
+            if _ == 0 or _tulis_kini != state.tulis_akhir_iterasi:
+                state.nir_mutasi_beruntun = 0
+            else:
+                state.nir_mutasi_beruntun += 1
+            state.tulis_akhir_iterasi = _tulis_kini
+            # Circuit breaker: 12+ no-mutation iterations AND 3+ consecutive
+            # failed writes = thrash, not work. Stop burning the budget on
+            # the same read-edit-fail cycle; record the debt so the ordered
+            # verification rides the next turn's TASK ANCHOR.
+            if loop_guards.stagnasi_penuh(state):
+                state.catat_debt_verifikasi(
+                    "stall",
+                    state.permintaan_turn_ini or state.perintah_tool_eksplisit,
+                )
+                yield deps.kirim_status(
+                    _L(
+                        state,
+                        '🛑 Stagnation breaker: 12+ iterations without a '
+                        'successful mutation and 3+ consecutive failed '
+                        'writes - stopping the thrash, debt recorded...',
+                        '🛑 Pemutus stagnasi: 12+ iterasi tanpa mutasi sukses '
+                        'dan 3+ tulis gagal beruntun - thrash dihentikan, '
+                        'utang dicatat...',
+                    )
+                )
+                break
             # >>> STEP 1: DYNAMIC SLIDING WINDOW SUMMARIZE (INSIDE THE LOOP) <<<
             history = deps.context_manager.get_history()
             if len(history) > 20:
@@ -1886,7 +2000,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     cleaned = fix_over_escaped_text(
                         strip_thinking_blocks(msg.content)
                     )
-                    if cleaned:
+                    # >>> UPDATE-025 commit 25: untagged planning monologue
+                    # riding a TOOL-CALL message stays in context only (the
+                    # model's own memory) — the user frame gets the work,
+                    # not the mumbling ("Let's check git_diff … Wait, what
+                    # was the user's prompt…"). <<<
+                    if cleaned and not stream_utils.prose_perencanaan(cleaned):
                         yield sse.ev('token', text=cleaned + chr(10) + chr(10))
 
                 reasoning_content = getattr(msg, "reasoning_content", None)
@@ -2107,6 +2226,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 and not str(result).lstrip().startswith("[MCP")
                             ):
                                 state.gaya_diperiksa_turn_ini = True
+                                # >>> UPDATE-025 commit 25: the evidence
+                                # lands — pay the matching debt. <<<
+                                state.tutup_debt_verifikasi("gaya")
                             # >>> UPDATE-025 commit 21: any SUCCESSFUL
                             # browser-tool call counts towards honouring
                             # an explicit tool order; "[MCP …]" failures
@@ -2116,6 +2238,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 result
                             ).lstrip().startswith("[MCP"):
                                 state.panggilan_browser_turn_ini += 1
+                                # >>> UPDATE-025 commit 25: a successful
+                                # browser call honours a named tool order —
+                                # pay that debt too. <<<
+                                state.tutup_debt_verifikasi("perintah_tool")
                             # >>> UPDATE-025 hotfix-2: surface the shared
                             # pre-call notice (logging-first, per the
                             # reviewer's suggestion): log it AND prepend
@@ -2838,6 +2964,13 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     loop_guards.Keputusan.JAWAB_NORMAL,
                 ) and _perlu_nudge_gaya(state, deps):
                     state.nudge_gaya += 1
+                    # >>> UPDATE-025 commit 25: the challenge opening a
+                    # SESSION-scoped debt — the ordered check rides the
+                    # TASK ANCHOR until a ledger entry or a plain decline
+                    # about an OLDER debt pays it. <<<
+                    state.catat_debt_verifikasi(
+                        "gaya", state.permintaan_turn_ini
+                    )
                     _proj = getattr(deps.tool_executor, "project_path", ".")
                     _daftar_ref = ", ".join(
                         f"`.orion/attachments/{r}`"
@@ -3010,6 +3143,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     loop_guards.Keputusan.TANTANG_KLAIM,
                 ) and _perlu_tantang_klaim_implementasi(state, content):
                     state.tantang_klaim_implementasi += 1
+                    # >>> UPDATE-025 commit 25: debt ledger (see nudge_gaya). <<<
+                    state.catat_debt_verifikasi(
+                        "implementasi", state.permintaan_turn_ini
+                    )
                     _kutip = guard_rules.kalimat_klaim_implementasi(content)
                     deps.context_manager.add_message(
                         "assistant", content, reasoning_content=reasoning_content
@@ -3054,7 +3191,27 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     loop_guards.Keputusan.TANTANG_KLAIM,
                 ) and _perlu_tantang_perintah_tool(state):
                     state.tantang_perintah_tool += 1
+                    # >>> UPDATE-025 commit 25: debt ledger (see nudge_gaya). <<<
+                    state.catat_debt_verifikasi(
+                        "perintah_tool", state.perintah_tool_eksplisit
+                    )
                     _kutip = state.perintah_tool_eksplisit
+                    # >>> UPDATE-025 commit 25: the SECOND shot names the
+                    # carrying debt — closing again without the ordered
+                    # call sends it to the next turn's TASK ANCHOR. <<<
+                    _shot2 = (
+                        _L(
+                            state,
+                            " This is the SECOND and final chance this turn; "
+                            "close again without the ordered call and this "
+                            "debt rides the next turn's TASK ANCHOR.",
+                            " Ini kesempatan KEDUA dan terakhir turn ini; "
+                            "menutup lagi tanpa panggilan yang diperintahkan "
+                            "mengirim utang ini ke TASK ANCHOR turn berikut.",
+                        )
+                        if state.tantang_perintah_tool == 2
+                        else ""
+                    )
                     deps.context_manager.add_message(
                         "assistant", content, reasoning_content=reasoning_content
                     )
@@ -3080,7 +3237,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "dipakai dan apa yang Anda lakukan sebagai gantinya. "
                             "Tantangan ini dihasilkan dari ledger turn ini sendiri - "
                             "bukan simulasi.",
-                        ),
+                        )
+                        + _shot2,
                     )
                     yield deps.kirim_status(
                         _L(
@@ -3105,6 +3263,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     loop_guards.Keputusan.TANTANG_KLAIM,
                 ) and _perlu_tantang_nihil_mutasi(state, content):
                     state.tantang_nihil_mutasi += 1
+                    # >>> UPDATE-025 commit 25: debt ledger (see nudge_gaya). <<<
+                    state.catat_debt_verifikasi(
+                        "nihil_mutasi", state.permintaan_turn_ini
+                    )
                     _kutip = guard_rules.kalimat_perintah_kerja(
                         state.permintaan_turn_ini
                     )
@@ -3148,6 +3310,64 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             '🛑 Kerja diperintahkan tetapi nol file berubah '
                             'dan tiada penolakan terang - sunting sekarang '
                             'atau tolak terang-terangan...',
+                        )
+                    )
+                    continue
+                # >>> UPDATE-025 commit 25: the stagnation challenge.
+                # Ordered AFTER the zero-mutation arm so a thrashing turn
+                # (failed edits DO land in the ledger, unlike commit 23's
+                # empty-ledger case) still faces its own named counts.
+                # One shot per turn; the debt ledger carries the rest. <<<
+                if keputusan == loop_guards.Keputusan.TANTANG_STAGNASI:
+                    state.tantang_stagnasi += 1
+                    state.catat_debt_verifikasi(
+                        "stagnasi", state.permintaan_turn_ini
+                    )
+                    _kutip_kerja = guard_rules.kalimat_perintah_kerja(
+                        state.permintaan_turn_ini
+                    )
+                    deps.context_manager.add_message(
+                        "assistant", content, reasoning_content=reasoning_content
+                    )
+                    deps.context_manager.add_message(
+                        "user",
+                        _L(
+                            state,
+                            "[SYSTEM - STAGNATION CHALLENGE]: this turn shows "
+                            f"{state.nir_mutasi_beruntun} consecutive iterations "
+                            f"without ONE successful mutation and "
+                            f"{state.edit_gagal_beruntun} consecutive failed "
+                            "writes, while the instruction orders mutating work "
+                            "- \"" + _kutip_kerja + "\". Repeating the same "
+                            "read-edit cycle is not progress. BEFORE this turn "
+                            "may end, EITHER change strategy now (re-read the "
+                            "WHOLE region, use a smaller exact search block, or "
+                            "write_file the file fresh) and land the mutation, "
+                            "OR state PLAINLY which blocker stops it. This "
+                            "challenge is generated from the turn's own ledger "
+                            "- not a simulation.",
+                            "[SISTEM - TANTANGAN STAGNASI]: turn ini menunjukkan "
+                            f"{state.nir_mutasi_beruntun} iterasi beruntun tanpa "
+                            "SATU pun mutasi sukses dan "
+                            f"{state.edit_gagal_beruntun} tulis gagal beruntun, "
+                            "padahal instruksi memerintahkan kerja bermutasi - \""
+                            + _kutip_kerja + "\". Mengulang siklus baca-edit yang "
+                            "sama bukan kemajuan. SEBELUM turn ini boleh "
+                            "berakhir, GANTI strategi sekarang (baca ULANG "
+                            "seluruh regio, pakai blok search kecil yang persis, "
+                            "atau write_file ulang filenya) dan daratkan "
+                            "mutasinya, ATAU nyatakan TERANG-TERANGAN blocker "
+                            "apa yang menghentikannya. Tantangan ini dihasilkan "
+                            "dari ledger turn ini sendiri - bukan simulasi.",
+                        ),
+                    )
+                    yield deps.kirim_status(
+                        _L(
+                            state,
+                            '🐌 Stagnation detected - change strategy or name '
+                            'the blocker plainly...',
+                            '🐌 Stagnasi terdeteksi - ganti strategi atau sebut '
+                            'blocker terang-terangan...',
                         )
                     )
                     continue
@@ -3382,6 +3602,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # endings (the field closed on JAWAB_NORMAL and the
                         # owner saw nothing). <<<
                         checkpoint_report += _blok_todo_nol_bukti(state)
+                        # >>> UPDATE-025 commit 25: open verification debts
+                        # ride BOTH endings, same house rule as the todo
+                        # disclosure twin. <<<
+                        checkpoint_report += _blok_debt_verifikasi(state)
 
                         # >>> UPDATE-025 commit 1 (InvoiceFlow round 2,
                         # 2026-10-28): the user's OWN message named sub-agent
@@ -3642,6 +3866,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # >>> UPDATE-025 commit 23: todo zero-evidence
                         # disclosure rides BOTH endings now. <<<
                         _teks_jawab += _blok_todo_nol_bukti(state)
+                        # >>> UPDATE-025 commit 25: debt twin (see the
+                        # checkpoint ending). <<<
+                        _teks_jawab += _blok_debt_verifikasi(state)
                         # >>> UPDATE-025 commit 14: unrecovered failed edits
                         # named at the normal ending too (single emitter,
                         # both endings — no duplicate voice).

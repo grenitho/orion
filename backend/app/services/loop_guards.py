@@ -74,6 +74,14 @@ class Keputusan(Enum):
     # carries no root-cause/options wording gets ONE answer-first
     # challenge per turn. Proactivity as a gate, not a prompt wish.
     TANTANG_SARAN = auto()
+    # >>> UPDATE-025 commit 25 (InvoiceFlow transcript 2026-11-01): a
+    # completion claim on a mutation-verb task while the turn shows a
+    # stagnation pattern (6+ consecutive iterations without one successful
+    # mutation, OR 3+ consecutive failed writes) gets ONE challenge per
+    # turn naming the counts and ordering a strategy change. The transcript
+    # thrashed ~10 failed edits of App.jsx across overlapping line ranges,
+    # then closed with the ordered verification still undone. <<<
+    TANTANG_STAGNASI = auto()
     JAWAB_NORMAL = auto()   # ordinary answer: stream it, stop
     PAUSE_ITERASI = auto()  # short reply at the iteration cap: pause message, stop
     TERUSKAN = auto()       # short reply below the cap: store it, keep looping silently
@@ -117,6 +125,27 @@ def evaluasi_akhir_iterasi(
         maks_verifikasi,
     ):
         return Keputusan.TANTANG_EDIT_GAGAL
+
+    # Gate 5.5 (UPDATE-025 commit 25): stagnation-challenged closing. A
+    # completion claim on a mutation-verb task while the turn thrashes
+    # (6+ no-mutation iterations OR 3+ consecutive failed writes) gets ONE
+    # challenge per turn naming the counts — anchored on the user's own
+    # ordered sentence, like commit 23, so vocabulary dodging cannot evade
+    # it. Ordered AFTER the failure-thread gate so a closing carrying
+    # several sins faces them in fixed order, one interception per attempt.
+    if (
+        is_task_complete
+        and guard_rules.kalimat_perintah_kerja(
+            getattr(state, "permintaan_turn_ini", "")
+        )
+        and guard_rules.stagnasi_perlu_ditantang(
+            getattr(state, "nir_mutasi_beruntun", 0),
+            getattr(state, "edit_gagal_beruntun", 0),
+            getattr(state, "tantang_stagnasi", 0),
+            min(1, maks_verifikasi),
+        )
+    ):
+        return Keputusan.TANTANG_STAGNASI
 
     # Gate 3: a completion claim WITH hard evidence may close the task —
     # but only after the remaining todos are dealt with.
@@ -163,3 +192,16 @@ def evaluasi_akhir_iterasi(
 
     # Gate 6: an ordinary, sufficiently long answer.
     return Keputusan.JAWAB_NORMAL
+
+
+def stagnasi_penuh(state, *, ambang_nir: int = 12, ambang_gagal: int = 3) -> bool:
+    """UPDATE-025 commit 25 circuit breaker (PURE): the turn is thrashing,
+    not working — 12+ consecutive iterations without one successful
+    mutation AND 3+ consecutive failed writes. The loop breaks with a
+    verification debt instead of burning the rest of the budget on the
+    same read-edit-fail cycle (transcript: 10 failed edits, 12 compressions
+    in ONE turn, ordered check never dispatched)."""
+    return (
+        getattr(state, "nir_mutasi_beruntun", 0) >= ambang_nir
+        and getattr(state, "edit_gagal_beruntun", 0) >= ambang_gagal
+    )

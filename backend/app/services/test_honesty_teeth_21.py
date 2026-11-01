@@ -111,27 +111,37 @@ def test_klaim_implementasi_senyap_untuk_cabang_jujur(tmp_path):
 
 
 def test_perintah_tool_ditantang_bila_browser_nihil(tmp_path):
+    # >>> UPDATE-025 commit 25: the cap became TWO shots while zero
+    # browser calls exist (the 2026-11-01 transcript paid the single shot
+    # with a disclosure and closed). The scenario now walks BOTH shots
+    # and the carrying debt disclosed at the ending. <<<
     frames, state, deps = _jalankan(
         PERINTAH,
         [
             _Resp(KLAIM_IMPL),          # 0 -> ✍️ fires first
-            _Resp(KLAIM_IMPL),          # 1 -> ✍️ capped, 🔧 fires
+            _Resp(KLAIM_IMPL),          # 1 -> ✍️ capped, 🔧 shot 1 fires
             _Resp("Playwright tidak dipakai karena dev server mati; saya "
-                  "laporkan tanpa pengamatan browser."),   # 2 -> plain decline
+                  "laporkan tanpa pengamatan browser."),   # 2 -> 🔧 shot 2
+            _Resp("Playwright tidak dipakai karena dev server mati; saya "
+                  "laporkan tanpa pengamatan browser."),   # 3 -> cap: closes
         ],
         executor=_TERef(tmp_path),
         mcp=_MCP(),
     )
     assert state.tantang_klaim_implementasi == 1
-    assert state.tantang_perintah_tool == 1
+    assert state.tantang_perintah_tool == 2
     kutip = _injeksi(
         deps.context_manager.history,
         "[SYSTEM - EXPLICIT TOOL ORDER]",
         "[SISTEM - PERINTAH TOOL EKSPLISIT]",
     )
-    assert len(kutip) == 1
+    assert len(kutip) == 2
     assert PERINTAH in kutip[0]          # the user's own sentence, verbatim
-    assert sum("🔧" in f for f in frames) == 1
+    assert "kesempatan KEDUA" in kutip[1]  # shot 2 names the carrying debt
+    assert sum("🔧" in f for f in frames) == 2
+    # the unpaid order rides out of the turn as a disclosed debt
+    assert any("utang verifikasi masih terbuka" in f.lower() for f in frames)
+    assert any(d["jenis"] == "perintah_tool" for d in state.debt_verifikasi)
 
 
 def test_perintah_tool_senyap_bila_browser_dipakai(tmp_path):

@@ -1095,7 +1095,11 @@ async def chat_with_orion(request: ChatRequest):
         # override note. Built from the LIVE history (which already holds
         # this turn's request; the helper skips it) so compression can no
         # longer leave the model answering from a single turn.
-        + blok_jangkar_tugas(context_manager.get_history(), todo_manager),
+        + blok_jangkar_tugas(
+            context_manager.get_history(),
+            todo_manager,
+            state.utang_verifikasi_terbuka(),
+        ),
     }
 
     # >>> END OF CACHE OPTIMIZATION <<<
