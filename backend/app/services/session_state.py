@@ -207,6 +207,9 @@ class SessionState:
     tulis_akhir_iterasi: int = 0
     edit_gagal_beruntun: int = 0
     tantang_stagnasi: int = 0
+    # >>> UPDATE-025 commit 29: the instruction names getComputedStyle —
+    # a bare navigate must NOT honour the named order. <<<
+    perintah_butuh_gaya: bool = False
     # >>> END OF UPDATE-025 commit 25 fields <<<
 
     def catat_file_berubah(self, entri: str) -> None:
@@ -357,6 +360,7 @@ class SessionState:
         self.tulis_akhir_iterasi = 0
         self.edit_gagal_beruntun = 0
         self.tantang_stagnasi = 0
+        self.perintah_butuh_gaya = False
         self.turn_ke += 1
 
     def sisa_todo(self, todo_manager) -> list:

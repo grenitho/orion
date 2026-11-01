@@ -407,7 +407,16 @@ from pathlib import Path
 # now FULLY inverted — suppress by default, escape only for an honest
 # decline, a user-addressed note, or a direct question (catatan_untuk_user);
 # the reroute-path verb list also grew the make/use/try/write family.
-BACKEND_VERSION = "0.10.32"
+# Bumped 0.10.32 -> 0.10.33 for UPDATE-025 commit 29 (the 0.10.32
+# pure-verify exam): (1) leading planning paragraphs are stripped from
+# BOTH closings (the monologue migrated from tool-call messages to the
+# final answer's opening); (2) the assertion tooth — when the user's own
+# instruction names getComputedStyle, a bare navigate no longer honours
+# the named order: the challenge and the debt stay alive until the
+# computed-style ledger fills; (3) the turn-start scan anchors the
+# getComputedStyle sentence itself when no named-tool order sentence
+# exists.
+BACKEND_VERSION = "0.10.33"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

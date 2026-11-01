@@ -228,6 +228,26 @@ def kalimat_perintah_kerja(teks: str) -> str:
     return _kalimat_pertama_berkata(teks, KATA_KERJA_MUTASI)
 
 
+def perintah_verifikasi_gaya(teks: str) -> tuple:
+    """UPDATE-025 commit 29: (named-tool order sentence, does the
+    instruction order getComputedStyle evidence). The 0.10.32 pure-verify
+    exam proved a successful navigate ALONE 'honoured' the order while the
+    ordered computed-style assertions never ran — navigation is not
+    evidence. When the user's own text names getComputedStyle, the honour
+    condition tightens to the computed-style ledger; the anchor sentence
+    falls back to the getComputedStyle sentence so the challenge always
+    quotes the user, never a keyword."""
+    rendah = (teks or "").lower()
+    butuh = "getcomputedstyle" in rendah
+    perintah = kalimat_perintah_tool(teks or "")
+    if not perintah and butuh:
+        for kal in re.split(r"[\n;]+|\. ", teks or ""):
+            if "getcomputedstyle" in kal.lower():
+                perintah = kal.strip()[:300]
+                break
+    return perintah, butuh
+
+
 def stagnasi_perlu_ditantang(
     nir_mutasi_beruntun: int,
     edit_gagal_beruntun: int,

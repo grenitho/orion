@@ -497,11 +497,19 @@ def _perlu_tantang_perintah_tool(state) -> bool:
     browser calls. While the named order still has ZERO browser calls the
     cap becomes TWO: the second shot names the carrying debt. Once any
     browser call lands the order is honoured and no shot is needed."""
+    # >>> UPDATE-025 commit 29: honour = browser call AND, when the
+    # instruction names getComputedStyle, the computed-style ledger. A
+    # navigate-only turn keeps the challenge (and the debt) alive. <<<
+    butuh_gaya = getattr(state, "perintah_butuh_gaya", False)
+    honor = state.panggilan_browser_turn_ini > 0 and (
+        not butuh_gaya or getattr(state, "gaya_diperiksa_turn_ini", False)
+    )
+    if honor:
+        return False
     cap = 2 if state.panggilan_browser_turn_ini == 0 else 1
     return (
         state.tantang_perintah_tool < cap
         and bool(state.perintah_tool_eksplisit)
-        and state.panggilan_browser_turn_ini == 0
     )
 
 
@@ -1375,13 +1383,20 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.tulis_akhir_iterasi = 0
         state.edit_gagal_beruntun = 0
         state.tantang_stagnasi = 0
+        state.perintah_butuh_gaya = False
         for _m in reversed(getattr(deps.context_manager, "history", None) or []):
             if _m.get("role") != "user":
                 continue
             _teks = str(_m.get("content", ""))
             if _teks.startswith(("[SYSTEM", "[SISTEM")):
                 continue
-            state.perintah_tool_eksplisit = guard_rules.kalimat_perintah_tool(_teks)
+            # >>> UPDATE-025 commit 29: the scan now also asks whether the
+            # instruction orders getComputedStyle evidence, with the
+            # anchor sentence falling back to the getComputedStyle
+            # sentence itself. <<<
+            _p29, _butuh29 = guard_rules.perintah_verifikasi_gaya(_teks)
+            state.perintah_tool_eksplisit = _p29
+            state.perintah_butuh_gaya = _butuh29
             break
         _utas_baru = guard_rules.utas_gagal_dari(state.permintaan_turn_ini)
         if _utas_baru:
@@ -3695,7 +3710,13 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
 
                         # Show the checkpoint report in chat
-                        yield sse.ev('token', text=strip_thinking_blocks(content) + checkpoint_report)
+                        yield sse.ev(
+                            'token',
+                            text=stream_utils.buang_paragraf_perencanaan_awal(
+                                strip_thinking_blocks(content)
+                            )
+                            + checkpoint_report,
+                        )
 
                         # Save to context
                         deps.context_manager.add_message(
@@ -3870,7 +3891,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # (read-only turns, post-pause resumes) carry the
                         # single merged delegation block — fate-accurate,
                         # claim-aware, never duplicated. <<<
-                        _teks_jawab = strip_thinking_blocks(content)
+                        _teks_jawab = stream_utils.buang_paragraf_perencanaan_awal(
+                            strip_thinking_blocks(content)
+                        )
                         # >>> UPDATE-025 commit 9: the persistence fact rides
                         # BEFORE the thread can close; closing needs the
                         # model's own advisory wording, checked on `content`.

@@ -84,9 +84,15 @@ _TOKEN_TOOL = (
 # >>> Commit 27: boundary-aware — the bare substrings "here are"/"berikut"
 # false-positived inside "there are any pending todos" and "langkah
 # berikutnya", letting monologue escape as user-addressed. <<<
+# >>> UPDATE-025 commit 29: the presentational markers (" here is",
+# " here are", "ini adalah", "ringkasan", "summary") were substring-
+# matched and false-positived mid-sentence — the 0.10.32 exam's planning
+# paragraph said "live total summary row" (an InvoiceFlow UI element
+# name, not a user address) and escaped the stripper. They still escape
+# at TEXT START via _PENANDA_AWAL; only genuinely user-addressed markers
+# remain in the substring scan. <<<
 _PENANDA_UNTUK_USER = (
-    "anda", "kamu", " you", " your", " here is", " here are",
-    "ini adalah", "ringkasan", "summary", "jawab:", "answer:",
+    "anda", "kamu", " you", " your", "jawab:", "answer:",
 )
 _PENANDA_AWAL = (
     "here is", "here are", "berikut", "ini adalah", "ringkasan", "summary",
@@ -149,3 +155,23 @@ def catatan_untuk_user(teks: str) -> bool:
     if any(m in low for m in _PENANDA_UNTUK_USER):
         return True
     return t.rstrip().endswith("?")
+
+
+def buang_paragraf_perencanaan_awal(teks: str) -> str:
+    """UPDATE-025 commit 29: strip LEADING planning paragraphs from a
+    closing text. The 0.10.32 exam's final answer opened with four
+    "Let's …" monologue paragraphs before the real report; the tool-call
+    gate does not apply to closings and the reroute predicate caps at 600
+    chars per blob. Paragraph-wise stripping keeps every existing escape
+    (decline / user-addressed / question) intact; when EVERY paragraph
+    would be stripped the original is returned untouched — an empty
+    answer is never emitted."""
+    if not teks:
+        return teks
+    par = teks.split("\n\n")
+    i = 0
+    while i < len(par) and prose_perencanaan(par[i]):
+        i += 1
+    if i == 0 or i == len(par):
+        return teks
+    return "\n\n".join(par[i:]).lstrip()
