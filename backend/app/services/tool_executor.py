@@ -233,9 +233,26 @@ class ToolExecutor:
 
     @staticmethod
     def _tulis_ke_disk(full_path: str, content: str) -> None:
-        """The single disk-write seam (monkeypatched by the unchanged-file tests)."""
-        with open(full_path, "w", encoding="utf-8") as f:
+        """The single disk-write seam (monkeypatched by the unchanged-file
+        tests). UPDATE-025 commit 22 (owner Windows pytest, 2026-11-01):
+        newline="" disables the text-mode translation that turned every
+        LF into os.linesep on Windows - callers now hand over the EXACT
+        bytes they want (edit_file re-casts into the file's own style
+        first), so a file's line endings survive an edit on ANY platform."""
+        with open(full_path, "w", encoding="utf-8", newline="") as f:
             f.write(content)
+
+    @staticmethod
+    def _gaya_line_ending(full_path: str) -> str:
+        """UPDATE-025 commit 22: the dominant line ending currently on
+        disk. edit_file reads through universal newlines (CRLF -> LF in
+        memory), so without this the file's own style is forgotten before
+        the write."""
+        try:
+            with open(full_path, "rb") as f:
+                return "\r\n" if b"\r\n" in f.read() else "\n"
+        except OSError:
+            return "\n"
 
     @staticmethod
     def _baca_untuk_bukti(full_path: str):
@@ -261,7 +278,10 @@ class ToolExecutor:
         if sesudah is not None and (sebelum is None or sesudah != sebelum):
             return None
         aktual = self._baca_untuk_bukti(full_path)
-        if aktual is not None and aktual == content_baru:
+        # >>> UPDATE-025 commit 22: the proof read normalizes newlines while
+        # content_baru may now carry the file's CRLF style; compare in the
+        # same (LF) space or a healthy same-tick rewrite reads as a no-op. <<<
+        if aktual is not None and aktual == content_baru.replace("\r\n", "\n"):
             return (
                 f"Success: File '{file_path}' verified on disk with EXACTLY the "
                 f"intended content (mtime did not move — either the file already "
@@ -335,6 +355,10 @@ class ToolExecutor:
         except Exception as e:
             return f"Error reading file: {e!s}"
 
+        # >>> UPDATE-025 commit 22: remember the on-disk style BEFORE the
+        # universal-newline read hides it; the write below restores it. <<<
+        gaya = self._gaya_line_ending(abs_path)
+
         # Regex to extract the SEARCH and REPLACE blocks
         # Expected format:
         # <<<<<<< SEARCH
@@ -406,7 +430,12 @@ class ToolExecutor:
             # write; a stale file comes back as an explicit Error (see
             # _putusan_bukti) instead of a Success the model could misread.
             sebelum = self._stat_bukti(abs_path)
-            self._tulis_ke_disk(abs_path, new_content)
+            self._tulis_ke_disk(
+                abs_path,
+                new_content
+                if gaya == "\n"
+                else new_content.replace("\n", "\r\n"),
+            )
             sesudah = self._stat_bukti(abs_path)
         except Exception as e:
             return f"Error writing file: {e!s}"

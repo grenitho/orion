@@ -322,7 +322,19 @@ from pathlib import Path
 # ("gunakan mcp playwright ...") and the ledger holds zero successful
 # browser/MCP calls: run it now or say plainly why not. Negation-aware
 # keywords keep the honest OR branches silent.
-BACKEND_VERSION = "0.10.25"
+# Bumped 0.10.25 -> 0.10.26 for UPDATE-025 commit 22 (owner Windows pytest
+# 2026-11-01: 4 red tests on the 0.10.24/0.10.25 series): cross-platform
+# determinism for the execution layer. (1) edit_file now PRESERVES the
+# file's line-ending style on every platform - the write seam opens with
+# newline="" (the old text-mode write translated every LF to os.linesep on
+# Windows, so LF files silently became CRLF there and CRLF files silently
+# became LF on POSIX) and _gaya_line_ending remembers the on-disk style the
+# universal-newline read hides; (2) the disk-evidence comparison normalizes
+# both sides so a healthy CRLF rewrite can no longer read as a no-op;
+# (3) the empty-stdout test fixture uses a cross-platform command instead
+# of the POSIX-only `true`. No behaviour change on honest paths; the
+# honesty teeth of 0.10.25 are untouched.
+BACKEND_VERSION = "0.10.26"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

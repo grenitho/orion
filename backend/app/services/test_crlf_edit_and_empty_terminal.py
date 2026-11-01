@@ -15,7 +15,14 @@ InvoiceFlow exam (field transcript 2026-10-31):
 
 from __future__ import annotations
 
+import sys
+
 from app.services.tool_executor import ToolExecutor
+
+# Cross-platform "exit 0, empty stdout" fixture: the POSIX shell builtin
+# `true` does not exist under Windows cmd, so the empty-stdout diagnostics
+# were never reachable there (owner pytest, 2026-11-01: 4 red tests).
+PERINTAH_KOSONG = f'"{sys.executable}" -c "pass"'
 
 DIFF_LF = (
     "<<<<<<< SEARCH\n"
@@ -43,23 +50,31 @@ def _ex(tmp_path) -> ToolExecutor:
 
 def test_edit_file_file_crlf_blok_lf_berhasil_dan_gaya_dipertahankan(tmp_path):
     ex = _ex(tmp_path)
-    ex.write_file("app.jsx", "header\r\nwarna = 'gelap'\r\nfooter\r\n")
+    # raw-bytes fixture: write_file's text-mode write would translate the
+    # embedded \n and corrupt the intended CRLF style on Windows
+    (tmp_path / "app.jsx").write_bytes(
+        b"header\r\nwarna = 'gelap'\r\nfooter\r\n"
+    )
     hasil = ex.edit_file("app.jsx", DIFF_LF)
     assert hasil.startswith("Success: edited file")
     isi = open(tmp_path / "app.jsx", "rb").read().decode("utf-8")
     assert "warna = 'terang'" in isi
-    # POSIX pin: the read path normalizes CRLF->LF (universal newlines) and
-    # the write path keeps LF, so an edited CRLF file normalizes here; on
-    # Windows the text-mode write translates back to CRLF (os.linesep).
-    assert isi == "header\nwarna = 'terang'\nfooter\n"
+    # UPDATE-025 commit 22: style preservation is now CROSS-PLATFORM - the
+    # style-preserving write seam (newline="") keeps CRLF on Linux too, so
+    # this pin holds identically on Windows and POSIX.
+    assert isi == "header\r\nwarna = 'terang'\r\nfooter\r\n"
 
 
 def test_edit_file_file_lf_blok_crlf_berhasil_dan_tetap_lf(tmp_path):
     ex = _ex(tmp_path)
-    ex.write_file("app.jsx", "header\nwarna = 'gelap'\nfooter\n")
+    (tmp_path / "app.jsx").write_bytes(
+        b"header\nwarna = 'gelap'\nfooter\n"
+    )
     hasil = ex.edit_file("app.jsx", DIFF_CRLF)
     assert hasil.startswith("Success: edited file")
     isi = open(tmp_path / "app.jsx", "rb").read().decode("utf-8")
+    # commit 22: on Windows the old text-mode write forced CRLF here; the
+    # style-preserving seam keeps LF on BOTH platforms now.
     assert isi == "header\nwarna = 'terang'\nfooter\n"
 
 
@@ -103,7 +118,7 @@ def test_edit_file_gagal_memberi_panduan_baca_ulang_regio(tmp_path):
 
 
 def test_run_terminal_stdout_kosong_menyebut_sangkaan_quoting(tmp_path):
-    hasil = _ex(tmp_path).run_terminal("true")
+    hasil = _ex(tmp_path).run_terminal(PERINTAH_KOSONG)
     assert "stdout was EMPTY" in hasil
     assert "nested quotes" in hasil
     assert hasil != "Success, no output."
@@ -117,7 +132,7 @@ def test_run_terminal_beroutput_tetap_dikembalikan_apa_adanya(tmp_path):
 def test_run_terminal_exit_nol_kosong_tetap_dihitung_terminal_ok(tmp_path):
     """The agent loop counts non-error terminal results as work evidence;
     an empty-but-successful run still RAN, so the count must not change."""
-    hasil = _ex(tmp_path).run_terminal("true")
+    hasil = _ex(tmp_path).run_terminal(PERINTAH_KOSONG)
     assert not hasil.startswith(("Error", "❌", "[REJECTED"))
 
 
