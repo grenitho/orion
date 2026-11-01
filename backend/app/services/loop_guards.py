@@ -141,6 +141,8 @@ def evaluasi_akhir_iterasi(
         and guard_rules.stagnasi_perlu_ditantang(
             getattr(state, "nir_mutasi_beruntun", 0),
             getattr(state, "edit_gagal_beruntun", 0),
+            len(getattr(state, "edit_gagal", []))
+            + len(getattr(state, "edit_sukses", [])),
             getattr(state, "tantang_stagnasi", 0),
             min(1, maks_verifikasi),
         )

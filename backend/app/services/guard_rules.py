@@ -205,6 +205,16 @@ KATA_PENOLAKAN_JUJUR = (
     "tidak ada perubahan",
     "tidak mengubah",
     "belum ada pengerjaan",
+    "tidak dipakai",
+    "tidak digunakan",
+    "tidak dijalankan",
+    "tidak dapat",
+    "tidak bisa",
+    "tanpa pengamatan",
+    "cannot",
+    "could not",
+    "was not used",
+    "not used",
     "nothing was changed",
     "no changes",
     "nothing changed",
@@ -221,6 +231,7 @@ def kalimat_perintah_kerja(teks: str) -> str:
 def stagnasi_perlu_ditantang(
     nir_mutasi_beruntun: int,
     edit_gagal_beruntun: int,
+    percobaan_edit: int,
     sudah_ditantang: int,
     maks_tantangan: int,
 ) -> bool:
@@ -229,11 +240,17 @@ def stagnasi_perlu_ditantang(
     Fires from SIX consecutive iterations without one successful mutation
     OR THREE consecutive failed writes (the InvoiceFlow transcript of
     2026-11-01 thrashed ~10 failed edits of ``App.jsx`` across overlapping
-    line ranges before closing unverified). One-shot per turn, same soft
-    philosophy as UPDATE-023: a challenge, not a loop.
+    line ranges before closing unverified). Commit 26: the nir-mutation
+    branch also needs at least ONE edit attempt this turn — a pure
+    read/verify turn (revisions already in place) must not be punished.
+    One-shot per turn, same soft philosophy as UPDATE-023: a challenge,
+    not a loop.
     """
     return (
-        (nir_mutasi_beruntun >= 6 or edit_gagal_beruntun >= 3)
+        (
+            (nir_mutasi_beruntun >= 6 and percobaan_edit > 0)
+            or edit_gagal_beruntun >= 3
+        )
         and sudah_ditantang < maks_tantangan
     )
 

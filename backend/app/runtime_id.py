@@ -381,7 +381,16 @@ from pathlib import Path
 # leaves its tool trace + last fragment as a usable partial summary;
 # (4) untagged planning monologue riding a tool-call message no longer
 # reaches the user frame (deterministic shape classifier).
-BACKEND_VERSION = "0.10.29"
+# Bumped 0.10.29 -> 0.10.30 for UPDATE-025 commit 26 (the 0.10.29 re-exam
+# transcript): (1) prose classifier v3 — any-sentence planning opener plus
+# a user-addressed escape hatch; the user frame gets the work, not the
+# mumbling; (2) browser-call fate accuracy — an error-shaped result
+# (file: blocked, net::, refused) no longer counts as honouring a named
+# order nor closes its debt (compliance theater paid the tooth once);
+# (3) the stagnation nir-mutation branch now requires at least one edit
+# attempt, so pure read/verify turns stay silent; (4) a planning-monologue
+# "answer" is rerouted to TERUSKAN while iteration budget remains.
+BACKEND_VERSION = "0.10.30"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

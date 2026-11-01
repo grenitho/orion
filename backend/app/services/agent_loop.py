@@ -433,6 +433,26 @@ def _token_desain_dari_referensi(project_path, maks: int = 14) -> list:
     return token
 
 
+def _browser_hasil_sukses(result) -> bool:
+    """UPDATE-025 commit 26: a browser call honours a named order ONLY
+    when its result is not an error-shaped payload. The 0.10.29 re-exam
+    showed compliance theater: a navigate that died on the file: protocol
+    came back as a plain result string, counted as 'order honoured', and
+    closed the perintah_tool debt prematurely."""
+    teks = str(result or "")
+    if teks.lstrip().startswith("[MCP"):
+        return False
+    low = teks[:400].lower()
+    return not any(
+        m in low
+        for m in (
+            "error:", "error ", "failed", "failure", "blocked",
+            "refused", "timeout", "err_", "cannot navigate",
+            "protocol is blocked", "net::",
+        )
+    )
+
+
 def _perlu_nudge_gaya(state, deps) -> bool:
     """UPDATE-025 commit 17: one COMPUTED-STYLE VERIFICATION challenge
     per turn — UI changed, saved references exist, browser MCP tools
@@ -2223,7 +2243,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             if (
                                 "__browser_evaluate" in str(func_name)
                                 and "getComputedStyle" in str(func_args)
-                                and not str(result).lstrip().startswith("[MCP")
+                                and _browser_hasil_sukses(result)
                             ):
                                 state.gaya_diperiksa_turn_ini = True
                                 # >>> UPDATE-025 commit 25: the evidence
@@ -2234,9 +2254,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             # an explicit tool order; "[MCP …]" failures
                             # do not (same fate-accuracy rule as the
                             # computed-style ledger above). <<<
-                            if "__browser_" in str(func_name) and not str(
-                                result
-                            ).lstrip().startswith("[MCP"):
+                            if "__browser_" in str(func_name) and (
+                                _browser_hasil_sukses(result)
+                            ):
                                 state.panggilan_browser_turn_ini += 1
                                 # >>> UPDATE-025 commit 25: a successful
                                 # browser call honours a named tool order —
@@ -2864,6 +2884,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     maks_nudge=MAX_TODO_NUDGE,
                     maks_verifikasi=MAX_VERIFIKASI,
                 )
+                # >>> UPDATE-025 commit 26: a planning-monologue "answer"
+                # is not an answer. While budget remains, route it back
+                # silently (TERUSKAN) so the mumbling neither closes the
+                # turn nor reaches the user frame. <<<
+                if (
+                    keputusan == loop_guards.Keputusan.JAWAB_NORMAL
+                    and stream_utils.prose_perencanaan(content)
+                    and _ + 1 < max_iter
+                ):
+                    keputusan = loop_guards.Keputusan.TERUSKAN
                 # >>> UPDATE-025 commit 12 (owner incident 2026-10-30: the
                 # checkpoint disclosure FIRED — "references NOT consulted" —
                 # and Orion still opened with "semua tugas selesai dan

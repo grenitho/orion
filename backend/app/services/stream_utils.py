@@ -17,7 +17,10 @@ Guarded behaviour:
 from __future__ import annotations
 
 import json
+import re
 from typing import AsyncIterator
+
+from app.services import guard_rules
 
 PENANDA_DONE = '{"type": "done"}'
 
@@ -43,42 +46,69 @@ async def jamin_done(aliran: AsyncIterator[str], logger=None) -> AsyncIterator[s
         yield buat_event_done()
 
 
-# >>> UPDATE-025 commit 25: planning-prose stripper (InvoiceFlow transcript
-# 2026-11-01: "Let's check git_diff … Wait, what was the user's prompt…"
-# leaked into the user frame as the content of a TOOL-CALL message). The
-# <thinking> stripper only removes PAIRED tags; this catches untagged
-# monologue by SHAPE: a planning opener + a planning verb or a tool token,
-# short, and carrying no user-facing markup. Deterministic on purpose —
-# a vocabulary wish in the prompt is not a tooth. <<<
+# >>> UPDATE-025 commit 25+26: planning-prose stripper (InvoiceFlow
+# transcripts 2026-11-01: "Let's check git_diff … Wait, what was the user's
+# prompt…" AND, on the 0.10.29 re-exam, "Ah, read_file … was truncated.
+# Let's use search_code…"). The <thinking> stripper only removes PAIRED
+# tags; this catches untagged monologue by SHAPE. Commit 26 INVERTS the
+# default for tool-call message content: the user frame gets the work,
+# not the mumbling — content is suppressed unless it clearly addresses
+# the user (question, second-person, summary markers, user-facing
+# markup). Deterministic on purpose — a vocabulary wish in the prompt is
+# not a tooth. <<<
 _OPENER_PERENCANAAN = (
-    "let's", "let me", "i'll", "i will", "first,", "wait,", "wait —",
-    "hmm,", "okay,", "ok,", "now,", "next,",
-    "saya akan", "mari kita", "coba ", "oke,", "pertama,",
+    "let's", "let me", "i'll", "i will", "i ", "i'", "we ", "we'", "first,",
+    "first ", "wait,", "wait ", "wait —", "hmm,", "hmm ", "okay,", "okay ",
+    "ok,", "ok ", "now,", "now ", "next,", "next ", "ah,", "ah ", "aha",
+    "yes,", "yes ", "so,", "so ", "right,", "right ", "good,", "good ",
+    "nice,", "nice ", "here ", "there ", "since", "because", "since ",
+    "saya akan", "saya ", "kami ", "mari kita", "coba ", "oke,", "oke ",
+    "pertama,", "pertama ", "tunggu,", "tunggu ", "hmm,", "baik,", "baik ",
 )
 _VERB_RENCANA = (
     "check", "read", "run", "verify", "look", "search", "grep", "open",
-    "inspect", "compare", "cek", "baca", "jalankan", "periksa", "cari",
-    "lihat", "bandingkan",
+    "inspect", "compare", "call", "navigate", "snapshot", "close",
+    "cek", "baca", "jalankan", "periksa", "cari", "lihat", "bandingkan",
+    "panggil", "tutup",
 )
 _TOKEN_TOOL = (
     "git_diff", "git_status", "git_commit", "read_file", "edit_file",
     "write_file", "search", "grep", "terminal", "bash", "playwright",
-    "mcp", "todo", "app.jsx",
+    "mcp", "todo", "app.jsx", "uvicorn", "npm", "pytest", "browser_",
+)
+# Markers that mean the text IS user-facing: keep it in the chat frame.
+_PENANDA_UNTUK_USER = (
+    "anda", "kamu", " you", "your ", "berikut", "here is", "here are",
+    "ini adalah", "ringkasan", "summary", "jawab:", "answer:",
 )
 
 
 def prose_perencanaan(teks: str) -> bool:
-    """True when a tool-call message's content is pure planning monologue
-    that must stay OUT of the user frame (the context keeps the raw text,
-    so the model still remembers its own plan)."""
+    """True when a tool-call message's content is planning monologue that
+    must stay OUT of the user frame (the context keeps the raw text, so
+    the model still remembers its own plan). Commit 26: shape-based with
+    an escape hatch for genuinely user-addressed notes; a single planning
+    sentence anywhere in a short, markup-free, non-addressed text marks
+    the whole blob (the leak shape: observation sentence followed by
+    "Let's …")."""
     t = (teks or "").strip()
     if not t or len(t) > 600:
         return False
     low = t.lower()
-    if not low.startswith(_OPENER_PERENCANAAN):
+    # >>> The honest OR branch outranks the stripper: a plain decline must
+    # ALWAYS reach the user frame, never be rerouted as mumbling. <<<
+    if guard_rules.ada_penolakan_jujur(t):
         return False
-    if any(m in t for m in ("```", "\n#", "\n-", "| ", "**")):
+    if any(m in low for m in _PENANDA_UNTUK_USER):
         return False
-    return any(v in low for v in _VERB_RENCANA) or any(
-        v in low for v in _TOKEN_TOOL
-    )
+    if any(m in t for m in ("```", "\n#", "\n-", "| ", "**", "\n1.", "\n2.")):
+        return False
+    if not (any(v in low for v in _VERB_RENCANA)
+            or any(v in low for v in _TOKEN_TOOL)):
+        return False
+    kalimat = [
+        s.strip().lower()
+        for s in re.split(r"[\n;]+|\.\s", t)
+        if s.strip()
+    ]
+    return any(k.startswith(_OPENER_PERENCANAAN) for k in kalimat)

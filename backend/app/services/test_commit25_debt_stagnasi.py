@@ -126,6 +126,8 @@ def _klaim_state(**kw):
         files_changed_this_turn=["frontend/src/App.jsx"],
         nir_mutasi_beruntun=6,
         edit_gagal_beruntun=3,
+        edit_gagal=[{"urutan": 1, "path": "a.jsx", "alasan": "x"}],
+        edit_sukses=[{"urutan": 2, "path": "a.jsx"}],  # recovered: Gate 2 silent
     )
     base.update(kw)
     return _state(**base)
