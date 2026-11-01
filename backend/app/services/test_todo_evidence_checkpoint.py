@@ -73,9 +73,14 @@ def _jalankan(responses, todos):
     return frames, deps
 
 
-TODO_AWAL = [{"id": "1", "text": "Implementasikan UI interaktif", "status": "pending"}]
+# >>> UPDATE-025 commit 23: verify-shaped text. An EDIT-shaped todo
+# ("Implementasikan ...") completed over an empty mutation ledger is now
+# REFUSED at the tool (test_nihil_mutasi_23 pins that contract); the
+# checkpoint disclosure contract is pinned with a verify-shaped item,
+# whose evidence model remains disclosure, not refusal.
+TODO_AWAL = [{"id": "1", "text": "Verifikasi UI interaktif", "status": "pending"}]
 SELESAI = (
-    '{"todos": [{"id": "1", "text": "Implementasikan UI interaktif", '
+    '{"todos": [{"id": "1", "text": "Verifikasi UI interaktif", '
     '"status": "completed"}]}'
 )
 TULIS = '{"file_path": "IMPLEMENTATION_STATUS.md", "content": "status"}'

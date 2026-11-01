@@ -163,6 +163,11 @@ class SessionState:
     # the order unexecuted. <<<
     tantang_klaim_implementasi: int = 0
     tantang_perintah_tool: int = 0
+    # >>> UPDATE-025 commit 23: cap for the instruction-anchored
+    # zero-mutation challenge (work ordered, ledger empty, closing not a
+    # plain decline). Ledger+instruction anchored, so keyword dodging on
+    # the closing cannot evade it. <<<
+    tantang_nihil_mutasi: int = 0
     perintah_tool_eksplisit: str = ""
     panggilan_browser_turn_ini: int = 0
     # >>> UPDATE-025 commit 13: the detected language of this turn's user

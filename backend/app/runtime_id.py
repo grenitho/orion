@@ -334,7 +334,22 @@ from pathlib import Path
 # (3) the empty-stdout test fixture uses a cross-platform command instead
 # of the POSIX-only `true`. No behaviour change on honest paths; the
 # honesty teeth of 0.10.25 are untouched.
-BACKEND_VERSION = "0.10.26"
+# Bumped 0.10.26 -> 0.10.27 for UPDATE-025 commit 23 (InvoiceFlow transcript
+# 2026-11-01, owner: "InvoiceFlow hanya akan selesai dengan orion, tugas anda
+# memastikan orion bertransformasi menjadi assistan coding yang bisa
+# diandalkan"): the transcript showed the keyword-based teeth breeding a
+# keyword-DODGING closing ("telah diperiksa ... diverifikasi dengan
+# verify_code ... build sukses") over a zero-mutation ledger, an edit-shaped
+# todo marked completed after a READ only, and the todo zero-evidence
+# disclosure riding the CHECKPOINT ending only (the field closed on
+# JAWAB_NORMAL; the owner saw nothing). Three ledger/instruction-anchored
+# fixes: (1) TANTANG_NIHIL_MUTASI (🛑) - work ordered in the user's own
+# instruction + zero mutated files + a closing that is not a plain decline
+# = intercept, quote the instruction verbatim; (2) update_todos REFUSES a
+# completed edit-todo while the mutation ledger is empty - the gate sits at
+# the tool, before the list is rewritten; (3) the zero-evidence todo
+# disclosure moved into a shared emitter riding BOTH turn endings.
+BACKEND_VERSION = "0.10.27"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

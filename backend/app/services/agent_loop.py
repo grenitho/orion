@@ -477,6 +477,45 @@ def _perlu_tantang_perintah_tool(state) -> bool:
     )
 
 
+def _perlu_tantang_nihil_mutasi(state, konten) -> bool:
+    """UPDATE-025 commit 23 (InvoiceFlow transcript 2026-11-01): the
+    keyword-based teeth bred a keyword-dodging closing ("telah diperiksa
+    ... diverifikasi dengan verify_code ... build sukses") over a ledger
+    holding ZERO mutated files, while the user's instruction had ordered
+    work. The instruction anchor cannot be dodged: work ordered + empty
+    ledger + a closing that is NOT a plain decline = intercept, quote the
+    user's own sentence, demand edits or an explicit decline."""
+    return (
+        state.tantang_nihil_mutasi < 1
+        and not state.files_changed_this_turn
+        and bool(guard_rules.kalimat_perintah_kerja(state.permintaan_turn_ini))
+        and not guard_rules.ada_penolakan_jujur(konten)
+    )
+
+
+def _blok_todo_nol_bukti(state) -> str:
+    """UPDATE-025 commit 23: todo items completed THIS turn with zero work
+    evidence at their completion moment (no file change, no successful
+    terminal run, no sub-agent run). Previously this disclosure rode the
+    CHECKPOINT ending ONLY - the 2026-11-01 transcript closed on
+    JAWAB_NORMAL and the owner saw nothing. One emitter, BOTH endings,
+    per the standing house rule."""
+    _nol_bukti = [tid for tid, ev in state.bukti_todo.items() if not any(ev)]
+    if not _nol_bukti:
+        return ""
+    _daftar_nol = "\n".join(f"- ⚠️ `[{tid}]`" for tid in _nol_bukti)
+    return (
+        "\n\n**⚠️ Items marked complete with NO work "
+        "evidence this turn:**\n"
+        f"{_daftar_nol}\n\n"
+        "At the moment each item above was marked completed, "
+        "this turn had recorded no file change, no successful "
+        "terminal command and no sub-agent run. The work may "
+        "exist from an earlier turn or outside Orion - verify "
+        "these items manually before trusting this report."
+    )
+
+
 def _perlu_tantang_klaim_visual(state, deps, konten) -> bool:
     """UPDATE-025 commit 19 (field report 2026-10-31, InvoiceFlow dark
     theme): the computed-style challenge can be IGNORED — and Orion
@@ -1083,6 +1122,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # newest non-system user message (the instruction itself). <<<
         state.tantang_klaim_implementasi = 0
         state.tantang_perintah_tool = 0
+        state.tantang_nihil_mutasi = 0
         state.panggilan_browser_turn_ini = 0
         state.perintah_tool_eksplisit = ""
         for _m in reversed(getattr(deps.context_manager, "history", None) or []):
@@ -1820,6 +1860,58 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                     str(t.get("id")): t.get("status")
                                     for t in deps.todo_manager.get_todos()
                                 }
+                                # >>> UPDATE-025 commit 23 (InvoiceFlow
+                                # transcript 2026-11-01): the ritual - an
+                                # edit-shaped todo ("... sunting jika
+                                # perlu") marked completed after a READ
+                                # only, zero mutations on the ledger. The
+                                # disclosure at the closing came too late
+                                # (and on one ending only); the gate now
+                                # sits at the tool itself: a completed
+                                # edit-todo without a mutated file is a
+                                # claim, and the tool says so BEFORE the
+                                # list is rewritten. Ledger-anchored, so
+                                # no closing vocabulary can dodge it. <<<
+                                _tolak_kerja = [
+                                    str(_t.get("id"))
+                                    for _t in func_args.get("todos", [])
+                                    if str(_t.get("status")) == "completed"
+                                    and _status_sebelum.get(str(_t.get("id")))
+                                    != "completed"
+                                    and any(
+                                        k in str(_t.get("text", "")).lower()
+                                        for k in guard_rules.KATA_KERJA_MUTASI
+                                    )
+                                    and not state.files_changed_this_turn
+                                ]
+                                if _tolak_kerja:
+                                    result = (
+                                        "Error: todo(s) "
+                                        + ", ".join(_tolak_kerja)
+                                        + " marked 'completed' carry "
+                                        "edit/work verbs but this turn's "
+                                        "ledger holds ZERO mutated files. "
+                                        "Perform the edit with "
+                                        "edit_file/write_file first, keep "
+                                        "the item pending/in_progress, or "
+                                        "mark it 'cancelled' with a reason "
+                                        "in its text. A completed edit-todo "
+                                        "without a mutated file is a claim, "
+                                        "not work."
+                                    )
+                                    tool_results.append(
+                                        {
+                                            "role": "tool",
+                                            "tool_call_id": tc_id,
+                                            "name": func_name,
+                                            "content": result,
+                                        }
+                                    )
+                                    yield deps.kirim_status(
+                                        "🛑 Todo completion refused: edit "
+                                        "verbs with an empty mutation ledger..."
+                                    )
+                                    continue
                                 rendered = deps.todo_manager.set_todos(
                                     func_args.get("todos", [])
                                 )
@@ -2851,6 +2943,65 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
                     )
                     continue
+                # >>> UPDATE-025 commit 23: the instruction-anchored
+                # zero-mutation challenge. Ordered AFTER the ✍️/ arms so
+                # a closing carrying several sins faces them in fixed
+                # order, one interception per attempt, each cap 1/turn.
+                # Anchored on the USER's instruction + the ledger, not on
+                # the closing's vocabulary - the field showed vocabulary
+                # gates are dodgable, the user's own sentence is not. <<<
+                if keputusan in (
+                    loop_guards.Keputusan.CHECKPOINT,
+                    loop_guards.Keputusan.JAWAB_NORMAL,
+                    loop_guards.Keputusan.TANTANG_KLAIM,
+                ) and _perlu_tantang_nihil_mutasi(state, content):
+                    state.tantang_nihil_mutasi += 1
+                    _kutip = guard_rules.kalimat_perintah_kerja(
+                        state.permintaan_turn_ini
+                    )
+                    deps.context_manager.add_message(
+                        "assistant", content, reasoning_content=reasoning_content
+                    )
+                    deps.context_manager.add_message(
+                        "user",
+                        _L(
+                            state,
+                            "[SYSTEM - ZERO-MUTATION CHALLENGE]: this turn's "
+                            "instruction ordered mutating work - \""
+                            + _kutip + "\" - but the ledger holds ZERO "
+                            "mutated files, and your closing does not plainly "
+                            "decline either. A verification ritual (builds, "
+                            "syntax checks, reads) is not the ordered work. "
+                            "BEFORE this turn may end, EITHER perform the "
+                            "edits now with write_file/edit_file, OR state "
+                            "PLAINLY that nothing was changed and why. This "
+                            "challenge is generated from the turn's own "
+                            "ledger and instruction - not a simulation.",
+                            "[SISTEM - TANTANGAN NIHIL-MUTASI]: instruksi turn "
+                            "ini memerintahkan kerja bersifat mutasi - \""
+                            + _kutip + "\" - tetapi ledger memuat NOL file "
+                            "berubah, dan penutup Anda juga tidak menyatakan "
+                            "penolakan terang-terangan. Ritual verifikasi "
+                            "(build, cek sintaks, pembacaan) bukan kerja yang "
+                            "diperintahkan. SEBELUM turn ini boleh berakhir, "
+                            "LAKUKAN suntingannya sekarang dengan "
+                            "write_file/edit_file, ATAU nyatakan "
+                            "TERANG-TERANGAN bahwa tidak ada yang diubah dan "
+                            "mengapa. Tantangan ini dihasilkan dari ledger dan "
+                            "instruksi turn ini sendiri - bukan simulasi.",
+                        ),
+                    )
+                    yield deps.kirim_status(
+                        _L(
+                            state,
+                            '🛑 Work ordered but zero files mutated and no '
+                            'plain decline - edit now or decline plainly...',
+                            '🛑 Kerja diperintahkan tetapi nol file berubah '
+                            'dan tiada penolakan terang - sunting sekarang '
+                            'atau tolak terang-terangan...',
+                        )
+                    )
+                    continue
                 match keputusan:
                     case loop_guards.Keputusan.TERUSKAN:
                         print(
@@ -3078,24 +3229,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # user sees the same ledger the gates saw; hard
                         # per-item rejection comes after the evidence model
                         # proves itself in the field. <<<
-                        _nol_bukti = [
-                            tid for tid, ev in state.bukti_todo.items()
-                            if not any(ev)
-                        ]
-                        if _nol_bukti:
-                            _daftar_nol = "\n".join(
-                                f"- ⚠️ `[{tid}]`" for tid in _nol_bukti
-                            )
-                            checkpoint_report += (
-                                "\n\n**⚠️ Items marked complete with NO work "
-                                "evidence this turn:**\n"
-                                f"{_daftar_nol}\n\n"
-                                "At the moment each item above was marked completed, "
-                                "this turn had recorded no file change, no successful "
-                                "terminal command and no sub-agent run. The work may "
-                                "exist from an earlier turn or outside Orion — verify "
-                                "these items manually before trusting this checkpoint."
-                            )
+                        # >>> UPDATE-025 commit 23: shared emitter, BOTH
+                        # endings (the field closed on JAWAB_NORMAL and the
+                        # owner saw nothing). <<<
+                        checkpoint_report += _blok_todo_nol_bukti(state)
 
                         # >>> UPDATE-025 commit 1 (InvoiceFlow round 2,
                         # 2026-10-28): the user's OWN message named sub-agent
@@ -3353,6 +3490,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # rides the normal ending too — single emitter, BOTH
                         # endings from birth (house rule #4).
                         _teks_jawab += _blok_gaya_tanpa_verifikasi(state, deps)
+                        # >>> UPDATE-025 commit 23: todo zero-evidence
+                        # disclosure rides BOTH endings now. <<<
+                        _teks_jawab += _blok_todo_nol_bukti(state)
                         # >>> UPDATE-025 commit 14: unrecovered failed edits
                         # named at the normal ending too (single emitter,
                         # both endings — no duplicate voice).

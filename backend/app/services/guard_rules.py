@@ -117,7 +117,7 @@ KLAIM_IMPLEMENTASI = (
 # A negation immediately before the keyword turns a claim into an honest
 # OR-branch sentence ("belum diimplementasikan", "not added") - such a
 # sentence must NEVER trip the challenge.
-_NEGASI_SEBELUM = ("belum", "tidak", "bukan", "not", "never", "no")
+_NEGASI_SEBELUM = ("belum", "tidak", "bukan", "not", "never", "no", "jangan")
 
 KATA_PERINTAH_TOOL = (
     "playwright",
@@ -171,6 +171,57 @@ def kalimat_perintah_tool(teks: str) -> str:
     """First sentence of the user's instruction naming a tool the model
     is ordered to use (empty = no explicit order this turn)."""
     return _kalimat_pertama_berkata(teks, KATA_PERINTAH_TOOL)
+
+
+# >>> UPDATE-025 commit 23 (InvoiceFlow transcript 2026-11-01): after the
+# keyword-based teeth shipped, the field produced a closing that dodged
+# EVERY keyword catalog ("telah diperiksa ... diverifikasi dengan
+# verify_code ... build sukses") over a zero-mutation ledger. Keywords on
+# the CLOSING are evolvable; the user's own INSTRUCTION is not. A turn
+# whose instruction ordered work ("kerjakan ... sunting ... tambah ...")
+# and whose ledger holds zero mutated files must end either with the
+# edits or with a plain decline - never with a verification ritual.
+KATA_KERJA_MUTASI = (
+    "kerjakan",
+    "sunting",
+    "tambahkan",
+    "tambah ",
+    "ubah ",
+    "perbaiki",
+    "implement",
+    "hapus",
+    "pasang",
+    "edit_file",
+    "write_file",
+    " add ",
+    " change ",
+    " fix ",
+)
+
+KATA_PENOLAKAN_JUJUR = (
+    "tidak ada yang diubah",
+    "tidak ada file yang diubah",
+    "tidak melakukan perubahan",
+    "tidak ada perubahan",
+    "tidak mengubah",
+    "belum ada pengerjaan",
+    "nothing was changed",
+    "no changes",
+    "nothing changed",
+    "i did not change",
+)
+
+
+def kalimat_perintah_kerja(teks: str) -> str:
+    """First sentence of the turn instruction ordering MUTATING work
+    (empty = nothing was ordered that a file mutation would satisfy)."""
+    return _kalimat_pertama_berkata(teks, KATA_KERJA_MUTASI)
+
+
+def ada_penolakan_jujur(teks: str) -> bool:
+    """The honest OR branch: the closing plainly says nothing changed.
+    Such a closing must NEVER trip the zero-mutation challenge."""
+    return bool(teks) and any(k in teks.lower() for k in KATA_PENOLAKAN_JUJUR)
 
 
 def klaim_perlu_ditantang(
