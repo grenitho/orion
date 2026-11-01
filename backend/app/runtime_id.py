@@ -390,7 +390,18 @@ from pathlib import Path
 # (3) the stagnation nir-mutation branch now requires at least one edit
 # attempt, so pure read/verify turns stay silent; (4) a planning-monologue
 # "answer" is rerouted to TERUSKAN while iteration budget remains.
-BACKEND_VERSION = "0.10.30"
+# Bumped 0.10.30 -> 0.10.31 for UPDATE-025 commit 27 (owner transcript on
+# 0.10.30): (1) TURN-KILLER FIXED — `import traceback` lived inside the
+# terminal-tool except, making the name function-local; the generic tool
+# except then died with UnboundLocalError and aborted the whole turn with
+# an Error bubble (AST regression tooth added); (2) prose classifier v4 —
+# the markup/numbered-list escape hole closed (a markdown-structured
+# planning blob leaked straight through it) and the user-address markers
+# are boundary-aware ("here are" inside "there are" let monologue escape);
+# (3) exam protocol: the locked task text moves to the LIVE frontend port
+# (3000) and states that navigating to an already-running server is not
+# "running a dev server".
+BACKEND_VERSION = "0.10.31"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

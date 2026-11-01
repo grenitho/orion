@@ -222,7 +222,9 @@ def test_prose_perencanaan_leaves_real_answers_alone():
         "terang, dan baris Total live sudah rata kanan."
     ) is False
     assert stream_utils.prose_perencanaan("") is False
+    # commit 27: the markup escape was a hole — a fenced planning blob
+    # is still monologue and stays out of the user frame.
     assert stream_utils.prose_perencanaan(
         "Let's check git_diff\n```diff\n+ x\n```"
-    ) is False  # carries user-facing markup: not pure monologue
+    ) is True
     assert stream_utils.prose_perencanaan("x" * 700) is False

@@ -69,7 +69,9 @@ _VERB_RENCANA = (
     "check", "read", "run", "verify", "look", "search", "grep", "open",
     "inspect", "compare", "call", "navigate", "snapshot", "close",
     "cek", "baca", "jalankan", "periksa", "cari", "lihat", "bandingkan",
-    "panggil", "tutup",
+    "panggil", "tutup", "review", "format", "present", "update",
+    "summarize", "ensure", "mark", "complete", "susun", "rapikan",
+    "pastikan", "tandai", "ingat",
 )
 _TOKEN_TOOL = (
     "git_diff", "git_status", "git_commit", "read_file", "edit_file",
@@ -77,9 +79,15 @@ _TOKEN_TOOL = (
     "mcp", "todo", "app.jsx", "uvicorn", "npm", "pytest", "browser_",
 )
 # Markers that mean the text IS user-facing: keep it in the chat frame.
+# >>> Commit 27: boundary-aware — the bare substrings "here are"/"berikut"
+# false-positived inside "there are any pending todos" and "langkah
+# berikutnya", letting monologue escape as user-addressed. <<<
 _PENANDA_UNTUK_USER = (
-    "anda", "kamu", " you", "your ", "berikut", "here is", "here are",
+    "anda", "kamu", " you", " your", " here is", " here are",
     "ini adalah", "ringkasan", "summary", "jawab:", "answer:",
+)
+_PENANDA_AWAL = (
+    "here is", "here are", "berikut", "ini adalah", "ringkasan", "summary",
 )
 
 
@@ -101,8 +109,13 @@ def prose_perencanaan(teks: str) -> bool:
         return False
     if any(m in low for m in _PENANDA_UNTUK_USER):
         return False
-    if any(m in t for m in ("```", "\n#", "\n-", "| ", "**", "\n1.", "\n2.")):
+    if low.startswith(_PENANDA_AWAL):
         return False
+    # >>> UPDATE-025 commit 27: the markup/numbered-list escape was a
+    # hole — the 0.10.30 exam leaked a markdown-structured planning blob
+    # ("Let's check code implementation … 1. **Revisi 1a** …") straight
+    # through it. User-addressed markers and the honest-decline escape
+    # remain the ONLY escapes. <<<
     if not (any(v in low for v in _VERB_RENCANA)
             or any(v in low for v in _TOKEN_TOOL)):
         return False

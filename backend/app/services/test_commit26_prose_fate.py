@@ -46,8 +46,6 @@ def test_classifier_v3_keeps_user_addressed_text():
         "terang, dan baris Total live sudah rata kanan.",
         "Berikut hasil pemeriksaannya: subtab aktif memakai #0f172a.",
         "Apakah Anda ingin saya lanjutkan ke verifikasi Playwright?",
-        "Let's review the requirements:\n1. Answer directly in the user's "
-        "language.",  # numbered list = user-facing markup
         "",
     ]
     for teks in aman:
@@ -120,3 +118,54 @@ def test_predikat_langsung_percobaan_edit():
     assert guard_rules.stagnasi_perlu_ditantang(6, 0, 1, 0, 1) is True
     assert guard_rules.stagnasi_perlu_ditantang(0, 3, 0, 0, 1) is True
     assert guard_rules.stagnasi_perlu_ditantang(6, 0, 1, 1, 1) is False  # cap
+
+
+# --- commit 27: the markup hole + the crash regression ----------------------
+
+def test_classifier_v4_closes_the_markup_hole():
+    bocor = [
+        "Let's check code implementation of the three revisions in "
+        "`frontend/src/App.jsx`:\n1. **Revisi 1a**:\n   - Sidebar item "
+        "aktif: check sidebar code around line 330-450.",
+        "Let's carefully format our response in Indonesian as instructed "
+        "by the language rule.",
+        "Let's present a clear, professional engineering report in "
+        "Indonesian, detailing the implementation.",
+        "Let's check if there are any pending todos to update or if we "
+        "can mark them completed.",
+        "Let's review the requirements:\n1. Answer directly in the user's "
+        "language.",  # meta-monologue about the rules: v4 suppresses
+    ]
+    for teks in bocor:
+        assert stream_utils.prose_perencanaan(teks) is True, teks
+
+
+def test_traceback_import_module_level_bukan_lokal():
+    """The 0.10.30 turn-killer: a function-local `import traceback` made
+    the name local to aliran_agent, so the generic tool except died with
+    UnboundLocalError. AST tooth: module-level import present, NO local
+    import inside aliran_agent."""
+    import ast
+    import pathlib
+
+    src = pathlib.Path(agent_loop.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    mod = {
+        a.name
+        for n in tree.body
+        if isinstance(n, ast.Import)
+        for a in n.names
+    }
+    assert "traceback" in mod
+    fn = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "aliran_agent"
+    )
+    lokal = [
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Import)
+        and any(a.name == "traceback" for a in n.names)
+    ]
+    assert not lokal

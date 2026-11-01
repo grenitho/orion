@@ -30,6 +30,7 @@ import asyncio
 import json
 import os
 import re
+import traceback
 import uuid
 from dataclasses import dataclass
 from typing import AsyncIterator, Callable
@@ -2658,8 +2659,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 # Catch other errors so result stays filled and can be reported to the LLM
                                 result = f"Terminal execution error: {e!s}"
                                 print(f"[ORION TOOL ERROR] {e}")
-                                import traceback
-
+                                # >>> UPDATE-025 commit 27: the import used
+                                # to live HERE, making `traceback` a
+                                # function-local name; the generic tool
+                                # except below then died with
+                                # UnboundLocalError ("cannot access local
+                                # variable 'traceback'") and killed the
+                                # whole turn (owner transcript 2026-11-01,
+                                # 0.10.30). Module-level import now. <<<
                                 traceback.print_exc()
 
                         # >>> PATCH ORION-14 (REAL BUG) ======================
