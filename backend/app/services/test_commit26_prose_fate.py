@@ -169,3 +169,38 @@ def test_traceback_import_module_level_bukan_lokal():
         and any(a.name == "traceback" for a in n.names)
     ]
     assert not lokal
+
+
+# --- commit 28: fully inverted default for tool-call content ---------------
+
+def test_catatan_untuk_user_default_suppress():
+    bocor = [
+        "Let's check what the user requested:\n1. Revisi 1a — kontras.",
+        "Wait, the subtab container already has `border border-base-300 "
+        "rounded-lg`, but let's make sure it's fully compliant with 1b.",
+        "Let's check how the subtabs are currently rendered:\n```jsx\n"
+        "<div className=\"flex gap-2\" />\n```",
+        "Now let's write a script that runs the server in a background "
+        "thread, sleeps 5 seconds, then exits.",
+    ]
+    for teks in bocor:
+        assert stream_utils.catatan_untuk_user(teks) is False, teks
+
+
+def test_catatan_untuk_user_escapes_reach_user():
+    lolos = [
+        "Playwright tidak dipakai karena dev server mati; saya laporkan "
+        "tanpa pengamatan browser.",  # honest decline = OR branch
+        "Berikut hasil pemeriksaannya: subtab aktif memakai #0f172a.",
+        "Apakah Anda ingin saya lanjutkan ke verifikasi Playwright?",
+        "Shall I continue with the Playwright assertions?",  # question
+    ]
+    for teks in lolos:
+        assert stream_utils.catatan_untuk_user(teks) is True, teks
+
+
+def test_reroute_catches_make_sure_monologue():
+    assert stream_utils.prose_perencanaan(
+        "Wait, the subtab container already has border, but let's make "
+        "sure it is fully compliant with 1b."
+    ) is True

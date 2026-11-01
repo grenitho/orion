@@ -71,7 +71,9 @@ _VERB_RENCANA = (
     "cek", "baca", "jalankan", "periksa", "cari", "lihat", "bandingkan",
     "panggil", "tutup", "review", "format", "present", "update",
     "summarize", "ensure", "mark", "complete", "susun", "rapikan",
-    "pastikan", "tandai", "ingat",
+    "pastikan", "tandai", "ingat", "make", "use", "try", "write",
+    "rewrite", "start", "serve", "delete", "remove", "buat", "tulis",
+    "hapus", "mulai", "coba",
 )
 _TOKEN_TOOL = (
     "git_diff", "git_status", "git_commit", "read_file", "edit_file",
@@ -125,3 +127,25 @@ def prose_perencanaan(teks: str) -> bool:
         if s.strip()
     ]
     return any(k.startswith(_OPENER_PERENCANAAN) for k in kalimat)
+
+
+def catatan_untuk_user(teks: str) -> bool:
+    """UPDATE-025 commit 28: the ONLY gate for tool-call message content
+    reaching the user frame. Three exams proved vocabulary classifiers
+    are whack-a-mole ("Ah, …", markdown blobs, "let's make sure …"), so
+    the default is now FULLY inverted: suppress everything except the
+    three escape shapes — an honest decline (the OR branch must always
+    reach the user), a user-addressed note (second person / summary
+    markers), or a direct question to the user. The model's own context
+    keeps the raw text either way."""
+    t = (teks or "").strip()
+    if not t:
+        return False
+    if guard_rules.ada_penolakan_jujur(t):
+        return True
+    low = t.lower()
+    if low.startswith(_PENANDA_AWAL):
+        return True
+    if any(m in low for m in _PENANDA_UNTUK_USER):
+        return True
+    return t.rstrip().endswith("?")

@@ -401,7 +401,13 @@ from pathlib import Path
 # (3) exam protocol: the locked task text moves to the LIVE frontend port
 # (3000) and states that navigating to an already-running server is not
 # "running a dev server".
-BACKEND_VERSION = "0.10.31"
+# Bumped 0.10.31 -> 0.10.32 for UPDATE-025 commit 27 (0.10.31 exam): the
+# monologue leak survived THREE vocabulary classifiers ("Ah, …", markdown
+# planning blobs, "let's make sure …"), so the tool-call content gate is
+# now FULLY inverted — suppress by default, escape only for an honest
+# decline, a user-addressed note, or a direct question (catatan_untuk_user);
+# the reroute-path verb list also grew the make/use/try/write family.
+BACKEND_VERSION = "0.10.32"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

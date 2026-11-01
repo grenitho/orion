@@ -2021,12 +2021,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     cleaned = fix_over_escaped_text(
                         strip_thinking_blocks(msg.content)
                     )
-                    # >>> UPDATE-025 commit 25: untagged planning monologue
-                    # riding a TOOL-CALL message stays in context only (the
-                    # model's own memory) — the user frame gets the work,
-                    # not the mumbling ("Let's check git_diff … Wait, what
-                    # was the user's prompt…"). <<<
-                    if cleaned and not stream_utils.prose_perencanaan(cleaned):
+                    # >>> UPDATE-025 commit 28: FULLY inverted default —
+                    # tool-call message content reaches the user frame ONLY
+                    # when it is clearly user-addressed (honest decline,
+                    # second person/summary markers, or a direct question).
+                    # Three exams of leaking monologue ("Ah, …", markdown
+                    # planning blobs, "let's make sure …") proved vocabulary
+                    # classifiers are whack-a-mole; suppression by default
+                    # is the tooth. The context keeps the raw text, so the
+                    # model still remembers its own plan. <<<
+                    if cleaned and stream_utils.catatan_untuk_user(cleaned):
                         yield sse.ev('token', text=cleaned + chr(10) + chr(10))
 
                 reasoning_content = getattr(msg, "reasoning_content", None)
