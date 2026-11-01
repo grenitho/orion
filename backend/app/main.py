@@ -182,7 +182,7 @@ from pydantic import BaseModel
 
 from app.services import auth, findings_ledger, sse, stream_utils
 from app.services import tool_dispatch
-from app.services.agent_loop import Deps, aliran_agent
+from app.services.agent_loop import Deps, aliran_agent, blok_jangkar_tugas
 from app.services.session_state import SessionState
 from app.services.tools_schema import TOOLS
 from app.services.context_manager import ContextManager
@@ -1089,7 +1089,13 @@ async def chat_with_orion(request: ChatRequest):
         # >>> UPDATE-024 Commit 6: the findings ledger rides the per-turn
         # context message exactly like the inbox block — present every
         # iteration, never summarized away, empty string when unused.
-        + findings_ledger.blok_konteks(context_manager.project_path),
+        + findings_ledger.blok_konteks(context_manager.project_path)
+        # >>> UPDATE-025 commit 24: the TASK ANCHOR rides here too — open
+        # todos and prior user orders verbatim, plus the stale-summary-ban
+        # override note. Built from the LIVE history (which already holds
+        # this turn's request; the helper skips it) so compression can no
+        # longer leave the model answering from a single turn.
+        + blok_jangkar_tugas(context_manager.get_history(), todo_manager),
     }
 
     # >>> END OF CACHE OPTIMIZATION <<<

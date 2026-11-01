@@ -349,7 +349,20 @@ from pathlib import Path
 # completed edit-todo while the mutation ledger is empty - the gate sits at
 # the tool, before the list is rewritten; (3) the zero-evidence todo
 # disclosure moved into a shared emitter riding BOTH turn endings.
-BACKEND_VERSION = "0.10.27"
+# Bumped 0.10.27 -> 0.10.28 for UPDATE-025 commit 24 (same transcript,
+# second reading + owner's screenshot): (1) the "one-turn memory" symptom
+# was compression eating standing orders - every round re-summarized the
+# previous summary (telephone game), so two turns later the model asked
+# itself "what was the user's prompt in the previous turn?"; a per-turn
+# TASK ANCHOR (open todos + prior user messages verbatim + stale-ban
+# override) now rides the context message and the summary carries the
+# prior summary and the quoted orders verbatim; (2) SEARCH-miss retries
+# were blind - the error now hands the model the file's closest CURRENT
+# region (mechanical correction signal, aider-style); (3) a checkpoint
+# commit whose every added/modified staged path is a build artifact is
+# REFUSED (ritual-commit guard: npm-build churn must never become
+# "perubahan telah disimpan").
+BACKEND_VERSION = "0.10.28"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

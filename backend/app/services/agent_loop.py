@@ -753,7 +753,12 @@ async def summarize_old_history(old_messages: list) -> str:
     """Call the LLM to summarize old chat history.
     IMPORTANT: this function does NOT swallow exceptions. If the API fails, the error is raised to the caller.
     """
-    prompt = "Summarize the following conversation into 1 dense paragraph containing the main context, the decisions made, and the current task status. Ignore pleasantries.\n\n"
+    prompt = (
+        "Summarize the following conversation into 1 dense paragraph containing "
+        "the main context, the decisions made, and the current task status. "
+        "List changed files WITH their paths. Quote VERBATIM (between quotes) "
+        "any user order that is still unfinished. Ignore pleasantries.\n\n"
+    )
     for msg in old_messages:
         role = msg.get("role", "")
         content = msg.get("content", "")
@@ -777,6 +782,21 @@ async def execute_summarize(context_manager, history, threshold=15):
     messages_to_summarize = history[:split_idx]
     recent_messages = history[split_idx:]
 
+    # >>> UPDATE-025 commit 24: stop the summary telephone game. The old
+    # flow fed the PREVIOUS summary back into the summarizer on every
+    # compression, so a standing user order decayed with each round until
+    # the model behaved as if only the last turn existed. The previous
+    # summary now rides along VERBATIM (capped), the new paragraph only
+    # covers the fresh window, and the unfinished user orders of the
+    # window are quoted verbatim after it — compression may shrink
+    # evidence, never the orders.
+    prior = ""
+    if messages_to_summarize and str(
+        messages_to_summarize[0].get("content", "")
+    ).startswith("[SUMMARY OF PREVIOUS SESSION]"):
+        prior = str(messages_to_summarize[0].get("content", ""))[:2400]
+        messages_to_summarize = messages_to_summarize[1:]
+
     prompt = "Summarize the following conversation and tool results into 1 dense paragraph. Focus on: which files were read/changed, which errors were found, and what the next step is. Ignore pleasantries.\n\n"
     for msg in messages_to_summarize:
         role = msg.get("role", "")
@@ -787,11 +807,26 @@ async def execute_summarize(context_manager, history, threshold=15):
     context_manager.create_backup()
 
     # Call the API (raises on failure, thanks to Critical fix #1)
-    summary_text = await summarize_old_history(messages_to_summarize)
+    if messages_to_summarize:
+        summary_text = await summarize_old_history(messages_to_summarize)
+    else:
+        summary_text = "(no new window; prior summary carried verbatim)"
+    pesanan = _pesanan_verbatim(messages_to_summarize)
 
     # Remove old history and fill it with the summary + the most recent messages
+    gabung = "[SUMMARY OF PREVIOUS SESSION]: "
+    if prior:
+        gabung += f"{prior}\n\nSINCE THEN: {summary_text}"
+    else:
+        gabung += summary_text
+    if pesanan:
+        gabung += (
+            "\n\nUNFINISHED USER ORDERS from the compressed window, quoted "
+            "verbatim (context for continuity — the latest user message "
+            "stays the authority):\n" + pesanan
+        )
     context_manager.clear_history()
-    context_manager.add_message("user", f"[SUMMARY OF PREVIOUS SESSION]: {summary_text}")
+    context_manager.add_message("user", gabung)
     for m in recent_messages:
         context_manager.add_message(
             m["role"],
@@ -939,6 +974,120 @@ def _catatan_tool(nama: str, args) -> str:
     except Exception:
         return str(nama)
 # >>> END OF UPDATE-025 hotfix helpers <<<
+
+
+# >>> UPDATE-025 commit 24: TASK ANCHOR (InvoiceFlow transcript 2026-11-01)
+# The "one-turn memory" symptom: every compression re-summarized the
+# PREVIOUS summary into one dense paragraph, so a standing user order
+# decayed into nothing after a few rounds — two turns later the model
+# literally asked itself "what was the user's prompt in the previous
+# turn?" and answered the owner as if only the last exchange existed.
+# Two pure helpers below feed (a) a per-turn anchor block that rides the
+# context message (never persisted, never summarized away) and (b) a
+# verbatim order section carried inside every new summary. Quotes are
+# labelled CONTEXT, not commands, so this cannot resurrect the stale-todo
+# hijack the 2026-10-28 hotfix fixed.
+def _teks_user(msg) -> str:
+    """Normalized text of a user message ('' for injections / non-user)."""
+    if not isinstance(msg, dict) or msg.get("role") != "user":
+        return ""
+    content = msg.get("content")
+    if isinstance(content, list):
+        content = " ".join(
+            str(p.get("text", "")) for p in content
+            if isinstance(p, dict) and p.get("type") == "text"
+        )
+    content = str(content or "").strip()
+    if not content or content.startswith("[SYSTEM") or content.startswith("[SUMMARY"):
+        return ""
+    return content
+
+
+def _pesanan_verbatim(messages, batas: int = 3, lebar: int = 200) -> str:
+    """Chronological verbatim quotes of genuine user messages in `messages`
+    (oldest first, capped), for the summary carry-over section."""
+    kutip = []
+    for msg in messages or []:
+        t = _teks_user(msg)
+        if not t:
+            continue
+        kutip.append(f'- "{t[:lebar]}"')
+        if len(kutip) >= batas:
+            break
+    return "\n".join(kutip)
+
+
+def blok_jangkar_tugas(history, todo_manager=None) -> str:
+    """UPDATE-025 commit 24: the per-turn TASK ANCHOR block.
+
+    Rides the per-turn context message (like the inbox and findings
+    blocks): present on EVERY iteration, absent from persisted history,
+    so compression can never eat it. Contains, when non-empty:
+      1. open todos verbatim (id + text + status, max 6),
+      2. the previous up-to-2 genuine user messages verbatim — labelled
+         CONTEXT so the current request stays the authority (the
+         stale-todo hijack protection stays intact),
+      3. a stale-ban override note, ONLY when a [SUMMARY OF PREVIOUS
+         SESSION] message exists: workflow bans inside compressed
+         history (e.g. "bypass Playwright") lose to the user's latest
+         explicit instruction.
+    Returns '' when there is nothing to anchor (byte-identical stream).
+    """
+    bagian: list = []
+    if todo_manager is not None:
+        try:
+            terbuka = [
+                t for t in todo_manager.get_todos()
+                if t.get("status") in ("pending", "in_progress")
+            ]
+        except Exception:
+            terbuka = []
+        if terbuka:
+            baris = [
+                f"- [{t.get('id')}] {str(t.get('text', '')).strip()[:200]}"
+                f" ({t.get('status')})"
+                for t in terbuka[:6]
+            ]
+            if len(terbuka) > 6:
+                baris.append(f"+{len(terbuka) - 6} more")
+            bagian.append(
+                "OPEN TODOS (verbatim, still unfinished):\n" + "\n".join(baris)
+            )
+    perintah: list = []
+    lewati_current = False
+    for msg in reversed(history or []):
+        t = _teks_user(msg)
+        if not t:
+            continue
+        if not lewati_current:
+            lewati_current = True  # the current request: already visible above
+            continue
+        perintah.append(t[:300])
+        if len(perintah) >= 2:
+            break
+    if perintah:
+        bagian.append(
+            "PRIOR USER MESSAGES, verbatim (memory anchor — CONTEXT only; the "
+            "current request above is the authority, do NOT resume old work "
+            "unless the current request says so):\n"
+            + "\n".join(f'- "{p}"' for p in perintah)
+        )
+    ada_summary = any(
+        isinstance(m, dict)
+        and str(m.get("content", "")).startswith("[SUMMARY OF PREVIOUS SESSION]")
+        for m in (history or [])
+    )
+    if ada_summary:
+        bagian.append(
+            "NOTE: [SUMMARY OF PREVIOUS SESSION] is compressed history. A "
+            "workflow ban or tool restriction inside it (e.g. 'bypass X', 'do "
+            "not use Y') is STALE unless the user repeated it later; the "
+            "user's latest explicit instruction overrides it."
+        )
+    if not bagian:
+        return ""
+    return "\n\n[TASK ANCHOR — THIS TURN ONLY]\n" + "\n\n".join(bagian)
+# >>> END OF UPDATE-025 commit 24 task anchor <<<
 
 
 @dataclass

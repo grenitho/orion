@@ -9,6 +9,24 @@ from datetime import datetime
 import sys
 
 
+_ARTEFAK_PREFIX = (
+    "dist/", "build/", "out/", ".next/", "node_modules/", "coverage/",
+    "__pycache__/", ".venv/", "venv/", "target/", ".parcel-cache/",
+)
+_ARTEFAK_SUFFIX = (".map", ".pyc")
+
+
+def _jalur_artefak_build(path: str) -> bool:
+    """UPDATE-025 commit 24: True when a staged path is generated output
+    (build dir, cache, dependency dir) rather than source. Nested dirs
+    count too (frontend/dist/...), because that is exactly where the
+    InvoiceFlow build churn lives."""
+    p = path.replace("\\", "/")
+    if p.startswith(_ARTEFAK_PREFIX) or p.endswith(_ARTEFAK_SUFFIX):
+        return True
+    return any(f"/{d}" in p for d in ("dist/", "build/", ".next/", "node_modules/", "out/"))
+
+
 class ToolExecutor:
     # >>> PATCH ORION-27b: list of git operations forbidden through run_terminal.
     # >>> UPDATE-008 hardening: the four network/hang patterns below are
@@ -338,6 +356,45 @@ class ToolExecutor:
         except Exception as e:
             return f"Error: Cannot write file. {e!s}"
 
+    @staticmethod
+    def _regio_terdekat(original_content: str, search_block: str) -> str:
+        """UPDATE-025 commit 24: on a SEARCH miss, hand the model the file's
+        CURRENT text closest to its failed block (aider-style reflection:
+        the failure signal itself carries the correction). The InvoiceFlow
+        transcript showed two blind retries in a row after a context
+        compression: the model rebuilt its SEARCH block from stale memory
+        and missed twice. Anchoring on the closest live line turns the
+        retry into a copy from mechanical evidence instead of a guess.
+        Returns '' when nothing is close enough to be trustworthy."""
+        import difflib
+
+        baris_file = original_content.splitlines()
+        baris_cari = [b for b in search_block.splitlines() if b.strip()]
+        if not baris_file or not baris_cari:
+            return ""
+        jangkar = baris_cari[0].strip()
+        skor = []
+        for i, b in enumerate(baris_file):
+            r = difflib.SequenceMatcher(None, jangkar, b.strip()).ratio()
+            if r >= 0.6:
+                skor.append((r, i))
+        if not skor:
+            return ""
+        skor.sort(key=lambda t: (-t[0], t[1]))
+        blok = []
+        for _, i in skor[:2]:
+            awal = max(0, i - 2)
+            akhir = min(len(baris_file), i + len(baris_cari) + 2)
+            blok.append("\n".join(baris_file[awal:akhir]))
+        teks = "\n---\n".join(blok)
+        if len(teks) > 1500:
+            teks = teks[:1500] + "\n…(truncated)"
+        return (
+            "\n\nCLOSEST CURRENT REGION(S) in the file RIGHT NOW (line-exact). "
+            "Rebuild your SEARCH block from EXACTLY this text, or re-read the "
+            "region with read_file_range first:\n---\n" + teks + "\n---"
+        )
+
     def edit_file(self, file_path: str, diff: str):
         """
         Edit a file using the SEARCH/REPLACE format.
@@ -418,6 +475,7 @@ class ToolExecutor:
                     f"retrying. Do NOT rewrite the whole file to work "
                     f"around a miss."
                     f"\n\nYour SEARCH block:\n---\n{search_block}\n---"
+                    + self._regio_terdekat(original_content, search_block)
                 )
 
             # Replace only the first occurrence to avoid duplicates when blocks are identical
@@ -956,6 +1014,30 @@ class ToolExecutor:
             hitung = self._git(["diff", "--cached", "--name-only"], timeout=60)
             n_staged = len([b for b in hitung.stdout.splitlines() if b.strip()]) \
                 if hitung.returncode == 0 else -1
+            # >>> UPDATE-025 commit 24: RITUAL-COMMIT GUARD (InvoiceFlow
+            # transcript 2026-11-01). Every edit_file in the turn FAILED,
+            # `npm run build` then rewrote generated output, and the
+            # checkpoint commit turned that churn into "Perubahan telah
+            # disimpan dalam commit 3e4433d" — a save point manufactured
+            # out of build artifacts while the turn ledger held ZERO
+            # source mutations. Refuse when EVERY added/modified staged
+            # path is generated output. Deletions are exempt on purpose:
+            # the hygiene untrack step stages exactly those (index-only
+            # removals) and they must stay committable.
+            am = self._git(
+                ["diff", "--cached", "--name-only", "--diff-filter=AM"], timeout=60
+            )
+            nama_am = [b.strip() for b in am.stdout.splitlines() if b.strip()] \
+                if am.returncode == 0 else []
+            if nama_am and all(_jalur_artefak_build(p) for p in nama_am):
+                contoh = ", ".join(nama_am[:5]) + ("…" if len(nama_am) > 5 else "")
+                return (
+                    "Error: ritual-commit guard — every added/modified staged path "
+                    f"is a build artifact ({contoh}); no source file is staged. A "
+                    "checkpoint here would manufacture 'saved changes' out of "
+                    "generated output (npm build, caches). Edit the source first, "
+                    "or ask the user explicitly to commit artifacts only."
+                )
             r2 = self._git(["commit", "-m", pesan])
             keluar = (r2.stdout or r2.stderr).strip()
             if r2.returncode != 0:
