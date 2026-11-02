@@ -258,6 +258,17 @@ def prose_perencanaan_closing(teks: str) -> bool:
     # talking to itself, not to the user). <<<
     if any(m in low for m in _META_JELAS):
         return True
+    # >>> Commit 38 (owner turn-uji 2026-11-02): a paragraph OPENING with
+    # a self-referential planning opener is monologue even when it
+    # contains user-marker substrings — "Let's write a concise, direct,
+    # factual answer:" bought the "answer:" escape and leaked into the
+    # panel. Opener-at-start + verb/tool token outranks the marker
+    # escape; the decline escape above still outranks everything. <<<
+    _kepala = low.lstrip(_BULLET_LEADER)
+    if _kepala.startswith(_OPENER_PERENCANAAN + _OPENER_TAMBAH_CLOSING) and (
+            any(v in low for v in _VERB_RENCANA)
+            or any(v in low for v in _TOKEN_TOOL)):
+        return True
     if any(m in low for m in _PENANDA_UNTUK_USER):
         return False
     if low.startswith(_PENANDA_AWAL):

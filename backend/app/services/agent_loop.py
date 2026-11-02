@@ -2352,6 +2352,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "__browser_evaluate" in str(func_name)
                                 and "getComputedStyle" in str(func_args)
                                 and _browser_hasil_sukses(result)
+                                # >>> Commit 38 (owner turn-uji
+                                # 2026-11-02): evaluate on about:blank
+                                # (dev server down) "succeeded" and PAID
+                                # the gaya/perintah_tool debt with
+                                # rgba(0,0,0,0) from an empty page. Blank
+                                # is not evidence: the debt must stay
+                                # open until real values land or the
+                                # model plainly declines. <<<
+                                and "about:blank" not in str(result)
                             ):
                                 state.gaya_diperiksa_turn_ini = True
                                 # >>> UPDATE-025 commit 30: capture the

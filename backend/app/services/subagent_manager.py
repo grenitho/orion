@@ -534,6 +534,21 @@ async def run_subagent(
             SUBRUN_RETRY_BACKOFFS if retry_backoffs is None else list(retry_backoffs)
         )
         for i in range(max_iter):
+            # >>> Commit 38 (owner 2026-11-02: "kenapa explorer mati lebih
+            # dulu?"): status "capped" = the sub-run exhausted max_iter
+            # WHILE HOLDING tool_calls — the 3-part exploration task was
+            # bigger than the 10-iteration budget, and retries stay 0
+            # because they only fire on cascade exceptions, never on
+            # budget exhaustion. The main loop has a soft limit; sub-runs
+            # did not. One wrap-up notice at 80% budget mirrors it. <<<
+            if i == max(1, int(max_iter * 0.8)) - 1 and max_iter >= 3:
+                ctx.add(
+                    "user",
+                    f"{PREFIX_BUDGET} iterations left: {max_iter - i}. "
+                    "Write your FINAL report NOW: findings so far plus "
+                    "the gaps you did not reach. Do not start new tool "
+                    "chains.",
+                )
             _mulai_panggilan = time.perf_counter()
             response = None
             _percobaan = 0
