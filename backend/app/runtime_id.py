@@ -434,7 +434,14 @@ from pathlib import Path
 # field exam text moves to REVISI-4 (PANDUAN_C31) with an explicit
 # login step: the 0.10.34 run proved the app fronts a login wall that
 # REVISI-3 never mentioned, making the assertions unreachable.
-BACKEND_VERSION = "0.10.35"
+# Bumped 0.10.35 -> 0.10.36 for UPDATE-025 commit 32 (the 0.10.35 exam):
+# (1) mid-turn ledger-gap nudge — after two successful browser calls
+# without getComputedStyle evidence the next tool result carries the
+# user's own order back into the model (the old nudge fired only at
+# closings, too late); (2) the zero-mutation hard block now also covers
+# run_terminal server-start/production-build commands (the exam
+# substituted the ordered assertions with pytest plus a Vite build).
+BACKEND_VERSION = "0.10.36"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

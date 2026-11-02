@@ -298,6 +298,40 @@ def teks_status_checkpoint(ada_utang: bool) -> tuple:
     )
 
 
+_BUILD_POLA = re.compile(
+    r"(npm|pnpm|yarn|bun)\s+(run\s+)?(build|dev|start|serve|preview)\b"
+    r"|vite\s+(build|preview|dev)"
+    r"|next\s+(build|dev|start)"
+    r"|ng\s+(build|serve)"
+    r"|python\s+-m\s+http\.server|uvicorn|gunicorn",
+    re.I,
+)
+
+
+def perintah_build_terlarang(teks: str) -> bool:
+    """UPDATE-025 commit 32: does a terminal command start a server or a
+    (production) build? The 0.10.35 exam substituted the ordered browser
+    assertions with pytest PLUS a Vite build — both forbidden by a
+    pure-verify order, but the commit-31 hard block only covered writing
+    tools, not the terminal."""
+    return bool(_BUILD_POLA.search(teks or ""))
+
+
+def perlu_nudge_ledger(state) -> bool:
+    """UPDATE-025 commit 32: mid-turn ledger-gap nudge. The 0.10.35 exam
+    clicked through the UI and closed with prose claims while the
+    ordered getComputedStyle evidence never landed; the existing nudge
+    fires only at closings, too late to change the turn. Once two
+    successful browser calls pass without the ledger, the NEXT tool
+    result carries the user's own order back into the model's face."""
+    return (
+        getattr(state, "perintah_butuh_gaya", False)
+        and not getattr(state, "gaya_diperiksa_turn_ini", False)
+        and getattr(state, "panggilan_browser_turn_ini", 0) >= 2
+        and getattr(state, "nudge_ledger", 0) < 1
+    )
+
+
 def perintah_tool_boleh_tutup(state) -> bool:
     """UPDATE-025 commit 30: may a successful browser call pay the
     named-order debt? The 0.10.33 exam transcript showed the hole: the

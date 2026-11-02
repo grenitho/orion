@@ -1390,6 +1390,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.gaya_bukti_turn = []
         state.zero_mutasi_turn = False
         state.kutipan_zero_mutasi = ""
+        state.nudge_ledger = 0
         for _m in reversed(getattr(deps.context_manager, "history", None) or []):
             if _m.get("role") != "user":
                 continue
@@ -2304,6 +2305,30 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 # disclosed). Only gaya evidence pays. <<<
                                 if guard_rules.perintah_tool_boleh_tutup(state):
                                     state.tutup_debt_verifikasi("perintah_tool")
+                                # >>> UPDATE-025 commit 32: mid-turn
+                                # ledger-gap nudge — after two successful
+                                # browser calls without getComputedStyle
+                                # evidence, the next tool result carries
+                                # the user's own order back in, so the
+                                # turn can still be saved before closing.
+                                if guard_rules.perlu_nudge_ledger(state):
+                                    state.nudge_ledger += 1
+                                    result = (
+                                        "📐 [ORION LEDGER GAP] The user's "
+                                        "order requires getComputedStyle "
+                                        "evidence: '"
+                                        + str(state.perintah_tool_eksplisit)[:160]
+                                        + "'. As of this call NO "
+                                        "browser_evaluate carrying "
+                                        "getComputedStyle has landed in "
+                                        "the ledger. Your NEXT browser "
+                                        "action MUST be browser_evaluate "
+                                        "whose arguments carry "
+                                        "getComputedStyle(color)/"
+                                        "backgroundColor/borderTopWidth/"
+                                        "borderRadius as ordered — or "
+                                        "close with an explicit decline."
+                                    ) + "\n" + str(result)
                             # >>> UPDATE-025 hotfix-2: surface the shared
                             # pre-call notice (logging-first, per the
                             # reviewer's suggestion): log it AND prepend
@@ -2387,6 +2412,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         elif (
                             func_name in _TOOL_MUTASI
                             and getattr(state, "zero_mutasi_turn", False)
+                        ) or (
+                            func_name == "run_terminal"
+                            and getattr(state, "zero_mutasi_turn", False)
+                            and guard_rules.perintah_build_terlarang(
+                                str(func_args)
+                            )
                         ):
                             # >>> UPDATE-025 commit 31: HARD BLOCK. The
                             # 0.10.34 exam mutated app/main.py inside a
@@ -2395,20 +2426,34 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             # model gets the quote of its own order back
                             # so the honest path (read-only verify, or an
                             # explicit decline) is the only way on. <<<
-                            result = (
-                                "🚫 [ORION BLOCK] Panggilan "
-                                + str(func_name)
-                                + " DITOLAK: instruksi turn ini melarang "
-                                "semua mutasi file — '"
-                                + str(getattr(state, "kutipan_zero_mutasi", ""))
-                                + "'. Tidak ada byte yang ditulis. "
-                                "Verifikasi baca-saja saja, atau tolak "
-                                "terang-terangan bila tugas mustahil "
-                                "tanpa mutasi."
-                            )
-                            yield deps.kirim_status(
-                                "🚫 Mutasi diblok: " + str(func_name)
-                            )
+                            if func_name == "run_terminal":
+                                result = (
+                                    "🚫 [ORION BLOCK] run_terminal DITOLAK: "
+                                    "turn verifikasi murni melarang "
+                                    "memulai server / production build via "
+                                    "terminal — '"
+                                    + str(getattr(state, "kutipan_zero_mutasi", ""))
+                                    + "'. Verifikasi lewat browser MCP "
+                                    "saja, atau tolak terang-terangan."
+                                )
+                                yield deps.kirim_status(
+                                    "🚫 Build/server diblok: run_terminal"
+                                )
+                            else:
+                                result = (
+                                    "🚫 [ORION BLOCK] Panggilan "
+                                    + str(func_name)
+                                    + " DITOLAK: instruksi turn ini "
+                                    "melarang semua mutasi file — '"
+                                    + str(getattr(state, "kutipan_zero_mutasi", ""))
+                                    + "'. Tidak ada byte yang ditulis. "
+                                    "Verifikasi baca-saja saja, atau "
+                                    "tolak terang-terangan bila tugas "
+                                    "mustahil tanpa mutasi."
+                                )
+                                yield deps.kirim_status(
+                                    "🚫 Mutasi diblok: " + str(func_name)
+                                )
                         elif func_name == "read_file":
                             file_path = func_args.get("file_path", "")
                             # >>> UPDATE-025 commit 11: remember when the
