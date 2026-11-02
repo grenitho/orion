@@ -220,6 +220,10 @@ class SessionState:
     kutipan_zero_mutasi: str = ""
     # >>> UPDATE-025 commit 32: one mid-turn ledger-gap nudge per turn.
     nudge_ledger: int = 0
+    # >>> Commit 34: one turn-start tool-availability probe per turn; the
+    # named-but-missing tool list is disclosed immediately instead of at
+    # closing (handoff §10 candidate). <<<
+    probe_tool_hilang: int = 0
     # >>> END OF UPDATE-025 commit 25 fields <<<
 
     def catat_file_berubah(self, entri: str) -> None:
@@ -375,6 +379,7 @@ class SessionState:
         self.zero_mutasi_turn = False
         self.kutipan_zero_mutasi = ""
         self.nudge_ledger = 0
+        self.probe_tool_hilang = 0
         self.turn_ke += 1
 
     def sisa_todo(self, todo_manager) -> list:

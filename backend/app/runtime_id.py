@@ -450,7 +450,7 @@ from pathlib import Path
 # anywhere in a closing or tool-call blob (decline escape untouched);
 # (3) RAW closings recorded to .orion/logs/respon_orion.log so the chat
 # panel stays clean while forensics survive (owner directive).
-BACKEND_VERSION = "0.10.37"
+BACKEND_VERSION = "0.10.38"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

@@ -379,6 +379,29 @@ def ada_penolakan_jujur(teks: str) -> bool:
     return bool(teks) and any(k in teks.lower() for k in KATA_PENOLAKAN_JUJUR)
 
 
+# >>> Commit 34 (handoff §10 candidate, owner directive 2026-11-02): an
+# order that NAMES a browser/MCP tool the connected config does not have
+# used to discover the gap only at closing. Pure predicate: extract the
+# named tool tokens (public-name shapes only) and diff them against the
+# live registry, suffix-matching `mcp__<server>__<tool>` public names. <<<
+_POLA_TOOL_NAMA = re.compile(r"\b(mcp__[a-z0-9_]+__[a-z0-9_]+|browser_[a-z_]+)\b")
+
+
+def tool_dinamai_tak_tersedia(permintaan: str, tersedia) -> list:
+    """Sorted names of browser/MCP tools the order mentions that the
+    connected MCP configuration cannot serve ([] when every named tool
+    exists or nothing is named)."""
+    nama = set(_POLA_TOOL_NAMA.findall((permintaan or "").lower()))
+    if not nama:
+        return []
+    punya = {str(t).lower() for t in (tersedia or set())}
+    hilang = [
+        n for n in sorted(nama)
+        if n not in punya and not any(p.endswith("__" + n) for p in punya)
+    ]
+    return hilang
+
+
 def klaim_perlu_ditantang(
     is_task_complete: bool,
     ada_file_berubah: bool,

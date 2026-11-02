@@ -178,6 +178,20 @@ def buang_paragraf_perencanaan_awal(teks: str) -> str:
     i = 0
     while i < len(par) and prose_perencanaan_closing(par[i]):
         i += 1
+    # >>> Commit 34 (handoff §6 residual 2): a LEADING quote paragraph
+    # (the user's own words quoted back) froze the chain and let a
+    # one-line monologue survive as paragraph 2. One quote-skip: when
+    # paragraph 0 is a quote and a planning run starts at paragraph 1,
+    # strip the run and keep the quote plus the real answer. When
+    # NOTHING survives besides the quote the original is returned —
+    # an empty answer is never emitted. <<<
+    if i == 0 and len(par) > 1 and par[0].lstrip().startswith(_AWAL_KUTIPAN):
+        j = 1
+        while j < len(par) and prose_perencanaan_closing(par[j]):
+            j += 1
+        if 1 < j < len(par):
+            return "\n\n".join([par[0]] + par[j:]).lstrip()
+        return teks
     if i == 0 or i == len(par):
         return teks
     return "\n\n".join(par[i:]).lstrip()
@@ -263,10 +277,65 @@ def buang_gema_suntikan(teks: str) -> str:
     return "\n\n".join(sisa).strip()
 
 
-def bersih_closing(teks: str) -> str:
+def bersih_closing(teks: str, file_berubah: int | None = None) -> str:
     """One entry point for both closing sites: echo removal first (anywhere
-    in the text), then the leading planning-paragraph chain."""
-    return buang_paragraf_perencanaan_awal(buang_gema_suntikan(teks))
+    in the text), then zero-change claim removal, then the leading
+    planning-paragraph chain. ``file_berubah`` = code-captured count of
+    files changed this turn; None skips the claim tooth (unknown)."""
+    teks = buang_gema_suntikan(teks)
+    if file_berubah is not None:
+        teks = buang_klaim_file_bila_nihil(teks, file_berubah)
+    return buang_paragraf_perencanaan_awal(teks)
+
+
+# >>> Commit 34 (handoff §6 residual 5, exam 6 shape): the checkpoint's
+# file list is code-captured, but the MODEL'S OWN PROSE above it could
+# still claim "changed `app/main.py`" on a turn with ZERO tracked
+# changes — two contradictory lists in one message. On a zero-change
+# turn, non-negated file-change claim paragraphs that name a path are
+# scaffolding-free fiction: stripped. Negated sentences ("tidak ada
+# file yang berubah", "no files changed") and honest declines stay —
+# disclosure outranks every suppressor. <<<
+_MARKER_KLAIM_FILE = (
+    "files changed", "file berubah", "file yang berubah", "saya ubah",
+    "saya sunting", "saya mengubah", "mengubah file", "mengubah `",
+    "berhasil mengubah", "changed `", "successfully wrote",
+    "saya perbarui",
+)
+_NEGASI_KLAIM = ("belum", "tidak", "bukan", "not", "never", "no")
+_AWAL_KUTIPAN = (">", '"', "`", "'")
+_POLA_PATH = re.compile(
+    r"[\w./\\-]+\.(?:py|jsx|js|tsx|ts|html|css|json|md)\b"
+)
+
+
+def _paragraf_klaim_file(teks: str) -> bool:
+    low = (teks or "").lower()
+    if not low or guard_rules.ada_penolakan_jujur(teks):
+        return False
+    if not _POLA_PATH.search(low):
+        return False
+    for m in _MARKER_KLAIM_FILE:
+        idx = low.find(m)
+        while idx != -1:
+            sebelum = low[:idx].split()
+            if not any(w in _NEGASI_KLAIM for w in sebelum[-3:]):
+                return True
+            idx = low.find(m, idx + len(m))
+    return False
+
+
+def buang_klaim_file_bila_nihil(teks: str, jumlah_file_berubah: int) -> str:
+    """Drop non-negated file-change claim paragraphs when the code ledger
+    says ZERO files changed this turn. Any non-zero count returns the
+    text untouched — real work keeps its prose."""
+    if jumlah_file_berubah or not teks:
+        return teks
+    par = teks.split("\n\n")
+    sisa = [p for p in par if not _paragraf_klaim_file(p)]
+    if not sisa:
+        return teks
+    return "\n\n".join(sisa).strip()
 
 
 def rekam_respon_mentah(mentah: str, bersih: str, logger=None) -> None:

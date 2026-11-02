@@ -1335,6 +1335,37 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # in the TARGET language rides the per-iteration context message
         # (ephemeral — never stored in history).
         state.bahasa_turn = guard_rules.deteksi_bahasa(state.permintaan_turn_ini)
+        # >>> Commit 34 (owner directive 2026-11-02: finish the residual
+        # bugs): an order naming a browser/MCP tool the connected config
+        # does not have must decline AT TURN START, not at closing. One
+        # probe per turn; the disclosure rides both the status frame and
+        # a context message so the model's FIRST answer can decline the
+        # impossible part honestly instead of discovering it late. <<<
+        _tool_hilang = guard_rules.tool_dinamai_tak_tersedia(
+            state.permintaan_turn_ini,
+            deps.mcp.tool_names() if getattr(deps, "mcp", None) else set(),
+        )
+        if _tool_hilang and not state.probe_tool_hilang:
+            state.probe_tool_hilang = 1
+            _daftar_hilang = ", ".join(f"`{n}`" for n in _tool_hilang)
+            deps.context_manager.add_message("user", _L(
+                state,
+                f"[SYSTEM - TOOL AVAILABILITY]: this turn's order names "
+                f"tool(s) {_daftar_hilang} which are NOT available in the "
+                "MCP configuration connected right now. Do not attempt "
+                "them; decline that part honestly in your first answer "
+                "and serve the rest of the order.",
+                f"[SISTEM - KETERSEDIAAN TOOL]: perintah turn ini menyebut "
+                f"tool {_daftar_hilang} yang TIDAK tersedia di konfigurasi "
+                "MCP yang terhubung sekarang. Jangan mencoba memanggilnya; "
+                "tolak bagian itu dengan jujur pada jawaban pertama dan "
+                "kerjakan sisa perintah.",
+            ))
+            yield deps.kirim_status(_L(
+                state,
+                f'🔌 Tool not connected this turn: {_daftar_hilang}',
+                f'🔌 Tool tidak terhubung turn ini: {_daftar_hilang}',
+            ))
         if state.bahasa_turn == "id" and isinstance(deps.context_message, dict):
             deps.context_message["content"] = str(
                 deps.context_message.get("content", "")
@@ -3804,7 +3835,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # respon_orion.log (owner directive 2026-11-02). <<<
                         _teks_tutup = stream_utils.tambah_ledger_gaya(
                             stream_utils.bersih_closing(
-                                strip_thinking_blocks(content)
+                                strip_thinking_blocks(content),
+                                len(state.files_changed_this_turn),
                             ),
                             state.gaya_bukti_turn,
                         )
@@ -3989,7 +4021,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # claim-aware, never duplicated. <<<
                         _teks_jawab = stream_utils.tambah_ledger_gaya(
                             stream_utils.bersih_closing(
-                                strip_thinking_blocks(content)
+                                strip_thinking_blocks(content),
+                                len(state.files_changed_this_turn),
                             ),
                             state.gaya_bukti_turn,
                         )
