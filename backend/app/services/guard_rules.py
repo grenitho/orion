@@ -248,6 +248,56 @@ def perintah_verifikasi_gaya(teks: str) -> tuple:
     return perintah, butuh
 
 
+def zero_mutasi_diperintah(teks: str) -> tuple:
+    """UPDATE-025 commit 31: (does the instruction forbid ALL file
+    mutation, quote sentence). The 0.10.34 exam ended with Orion
+    edit_file-ing app/main.py INSIDE a turn whose own order said
+    "DILARANG membuat atau mengubah file apa pun" — disclosure teeth
+    report violations after the fact; this turns the order into a
+    hard, code-side block on mutating tools."""
+    low = (teks or "").lower()
+    if not (
+        "dilarang" in low
+        and "file" in low
+        and ("mengubah" in low or "membuat" in low)
+    ):
+        return False, ""
+    for kal in (teks or "").splitlines():
+        if "dilarang" in kal.lower():
+            return True, kal.strip()[:200]
+    return True, "dilarang membuat/mengubah file"
+
+
+def teks_status_checkpoint(ada_utang: bool) -> tuple:
+    """UPDATE-025 commit 31: the checkpoint header may only claim
+    completion when no verification debt is open. The 0.10.34 exam
+    printed "TUGAS SELESAI" while carrying [stagnasi] + [perintah_tool]
+    — a fate-inaccuracy the debt block then contradicted."""
+    if not ada_utang:
+        return (
+            "\n\n---\n\n"
+            "## ✅ TASK COMPLETED - CHECKPOINT REPORT\n\n"
+            "**Status:** Task completed\n\n"
+            "**Files changed:**\n",
+            "\n\n---\n\n"
+            "## ✅ TUGAS SELESAI - LAPORAN CHECKPOINT\n\n"
+            "**Status:** Tugas selesai\n\n"
+            "**File yang berubah:**\n",
+        )
+    return (
+        "\n\n---\n\n"
+        "## ⚠️ TASK NOT COMPLETED - CHECKPOINT REPORT\n\n"
+        "**Status:** Task NOT completed — verification debt still open "
+        "(see the debt block below)\n\n"
+        "**Files changed:**\n",
+        "\n\n---\n\n"
+        "## ⚠️ TUGAS BELUM SELESAI - LAPORAN CHECKPOINT\n\n"
+        "**Status:** Tugas BELUM selesai — utang verifikasi masih "
+        "terbuka (lihat blok utang di bawah)\n\n"
+        "**File yang berubah:**\n",
+    )
+
+
 def perintah_tool_boleh_tutup(state) -> bool:
     """UPDATE-025 commit 30: may a successful browser call pay the
     named-order debt? The 0.10.33 exam transcript showed the hole: the

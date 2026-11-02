@@ -486,6 +486,9 @@ def _perlu_tantang_klaim_implementasi(state, konten) -> bool:
     )
 
 
+_TOOL_MUTASI = ("write_file", "edit_file", "delete_file", "move_file")
+
+
 def _perlu_tantang_perintah_tool(state) -> bool:
     """UPDATE-025 commit 21: the owner ordered "kali ini gunakan mcp
     playwright untuk mengamati visual frontendnya" and Orion closed
@@ -1385,6 +1388,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.tantang_stagnasi = 0
         state.perintah_butuh_gaya = False
         state.gaya_bukti_turn = []
+        state.zero_mutasi_turn = False
+        state.kutipan_zero_mutasi = ""
         for _m in reversed(getattr(deps.context_manager, "history", None) or []):
             if _m.get("role") != "user":
                 continue
@@ -1398,6 +1403,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             _p29, _butuh29 = guard_rules.perintah_verifikasi_gaya(_teks)
             state.perintah_tool_eksplisit = _p29
             state.perintah_butuh_gaya = _butuh29
+            # >>> UPDATE-025 commit 31: zero-mutation orders become a
+            # hard block, not a post-hoc disclosure. <<<
+            _zm31, _q31 = guard_rules.zero_mutasi_diperintah(_teks)
+            state.zero_mutasi_turn = _zm31
+            state.kutipan_zero_mutasi = _q31
             break
         _utas_baru = guard_rules.utas_gagal_dari(state.permintaan_turn_ini)
         if _utas_baru:
@@ -2374,6 +2384,31 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             )
                         # >>> END OF UPDATE-016 sub-agent branch
 
+                        elif (
+                            func_name in _TOOL_MUTASI
+                            and getattr(state, "zero_mutasi_turn", False)
+                        ):
+                            # >>> UPDATE-025 commit 31: HARD BLOCK. The
+                            # 0.10.34 exam mutated app/main.py inside a
+                            # turn whose order forbade all mutation. The
+                            # call is refused before touching disk; the
+                            # model gets the quote of its own order back
+                            # so the honest path (read-only verify, or an
+                            # explicit decline) is the only way on. <<<
+                            result = (
+                                "🚫 [ORION BLOCK] Panggilan "
+                                + str(func_name)
+                                + " DITOLAK: instruksi turn ini melarang "
+                                "semua mutasi file — '"
+                                + str(getattr(state, "kutipan_zero_mutasi", ""))
+                                + "'. Tidak ada byte yang ditulis. "
+                                "Verifikasi baca-saja saja, atau tolak "
+                                "terang-terangan bila tugas mustahil "
+                                "tanpa mutasi."
+                            )
+                            yield deps.kirim_status(
+                                "🚫 Mutasi diblok: " + str(func_name)
+                            )
                         elif func_name == "read_file":
                             file_path = func_args.get("file_path", "")
                             # >>> UPDATE-025 commit 11: remember when the
@@ -3593,17 +3628,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
                         continue
                     case loop_guards.Keputusan.CHECKPOINT:
-                        checkpoint_report = _L(
-                            state,
-                            "\n\n---\n\n"
-                            "## ✅ TASK COMPLETED - CHECKPOINT REPORT\n\n"
-                            "**Status:** Task completed\n\n"
-                            "**Files changed:**\n",
-                            "\n\n---\n\n"
-                            "## ✅ TUGAS SELESAI - LAPORAN CHECKPOINT\n\n"
-                            "**Status:** Tugas selesai\n\n"
-                            "**File yang berubah:**\n",
+                        # >>> UPDATE-025 commit 31: a checkpoint may not
+                        # claim completion while verification debt is
+                        # open — the 0.10.34 exam said "TUGAS SELESAI"
+                        # on top of [stagnasi] + [perintah_tool]. <<<
+                        _hdr_en31, _hdr_id31 = guard_rules.teks_status_checkpoint(
+                            bool(state.utang_verifikasi_terbuka())
                         )
+                        checkpoint_report = _L(state, _hdr_en31, _hdr_id31)
 
                         # Use the list of files ACTUALLY changed ON THIS TURN ONLY,
                         # not a scan of the whole session history (which could show

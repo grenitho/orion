@@ -214,6 +214,10 @@ class SessionState:
     # at evaluate time, so context compression ("Memory full…") can no
     # longer eat the evidence before the closing report. <<<
     gaya_bukti_turn: list = field(default_factory=list)
+    # >>> UPDATE-025 commit 31: the instruction forbids ALL file
+    # mutation; mutating tools are hard-blocked at the call site. <<<
+    zero_mutasi_turn: bool = False
+    kutipan_zero_mutasi: str = ""
     # >>> END OF UPDATE-025 commit 25 fields <<<
 
     def catat_file_berubah(self, entri: str) -> None:
@@ -366,6 +370,8 @@ class SessionState:
         self.tantang_stagnasi = 0
         self.perintah_butuh_gaya = False
         self.gaya_bukti_turn = []
+        self.zero_mutasi_turn = False
+        self.kutipan_zero_mutasi = ""
         self.turn_ke += 1
 
     def sisa_todo(self, todo_manager) -> list:

@@ -424,7 +424,17 @@ from pathlib import Path
 # state.gaya_bukti_turn and appended to BOTH closings as a
 # "NILAI TERBACA" ledger section, so context compression ("Memory full,
 # compressing context") can never again eat the evidence.
-BACKEND_VERSION = "0.10.34"
+# Bumped 0.10.34 -> 0.10.35 for UPDATE-025 commit 31 (the 0.10.34 exam):
+# (1) HARD BLOCK — when the instruction forbids all file mutation,
+# write_file/edit_file/delete_file/move_file are refused at the call
+# site with the order's own quote (Orion edit_file-ed app/main.py
+# inside a zero-mutation turn); (2) checkpoint fate-accuracy — the
+# header says TUGAS BELUM SELESAI while any verification debt is open
+# (the exam printed TUGAS SELESAI on top of two open debts); (3) the
+# field exam text moves to REVISI-4 (PANDUAN_C31) with an explicit
+# login step: the 0.10.34 run proved the app fronts a login wall that
+# REVISI-3 never mentioned, making the assertions unreachable.
+BACKEND_VERSION = "0.10.35"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py
