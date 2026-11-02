@@ -1468,12 +1468,21 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # instruction orders getComputedStyle evidence, with the
             # anchor sentence falling back to the getComputedStyle
             # sentence itself. <<<
-            _p29, _butuh29 = guard_rules.perintah_verifikasi_gaya(_teks)
+            # >>> Commit 37 (owner 2026-11-02: "kenapa utang verifikasi
+            # selalu ada?"): this re-anchor scan read the RAW message —
+            # the inline attachment block inside it re-birthed phantom
+            # orders EVERY attachment turn (an informational turn
+            # quoting the attached release notes grew a [perintah_tool]
+            # debt from the document's own sentence). Classify the
+            # user's own words only; the block stays in lampiran_blok. <<<
+            _teks_murni = guard_rules.pisahkan_lampiran(_teks)[0]
+            _p29, _butuh29 = guard_rules.perintah_verifikasi_gaya(
+                _teks_murni)
             state.perintah_tool_eksplisit = _p29
             state.perintah_butuh_gaya = _butuh29
             # >>> UPDATE-025 commit 31: zero-mutation orders become a
             # hard block, not a post-hoc disclosure. <<<
-            _zm31, _q31 = guard_rules.zero_mutasi_diperintah(_teks)
+            _zm31, _q31 = guard_rules.zero_mutasi_diperintah(_teks_murni)
             state.zero_mutasi_turn = _zm31
             state.kutipan_zero_mutasi = _q31
             break
