@@ -441,7 +441,16 @@ from pathlib import Path
 # closings, too late); (2) the zero-mutation hard block now also covers
 # run_terminal server-start/production-build commands (the exam
 # substituted the ordered assertions with pytest plus a Vite build).
-BACKEND_VERSION = "0.10.36"
+# Bumped 0.10.36 -> 0.10.37 for commit 33 (owner incident 2026-11-02: a
+# confirmation-only turn whose closing leaked six English monologue
+# paragraphs plus a verbatim quote of the mid-turn challenge into the
+# user frame): (1) closing-only stripper superset for the wild monologue
+# openers ("Look at …", "The user's prompt …", "And the system check
+# says …"); (2) echo-tooth removing challenge-injection paragraphs
+# anywhere in a closing or tool-call blob (decline escape untouched);
+# (3) RAW closings recorded to .orion/logs/respon_orion.log so the chat
+# panel stays clean while forensics survive (owner directive).
+BACKEND_VERSION = "0.10.37"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

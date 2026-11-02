@@ -93,6 +93,19 @@ def setup_logging(level: str | None = None, *, ke_stdout: bool = False) -> Path:
     berkas.setFormatter(fmt)
     akar.addHandler(berkas)
 
+    # >>> Commit 33 (owner directive 2026-11-02): raw backend closings get
+    # their own file so the chat panel stays clean while forensics survive.
+    # Separate logger, no propagation: backend.log keeps its exact shape. <<<
+    respon = logging.getLogger("orion.respon")
+    respon.setLevel(logging.INFO)
+    respon.propagate = False
+    berkas_respon = logging.handlers.RotatingFileHandler(
+        _LOG_DIR / "respon_orion.log", maxBytes=5 * 1024 * 1024, backupCount=3,
+        encoding="utf-8",
+    )
+    berkas_respon.setFormatter(fmt)
+    respon.addHandler(berkas_respon)
+
     if ke_stdout:
         # only for manual debugging in a terminal, NEVER in production
         layar = logging.StreamHandler(sys.stdout)

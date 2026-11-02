@@ -3799,15 +3799,19 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
 
                         # Show the checkpoint report in chat
+                        # >>> Commit 33: cleaned closing (echo + monologue
+                        # stripped) and the RAW text recorded to
+                        # respon_orion.log (owner directive 2026-11-02). <<<
+                        _teks_tutup = stream_utils.tambah_ledger_gaya(
+                            stream_utils.bersih_closing(
+                                strip_thinking_blocks(content)
+                            ),
+                            state.gaya_bukti_turn,
+                        )
+                        stream_utils.rekam_respon_mentah(content, _teks_tutup)
                         yield sse.ev(
                             'token',
-                            text=stream_utils.tambah_ledger_gaya(
-                                stream_utils.buang_paragraf_perencanaan_awal(
-                                    strip_thinking_blocks(content)
-                                ),
-                                state.gaya_bukti_turn,
-                            )
-                            + checkpoint_report,
+                            text=_teks_tutup + checkpoint_report,
                         )
 
                         # Save to context
@@ -3984,11 +3988,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # single merged delegation block — fate-accurate,
                         # claim-aware, never duplicated. <<<
                         _teks_jawab = stream_utils.tambah_ledger_gaya(
-                            stream_utils.buang_paragraf_perencanaan_awal(
+                            stream_utils.bersih_closing(
                                 strip_thinking_blocks(content)
                             ),
                             state.gaya_bukti_turn,
                         )
+                        # >>> Commit 33: RAW closing recorded before the
+                        # code-generated blocks ride along (owner directive
+                        # 2026-11-02: panel clean, forensics in file). <<<
+                        stream_utils.rekam_respon_mentah(content, _teks_jawab)
                         # >>> UPDATE-025 commit 9: the persistence fact rides
                         # BEFORE the thread can close; closing needs the
                         # model's own advisory wording, checked on `content`.

@@ -150,6 +150,12 @@ def catatan_untuk_user(teks: str) -> bool:
     if guard_rules.ada_penolakan_jujur(t):
         return True
     low = t.lower()
+    # >>> Commit 33: a tool-call blob quoting the challenge injection is
+    # scaffolding, not a user note — the "anda" inside the quote must not
+    # buy it a user-addressed escape. The decline escape above still
+    # outranks this suppression. <<<
+    if any(m.lower() in low for m in MARKER_SUNTIKAN_TANTANGAN):
+        return False
     if low.startswith(_PENANDA_AWAL):
         return True
     if any(m in low for m in _PENANDA_UNTUK_USER):
@@ -170,11 +176,124 @@ def buang_paragraf_perencanaan_awal(teks: str) -> str:
         return teks
     par = teks.split("\n\n")
     i = 0
-    while i < len(par) and prose_perencanaan(par[i]):
+    while i < len(par) and prose_perencanaan_closing(par[i]):
         i += 1
     if i == 0 or i == len(par):
         return teks
     return "\n\n".join(par[i:]).lstrip()
+
+
+# >>> UPDATE-026 commit 33 (owner incident 2026-11-02: a confirmation-only
+# turn's closing opened with six English monologue paragraphs AND quoted
+# the mid-turn challenge verbatim — "[SISTEM - PEMERIKSAAN BUKTI] …" —
+# into the user frame; the owner could not find the real answer inside
+# it). Three deterministic holes, three code fixes: (1) monologue openers
+# the tool-call gate never needed ("Look at …", "The user's prompt …",
+# "And the system check says …") join a CLOSING-only predicate superset;
+# (2) paragraphs that echo the challenge injection or quote the turn's
+# prompt/system-check are scaffolding, never user prose — removed anywhere
+# in the closing; (3) the RAW closing is recorded to
+# .orion/logs/respon_orion.log so forensics survive outside the chat panel
+# (owner directive: keep the panel clean, keep a record). The honest-decline
+# escape and the debt block are untouched — disclosure still outranks every
+# suppressor. <<<
+MARKER_SUNTIKAN_TANTANGAN = (
+    "[SISTEM - PEMERIKSAAN BUKTI]",
+    "[SYSTEM - EVIDENCE CHECK]",
+)
+_OPENER_KUTIPAN_MONOLOG = (
+    "the user's prompt", "user's prompt in this turn",
+    "the system check says", "and the system check says",
+)
+_OPENER_TAMBAH_CLOSING = (
+    "look at", "look ", "look,", "the user's", "the system check",
+    "and the system",
+)
+
+
+def prose_perencanaan_closing(teks: str) -> bool:
+    """Closing-only superset of ``prose_perencanaan``: same shape rules,
+    plus the monologue openers observed in the wild on 2026-11-02 that the
+    tool-call gate never sees (closings bypass that gate). Every escape
+    (decline / user-addressed / presentational start) is shared with the
+    base predicate, so a genuine answer paragraph still stops the chain."""
+    if prose_perencanaan(teks):
+        return True
+    t = (teks or "").strip()
+    if not t or len(t) > 600:
+        return False
+    low = t.lower()
+    if guard_rules.ada_penolakan_jujur(t):
+        return False
+    if any(m in low for m in _PENANDA_UNTUK_USER):
+        return False
+    if low.startswith(_PENANDA_AWAL):
+        return False
+    if not (any(v in low for v in _VERB_RENCANA)
+            or any(v in low for v in _TOKEN_TOOL)):
+        return False
+    kalimat = [
+        s.strip().lower()
+        for s in re.split(r"[\n;]+|\.\s", t)
+        if s.strip()
+    ]
+    return any(k.startswith(_OPENER_TAMBAH_CLOSING) for k in kalimat)
+
+
+def _paragraf_gema_suntikan(teks: str) -> bool:
+    low = (teks or "").lower()
+    if any(m.lower() in low for m in MARKER_SUNTIKAN_TANTANGAN):
+        return True
+    return low.strip().startswith(_OPENER_KUTIPAN_MONOLOG)
+
+
+def buang_gema_suntikan(teks: str) -> str:
+    """Drop paragraphs that echo the mid-turn challenge injection or quote
+    the turn's prompt/system-check back at the user. The challenge already
+    reaches the user frame through the structured debt block; the raw
+    injection text inside a closing is scaffolding leak. When EVERY
+    paragraph is echo the original is returned untouched — an empty answer
+    is never emitted."""
+    if not teks:
+        return teks
+    par = teks.split("\n\n")
+    sisa = [p for p in par if not _paragraf_gema_suntikan(p)]
+    if not sisa:
+        return teks
+    return "\n\n".join(sisa).strip()
+
+
+def bersih_closing(teks: str) -> str:
+    """One entry point for both closing sites: echo removal first (anywhere
+    in the text), then the leading planning-paragraph chain."""
+    return buang_paragraf_perencanaan_awal(buang_gema_suntikan(teks))
+
+
+def rekam_respon_mentah(mentah: str, bersih: str, logger=None) -> None:
+    """Owner directive 2026-11-02: record the RAW backend closing to
+    ``.orion/logs/respon_orion.log`` so the chat panel carries only the
+    cleaned text while forensics stay recoverable. Logging must never
+    break a closing — every failure is swallowed."""
+    if logger is None:
+        try:
+            from app import logging_setup
+            logger = logging_setup.get_logger("orion.respon")
+        except Exception:  # noqa: BLE001 - no logger, no record, no crash
+            return
+    try:
+        mentah = mentah or ""
+        bersih = bersih or ""
+        if mentah == bersih:
+            logger.info("[RESPON] closing clean, no strip (%d chars)",
+                        len(mentah))
+        else:
+            logger.info(
+                "[RESPON] raw closing recorded (%d chars, %d stripped):"
+                "\n----- RAW -----\n%s\n----- CLEAN -----\n%s",
+                len(mentah), len(mentah) - len(bersih), mentah, bersih,
+            )
+    except Exception:  # noqa: BLE001 - logging must never break a closing
+        pass
 
 
 def tambah_ledger_gaya(teks: str, bukti) -> str:
