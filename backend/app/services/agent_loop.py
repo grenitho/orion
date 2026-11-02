@@ -1384,6 +1384,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.edit_gagal_beruntun = 0
         state.tantang_stagnasi = 0
         state.perintah_butuh_gaya = False
+        state.gaya_bukti_turn = []
         for _m in reversed(getattr(deps.context_manager, "history", None) or []):
             if _m.get("role") != "user":
                 continue
@@ -2266,6 +2267,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 and _browser_hasil_sukses(result)
                             ):
                                 state.gaya_diperiksa_turn_ini = True
+                                # >>> UPDATE-025 commit 30: capture the
+                                # read values NOW, by code, so context
+                                # compression cannot eat them. <<<
+                                state.gaya_bukti_turn.append(
+                                    str(result)[:180].replace("\n", " ")
+                                )
                                 # >>> UPDATE-025 commit 25: the evidence
                                 # lands — pay the matching debt. <<<
                                 state.tutup_debt_verifikasi("gaya")
@@ -2278,10 +2285,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 _browser_hasil_sukses(result)
                             ):
                                 state.panggilan_browser_turn_ini += 1
-                                # >>> UPDATE-025 commit 25: a successful
-                                # browser call honours a named tool order —
-                                # pay that debt too. <<<
-                                state.tutup_debt_verifikasi("perintah_tool")
+                                # >>> UPDATE-025 commit 30: when the
+                                # instruction names getComputedStyle, a bare
+                                # browser call must NOT pay the named-order
+                                # debt (the 0.10.33 exam: a post-challenge
+                                # navigate closed it while the ledger stayed
+                                # empty, so the missing values were never
+                                # disclosed). Only gaya evidence pays. <<<
+                                if guard_rules.perintah_tool_boleh_tutup(state):
+                                    state.tutup_debt_verifikasi("perintah_tool")
                             # >>> UPDATE-025 hotfix-2: surface the shared
                             # pre-call notice (logging-first, per the
                             # reviewer's suggestion): log it AND prepend
@@ -3712,8 +3724,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # Show the checkpoint report in chat
                         yield sse.ev(
                             'token',
-                            text=stream_utils.buang_paragraf_perencanaan_awal(
-                                strip_thinking_blocks(content)
+                            text=stream_utils.tambah_ledger_gaya(
+                                stream_utils.buang_paragraf_perencanaan_awal(
+                                    strip_thinking_blocks(content)
+                                ),
+                                state.gaya_bukti_turn,
                             )
                             + checkpoint_report,
                         )
@@ -3891,8 +3906,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # (read-only turns, post-pause resumes) carry the
                         # single merged delegation block — fate-accurate,
                         # claim-aware, never duplicated. <<<
-                        _teks_jawab = stream_utils.buang_paragraf_perencanaan_awal(
-                            strip_thinking_blocks(content)
+                        _teks_jawab = stream_utils.tambah_ledger_gaya(
+                            stream_utils.buang_paragraf_perencanaan_awal(
+                                strip_thinking_blocks(content)
+                            ),
+                            state.gaya_bukti_turn,
                         )
                         # >>> UPDATE-025 commit 9: the persistence fact rides
                         # BEFORE the thread can close; closing needs the

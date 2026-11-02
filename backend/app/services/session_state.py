@@ -210,6 +210,10 @@ class SessionState:
     # >>> UPDATE-025 commit 29: the instruction names getComputedStyle —
     # a bare navigate must NOT honour the named order. <<<
     perintah_butuh_gaya: bool = False
+    # >>> UPDATE-025 commit 30: raw read-value snippets captured by CODE
+    # at evaluate time, so context compression ("Memory full…") can no
+    # longer eat the evidence before the closing report. <<<
+    gaya_bukti_turn: list = field(default_factory=list)
     # >>> END OF UPDATE-025 commit 25 fields <<<
 
     def catat_file_berubah(self, entri: str) -> None:
@@ -361,6 +365,7 @@ class SessionState:
         self.edit_gagal_beruntun = 0
         self.tantang_stagnasi = 0
         self.perintah_butuh_gaya = False
+        self.gaya_bukti_turn = []
         self.turn_ke += 1
 
     def sisa_todo(self, todo_manager) -> list:

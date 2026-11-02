@@ -416,7 +416,15 @@ from pathlib import Path
 # computed-style ledger fills; (3) the turn-start scan anchors the
 # getComputedStyle sentence itself when no named-tool order sentence
 # exists.
-BACKEND_VERSION = "0.10.33"
+# Bumped 0.10.33 -> 0.10.34 for UPDATE-025 commit 30 (the 0.10.33 exam
+# transcript): (1) the named-order debt can no longer be paid by a bare
+# browser call when the instruction names getComputedStyle — only the
+# computed-style ledger pays (guard_rules.perintah_tool_boleh_tutup);
+# (2) read values are captured by CODE at evaluate time into
+# state.gaya_bukti_turn and appended to BOTH closings as a
+# "NILAI TERBACA" ledger section, so context compression ("Memory full,
+# compressing context") can never again eat the evidence.
+BACKEND_VERSION = "0.10.34"
 APP_NAME = "orion-backend"
 
 # This file is <repo>/backend/app/runtime_id.py

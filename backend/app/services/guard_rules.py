@@ -248,6 +248,20 @@ def perintah_verifikasi_gaya(teks: str) -> tuple:
     return perintah, butuh
 
 
+def perintah_tool_boleh_tutup(state) -> bool:
+    """UPDATE-025 commit 30: may a successful browser call pay the
+    named-order debt? The 0.10.33 exam transcript showed the hole: the
+    perintah challenge fired correctly, then a post-challenge
+    browser_navigate closed the debt via the commit-26 rule (ANY
+    successful browser call pays) while the computed-style ledger stayed
+    empty — the debt vanished from the block and the user never learned
+    the ordered getComputedStyle values were missing. When the
+    instruction names getComputedStyle, only gaya evidence pays."""
+    if not getattr(state, "perintah_butuh_gaya", False):
+        return True
+    return bool(getattr(state, "gaya_diperiksa_turn_ini", False))
+
+
 def stagnasi_perlu_ditantang(
     nir_mutasi_beruntun: int,
     edit_gagal_beruntun: int,

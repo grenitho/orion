@@ -175,3 +175,22 @@ def buang_paragraf_perencanaan_awal(teks: str) -> str:
     if i == 0 or i == len(par):
         return teks
     return "\n\n".join(par[i:]).lstrip()
+
+
+def tambah_ledger_gaya(teks: str, bukti) -> str:
+    """UPDATE-025 commit 30: append the code-captured read values to a
+    closing text. The 0.10.33 exam proved the model's closing can lose
+    the values (five 'Memory full, compressing context' events between
+    evaluate and closing); state survives compression, so the ledger
+    section is appended deterministically by CODE. Snippets already
+    present are not duplicated; max six entries; empty ledger is a
+    no-op."""
+    sisa = [b for b in (bukti or []) if b and b not in (teks or "")]
+    if not sisa:
+        return teks or ""
+    blok = (
+        "\n\n📐 NILAI TERBACA dari browser turn ini (ledger gaya, "
+        "ditangkap kode — bukan klaim model):\n"
+        + "\n".join(f"- {b}" for b in sisa[:6])
+    )
+    return (teks or "") + blok
