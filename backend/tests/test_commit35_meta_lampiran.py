@@ -96,6 +96,7 @@ def test_state_lampiran_reset_per_turn():
 def test_wiring_note_lampiran():
     src = (pathlib.Path(su.__file__).parent / "agent_loop.py").read_text(
         encoding="utf-8")
-    assert "guard_rules.ada_blok_lampiran(" in src
+    # commit 36 memindah sumber kebenaran ke state.lampiran_blok
+    assert "state.lampiran_blok and not state.lampiran_note_turn:" in src
     assert "state.lampiran_note_turn" in src
     assert "SISTEM - LAMPIRAN" in src and "SYSTEM - ATTACHMENT" in src

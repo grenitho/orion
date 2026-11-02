@@ -401,6 +401,27 @@ def ada_blok_lampiran(permintaan: str) -> bool:
     return MARKER_BLOK_LAMPIRAN in (permintaan or "")
 
 
+# >>> Commit 36 (owner transcript 2026-11-02, turn "periksa file yang
+# ini" + handoff attachment): the inline attachment block made the
+# ORDER CLASSIFIERS read the document under discussion as if it were
+# the user's order — a [perintah_tool] debt anchored on a handoff
+# fragment mentioning "Playwright MCP", and debt quotes dumped the
+# whole attachment into the chat panel. Split at the anchor point:
+# `permintaan_turn_ini` keeps the user's OWN words (every classifier,
+# debt quote and challenge quote downstream becomes attachment-free);
+# the block rides a separate field for the attachment note. <<<
+MARKER_PISAH_LAMPIRAN = "----- ATTACHED FILE CONTENT"
+
+
+def pisahkan_lampiran(teks: str) -> tuple:
+    """(permintaan_murni, blok_lampiran); tanpa marker -> (teks, "")."""
+    t = teks or ""
+    i = t.find(MARKER_PISAH_LAMPIRAN)
+    if i == -1:
+        return t, ""
+    return t[:i].rstrip(), t[i:]
+
+
 def tool_dinamai_tak_tersedia(permintaan: str, tersedia) -> list:
     """Sorted names of browser/MCP tools the order mentions that the
     connected MCP configuration cannot serve ([] when every named tool

@@ -1327,6 +1327,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.permintaan_turn_ini = _permintaan_pengguna_terakhir(
             deps.context_manager.get_history()
         )
+        # >>> Commit 36 (owner transcript 2026-11-02): split the inline
+        # attachment block OFF the pure request at the anchor point.
+        # Every order classifier, debt quote and challenge quote reads
+        # `permintaan_turn_ini` downstream — with the block inside, a
+        # handoff mentioning "Playwright MCP" anchored a phantom
+        # [perintah_tool] debt for "periksa file yang ini". The block
+        # rides `lampiran_blok` for the attachment note instead. <<<
+        state.permintaan_turn_ini, state.lampiran_blok = (
+            guard_rules.pisahkan_lampiran(state.permintaan_turn_ini)
+        )
         # >>> UPDATE-025 commit 13 (owner: Orion answers in English to an
         # Indonesian user): the LANGUAGE RULE in SYSTEM_PROMPT was losing
         # to the loop's own English system-voice (checkpoint template,
@@ -1372,8 +1382,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # note the model went looking on disk and answered "file tidak
         # ada di disk" while the contents sat in its own context. One
         # note per turn, before the first answer. <<<
-        if guard_rules.ada_blok_lampiran(state.permintaan_turn_ini) \
-                and not state.lampiran_note_turn:
+        if state.lampiran_blok and not state.lampiran_note_turn:
             state.lampiran_note_turn = 1
             deps.context_manager.add_message("user", _L(
                 state,

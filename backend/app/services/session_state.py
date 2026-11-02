@@ -226,6 +226,10 @@ class SessionState:
     probe_tool_hilang: int = 0
     # >>> Commit 35: one turn-start attachment-block note per turn. <<<
     lampiran_note_turn: int = 0
+    # >>> Commit 36: the inline attachment block, split OFF the pure
+    # request at anchor time so classifiers/debt quotes never read the
+    # document under discussion as an order. <<<
+    lampiran_blok: str = ""
     # >>> END OF UPDATE-025 commit 25 fields <<<
 
     def catat_file_berubah(self, entri: str) -> None:
@@ -383,6 +387,7 @@ class SessionState:
         self.nudge_ledger = 0
         self.probe_tool_hilang = 0
         self.lampiran_note_turn = 0
+        self.lampiran_blok = ""
         self.turn_ke += 1
 
     def sisa_todo(self, todo_manager) -> list:
