@@ -188,7 +188,18 @@ KATA_KERJA_MUTASI = (
     "tambah ",
     "ubah ",
     "perbaiki",
-    "implement",
+    # >>> UPDATE-026 commit 39 (owner uji-1 2026-11-02): the bare substring
+    # "implement" minted a mutating-work anchor out of INSPECTION orders
+    # ("jelaskan implementasi tabs/subtab ...") — the noun fired the
+    # zero-mutation challenge and its [nihil_mutasi] debt on a turn that
+    # ordered no work at all. Verb forms only from now on: the imperative
+    # and its affixed siblings, plus the English bare verb with its object
+    # or full stop. Nouns ("implementasi", "implementation") stay silent.
+    "implementasikan",
+    "mengimplementasi",
+    "diimplementasi",
+    "implement ",
+    "implement.",
     "hapus",
     "pasang",
     "edit_file",

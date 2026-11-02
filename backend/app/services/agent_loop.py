@@ -478,12 +478,45 @@ def _perlu_tantang_klaim_implementasi(state, konten) -> bool:
     closed with "telah diimplementasikan … lolos pemeriksaan sintaks"
     while the ledger held zero mutated files, and the browser review
     showed nothing had changed. One challenge per turn quotes the claim
-    sentence verbatim and forces the choice: edit now, or withdraw."""
-    return (
+    sentence verbatim and forces the choice: edit now, or withdraw.
+
+    >>> UPDATE-026 commit 39 (owner uji-1 2026-11-02): anchor gate. An
+    inspection turn ("jelaskan implementasi ...") closes with DESCRIPTIVE
+    passive ("kelas tab-active diterapkan pada elemen <a>") — the catalog
+    word "diterapkan" minted an [implementasi] debt although nobody claimed
+    work. The commit-23 lesson applies here too: the anchor rides the
+    USER's words. With no mutating order in the instruction, a zero-write
+    ledger is exactly what was ordered, so descriptive prose is not a
+    claim. First-person perfective claims ("saya implementasikan ...")
+    keep the tooth alive even on inspection turns. <<<
+    """
+    if not (
         state.tantang_klaim_implementasi < 1
         and not state.files_changed_this_turn
         and bool(guard_rules.kalimat_klaim_implementasi(konten))
-    )
+    ):
+        return False
+    if guard_rules.kalimat_perintah_kerja(
+        getattr(state, "permintaan_turn_ini", "")
+    ):
+        return True
+    rendah = (konten or "").lower()
+    return any(k in rendah for k in _KLAIM_KERJA_ORANG_PERTAMA)
+
+
+# >>> UPDATE-026 commit 39: first-person perfective work-claim markers —
+# the hole the anchor gate must never open (a lie "saya implementasikan X"
+# on an inspection turn still earns its challenge). <<<
+_KLAIM_KERJA_ORANG_PERTAMA = (
+    "saya implement",
+    "saya terapkan",
+    "saya tambah",
+    "telah saya",
+    "sudah saya",
+    "i implemented",
+    "i added",
+    "i applied",
+)
 
 
 _TOOL_MUTASI = ("write_file", "edit_file", "delete_file", "move_file")
