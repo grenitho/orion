@@ -387,6 +387,20 @@ def ada_penolakan_jujur(teks: str) -> bool:
 _POLA_TOOL_NAMA = re.compile(r"\b(mcp__[a-z0-9_]+__[a-z0-9_]+|browser_[a-z_]+)\b")
 
 
+# >>> Commit 35 (owner transcript 2026-11-02: Orion answered "file tidak
+# ada di disk" while the attachment's full contents sat inside its own
+# context): attachments.py pastes TEXT attachments inline as an
+# "ATTACHED FILE CONTENT" block — the block IS the file. Pure predicate
+# so a turn-start note can pin the fact before the model answers. <<<
+MARKER_BLOK_LAMPIRAN = "ATTACHED FILE CONTENT"
+
+
+def ada_blok_lampiran(permintaan: str) -> bool:
+    """True when the turn's user message carries the inline attachment
+    block (text attachments are pasted inline by design)."""
+    return MARKER_BLOK_LAMPIRAN in (permintaan or "")
+
+
 def tool_dinamai_tak_tersedia(permintaan: str, tersedia) -> list:
     """Sorted names of browser/MCP tools the order mentions that the
     connected MCP configuration cannot serve ([] when every named tool

@@ -1366,6 +1366,33 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 f'🔌 Tool not connected this turn: {_daftar_hilang}',
                 f'🔌 Tool tidak terhubung turn ini: {_daftar_hilang}',
             ))
+        # >>> Commit 35 (owner transcript 2026-11-02): the inline
+        # attachment block IS the file — attachments.py pastes text
+        # attachments into the user message by design. Without this
+        # note the model went looking on disk and answered "file tidak
+        # ada di disk" while the contents sat in its own context. One
+        # note per turn, before the first answer. <<<
+        if guard_rules.ada_blok_lampiran(state.permintaan_turn_ini) \
+                and not state.lampiran_note_turn:
+            state.lampiran_note_turn = 1
+            deps.context_manager.add_message("user", _L(
+                state,
+                "[SYSTEM - ATTACHMENT]: the block 'ATTACHED FILE CONTENT' "
+                "inside the user message IS the attached file (text "
+                "attachments are pasted inline by design). Study that "
+                "block directly; NEVER answer 'the file does not exist "
+                "on disk' for it.",
+                "[SISTEM - LAMPIRAN]: blok 'ATTACHED FILE CONTENT' di "
+                "dalam pesan user ADALAH file lampiran itu sendiri "
+                "(lampiran teks ditempel inline sesuai desain). Pelajari "
+                "blok itu langsung; JANGAN pernah menjawab 'file tidak "
+                "ada di disk' untuknya.",
+            ))
+            yield deps.kirim_status(_L(
+                state,
+                '📎 Attachment content read from the message block',
+                '📎 Isi lampiran dibaca dari blok pesan',
+            ))
         if state.bahasa_turn == "id" and isinstance(deps.context_message, dict):
             deps.context_message["content"] = str(
                 deps.context_message.get("content", "")

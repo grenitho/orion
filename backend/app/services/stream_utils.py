@@ -223,6 +223,20 @@ _OPENER_TAMBAH_CLOSING = (
     "look at", "look ", "look,", "the user's", "the system check",
     "and the system",
 )
+# >>> Commit 35 (owner transcript 2026-11-02, turn "pelajari file ini"):
+# a NEW monologue shape escaped — "Let's follow the rule: 1. Answer the
+# question … in your FIRST sentence …" — because (a) it carries no
+# verb/tool token from the base lists and (b) the self-referential
+# "your" bought the user-addressed escape. These exact self-referential
+# meta phrases are planning, never user prose: they outrank the
+# user-addressed escape inside the CLOSING predicate only. Bullet
+# leaders ("- First sentence: …") are unlabeled planning too. <<<
+_META_JELAS = (
+    "follow the rule", "craft the response", "double-check all requirements",
+    "first sentence", "no completion claim", "no victory/completion words",
+    "answer the question that was actually asked",
+)
+_BULLET_LEADER = "-•* \t"
 
 
 def prose_perencanaan_closing(teks: str) -> bool:
@@ -239,6 +253,11 @@ def prose_perencanaan_closing(teks: str) -> bool:
     low = t.lower()
     if guard_rules.ada_penolakan_jujur(t):
         return False
+    # >>> Commit 35: self-referential meta planning outranks the
+    # user-addressed escape ("… in your FIRST sentence …" is the model
+    # talking to itself, not to the user). <<<
+    if any(m in low for m in _META_JELAS):
+        return True
     if any(m in low for m in _PENANDA_UNTUK_USER):
         return False
     if low.startswith(_PENANDA_AWAL):
@@ -249,9 +268,10 @@ def prose_perencanaan_closing(teks: str) -> bool:
     kalimat = [
         s.strip().lower()
         for s in re.split(r"[\n;]+|\.\s", t)
-        if s.strip()
     ]
-    return any(k.startswith(_OPENER_TAMBAH_CLOSING) for k in kalimat)
+    kalimat = [s for s in (k.strip(_BULLET_LEADER) for k in kalimat) if s]
+    return any(k.startswith(_OPENER_TAMBAH_CLOSING)
+               or k.startswith(_OPENER_PERENCANAAN) for k in kalimat)
 
 
 def _paragraf_gema_suntikan(teks: str) -> bool:
