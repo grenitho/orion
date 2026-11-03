@@ -168,6 +168,9 @@ class SessionState:
     # plain decline). Ledger+instruction anchored, so keyword dodging on
     # the closing cannot evade it. <<<
     tantang_nihil_mutasi: int = 0
+    # >>> UPDATE-026 commit 40: how many IPv4 localhost-fallback retries
+    # fired this turn (capped at 2 — a probe, not a retry storm). <<<
+    fallback_ipv4_count: int = 0
     perintah_tool_eksplisit: str = ""
     panggilan_browser_turn_ini: int = 0
     # >>> UPDATE-025 commit 13: the detected language of this turn's user

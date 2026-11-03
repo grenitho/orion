@@ -95,7 +95,7 @@ def test_todo_selesai_tanpa_bukti_diungkapkan_di_checkpoint():
         ],
         [dict(t) for t in TODO_AWAL],
     )
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "TUGAS SELESAI" in f))
     assert laporan, frames
     assert "NO work evidence this turn" in laporan
     assert "`[1]`" in laporan
@@ -111,7 +111,7 @@ def test_todo_selesai_dengan_bukti_tidak_diungkapkan():
         ],
         [dict(t) for t in TODO_AWAL],
     )
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "TUGAS SELESAI" in f))
     assert laporan, frames
     assert "NO work evidence this turn" not in laporan
 
@@ -136,5 +136,5 @@ def test_todo_dibuat_langsung_completed_juga_tercatat():
         ],
         [dict(t) for t in TODO_AWAL],
     )
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "TUGAS SELESAI" in f))
     assert "`[9]`" in laporan

@@ -175,6 +175,7 @@ def test_reminder_jawaban_opsi_tidak_melarang_referensi_user():
 def test_blok_referensi_menyalak_hanya_untuk_ui_tanpa_bacaan(tmp_path):
     _buat_referensi(tmp_path, "FRONTEND_HANDOFF.md")
     st = SessionState()
+    st.bahasa_turn = "id"
     # no changes at all -> silent
     assert _blok_referensi_belum_dibaca(st, str(tmp_path)) == ""
     # non-UI changes only -> silent
@@ -183,9 +184,9 @@ def test_blok_referensi_menyalak_hanya_untuk_ui_tanpa_bacaan(tmp_path):
     # a UI file changed, references unread -> fires and names them
     st.files_changed_this_turn.append("- `src/App.vue` (write_file)")
     blok = _blok_referensi_belum_dibaca(st, str(tmp_path))
-    assert "NOT consulted" in blok
+    assert "TIDAK dibuka turn ini" in blok
     assert ".orion/attachments/FRONTEND_HANDOFF.md" in blok
-    assert "design tokens" in blok
+    assert "token desain" in blok
     # consulted this turn -> silent again
     st.lampiran_dibaca_turn_ini.add(".orion/attachments/FRONTEND_HANDOFF.md")
     assert _blok_referensi_belum_dibaca(st, str(tmp_path)) == ""
@@ -218,9 +219,9 @@ def test_checkpoint_mengungkapkan_ui_selesai_tanpa_membaca_referensi(tmp_path):
         todos=[dict(t) for t in TODO_AWAL],
         executor=_TERef(tmp_path),
     )
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "TUGAS SELESAI" in f))
     assert laporan, frames
-    assert "NOT consulted" in laporan
+    assert "TIDAK dibuka turn ini" in laporan
     assert "invoiceflow.html" in laporan
 
 
@@ -238,9 +239,9 @@ def test_checkpoint_senyap_bila_referensi_dibaca_lebih_dulu(tmp_path):
         todos=[dict(t) for t in TODO_AWAL],
         executor=_TERef(tmp_path),
     )
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "TUGAS SELESAI" in f))
     assert laporan, frames
-    assert "NOT consulted" not in laporan
+    assert "TIDAK dibuka turn ini" not in laporan
     assert state.lampiran_dibaca_turn_ini == {REF}
 
 
@@ -261,11 +262,11 @@ def test_nudge_referensi_menyala_sebelum_tutup_lalu_dibaca(tmp_path):
         executor=_TERef(tmp_path),
     )
     gabungan = "".join(frames)
-    assert "reconciliation owed" in gabungan          # the in-turn challenge
+    assert "rekonsiliasi wajib" in gabungan          # the in-turn challenge
     assert state.nudge_referensi == 1
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "TUGAS SELESAI" in f))
     assert laporan, frames
-    assert "NOT consulted" not in laporan             # read -> silent closing
+    assert "TIDAK dibuka turn ini" not in laporan             # read -> silent closing
 
 
 def test_nudge_dianggalkan_mengeskalsasi_blok_checkpoint(tmp_path):
@@ -279,11 +280,11 @@ def test_nudge_dianggalkan_mengeskalsasi_blok_checkpoint(tmp_path):
         ],
         executor=_TERef(tmp_path),
     )
-    assert sum("reconciliation owed" in f for f in frames) == 1  # cap 1
+    assert sum("rekonsiliasi wajib" in f for f in frames) == 1  # cap 1
     assert state.nudge_referensi == 1
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
-    assert "NOT consulted" in laporan
-    assert "UNVERIFIED" in laporan                    # escalated wording
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "TUGAS SELESAI" in f))
+    assert "TIDAK dibuka turn ini" in laporan
+    assert "BELUM TERVERIFIKASI" in laporan                    # escalated wording
 
 
 def test_nudge_senyap_tanpa_referensi_tersimpan(tmp_path):
@@ -295,7 +296,7 @@ def test_nudge_senyap_tanpa_referensi_tersimpan(tmp_path):
         ],
         executor=_TERef(tmp_path),
     )
-    assert "reconciliation owed" not in "".join(frames)
+    assert "rekonsiliasi wajib" not in "".join(frames)
     assert state.nudge_referensi == 0
 
 
@@ -409,9 +410,9 @@ def test_injeksi_gate_menyebut_jalur_lengkap_lampiran(tmp_path):
     assert "`invoiceflow.html`" not in teks
     # the shared anti-evasion sentence rides the injection
     assert (
-        "These files EXIST at those paths; read them with read_file" in teks
+        "File-file ini ADA di jalur tersebut; baca dengan read_file" in teks
     )
-    assert "false claim" in teks
+    assert "klaim palsu" in teks
 
 
 def test_injeksi_gate_indonesia_menyebut_jalur_lengkap(tmp_path):
@@ -465,13 +466,13 @@ def test_klaim_referensi_hilang_tanpa_read_file_tetap_tereskalasi(tmp_path):
     )
     assert ex.dibaca == []                    # read_file never called
     assert state.nudge_referensi == 1
-    assert sum("reconciliation owed" in f for f in frames) == 1  # cap 1
-    laporan = "".join(f for f in frames if "TASK COMPLETED" in f)
+    assert sum("rekonsiliasi wajib" in f for f in frames) == 1  # cap 1
+    laporan = "".join(f for f in frames if ("TASK COMPLETED" in f or "TUGAS SELESAI" in f))
     assert laporan, frames
-    assert "NOT consulted" in laporan
-    assert "UNVERIFIED" in laporan            # escalation still ships
+    assert "TIDAK dibuka turn ini" in laporan
+    assert "BELUM TERVERIFIKASI" in laporan            # escalation still ships
     assert ".orion/attachments/FRONTEND_HANDOFF.md" in laporan
-    assert "These files EXIST at those paths" in laporan
+    assert "ADA di jalur tersebut" in laporan
 
 
 def test_satu_sumber_kalimat_anti_elakan(tmp_path):
@@ -521,10 +522,10 @@ def test_jawab_normal_juga_membawa_blok_referensi_tereskalasi(tmp_path):
     assert ex.dibaca == []                    # read_file never called
     assert state.nudge_referensi == 1
     # the turn ended on the JAWAB_NORMAL arm: no checkpoint report frame
-    assert not any("TASK COMPLETED" in f for f in frames), frames
+    assert not any(("TASK COMPLETED" in f or "TUGAS SELESAI" in f) for f in frames), frames
     jawaban = "".join(f for f in frames if '"type": "token"' in f)
-    assert "NOT consulted" in jawaban         # disclosure rides the normal end
-    assert "UNVERIFIED" in jawaban            # escalation intact
+    assert "TIDAK dibuka turn ini" in jawaban         # disclosure rides the normal end
+    assert "BELUM TERVERIFIKASI" in jawaban            # escalation intact
     assert ".orion/attachments/FRONTEND_HANDOFF.md" in jawaban
     # single emitter: exactly one copy of the block in the streamed answer
-    assert jawaban.count("NOT consulted") == 1
+    assert jawaban.count("TIDAK dibuka turn ini") == 1

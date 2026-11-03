@@ -68,7 +68,7 @@ def test_nihil_mutasi_ditantang_dan_instruksi_dikutip_verbatim(tmp_path):
     )
     assert len(kutip) == 1
     assert INSTRUKSI_KERJA in kutip[0]      # the user's own sentence
-    assert "not a simulation" in kutip[0]
+    assert "bukan simulasi" in kutip[0]
     assert sum("🛑" in f for f in frames) >= 1
     assert any(JUJUR_TOLAK in f for f in frames)
 
@@ -197,7 +197,7 @@ def test_todo_nol_bukti_disclosureturut_di_jawab_normal(tmp_path):
         executor=_TERef(tmp_path),
         mcp=_MCP(),
     )
-    laporan = "".join(f for f in frames if "TASK COMPLETED" not in f)
+    laporan = "".join(f for f in frames if not (("TASK COMPLETED" in f or "TUGAS SELESAI" in f) or "TUGAS SELESAI" in f))
     gabungan = laporan + "".join(
         str(m.get("content", "")) for m in deps.context_manager.history
     )

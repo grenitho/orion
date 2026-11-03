@@ -584,6 +584,17 @@ KATA_ID = (
     "berapa", "ini", "itu", "ada", "bisa", "mau", "jadi", "karena",
     "saat", "akan", "atau", "juga", "masih", "sekali", "mohon", "pakai",
     "buat", "kalau", "jika", "terima", "kasih", "sekalian", "dong",
+    # >>> UPDATE-026 commit 40 (owner B13, 2026-11-03): the regression-test
+    # order "Kerjakan penambahan komentar header di frontend/src/App.jsx
+    # sekarang." scored 0-0 (no catalog hit either way) and fell through
+    # to 'en', so the disclosure blocks spoke English to an Indonesian
+    # owner. Core prepositions and the common imperative forms now carry
+    # the anchor; space-delimited, so English prose stays safe. <<<
+    "di", "ke", "pada", "dari", "oleh", "lalu", "agar", "supaya", "ketika",
+    "sambil", "namun", "tetapi", "sekitar", "sekarang", "seluruh", "semua",
+    "kerjakan", "tambahkan", "jelaskan", "buka", "periksa", "nyatakan",
+    "sebutkan", "perbaiki", "pasang", "kirimkan", "tampilkan", "gunakan",
+    "jalankan", "pastikan", "bandingkan", "ringkas", "ubah",
 )
 KATA_EN = (
     " the ", " and ", " for ", " with ", "please", " i ", " my ", " we ",
@@ -593,11 +604,28 @@ KATA_EN = (
 )
 
 
+# >>> UPDATE-026 commit 40: Indonesian morphology tie-break for
+# deteksi_bahasa (prefix me-/ber-/ter-/di-/pe- with suffix -kan/-an). <<<
+_POLA_AFIKS_ID = re.compile(
+    r"\b(?:me|meng|mem|men|meny|ber|bel|ter|di|pe|pen|pem|per)"
+    r"[a-z]{2,}(?:kan|an)\b"
+)
+
+
 def deteksi_bahasa(teks: str) -> str:
-    """'id' when the user's message reads Indonesian, else 'en'."""
+    """'id' when the user's message reads Indonesian, else 'en'.
+
+    >>> UPDATE-026 commit 40: affix tie-break. A zero-zero score (short
+    technical order, no catalog word either way) used to fall through to
+    'en'; Indonesian morphology (me-/ber-/ter-/di-/pe- … -kan/-an) is now
+    a positive ID signal on ties, so "Kerjakan penambahan komentar ..."
+    speaks Indonesian back. <<<
+    """
     rendah = f" {(teks or '').lower()} "
     id_ = sum(rendah.count(f" {k} ") for k in KATA_ID)
     en_ = sum(rendah.count(k) for k in KATA_EN)
+    if id_ == en_ and _POLA_AFIKS_ID.search(rendah):
+        id_ += 1
     return "id" if id_ > en_ else "en"
 
 

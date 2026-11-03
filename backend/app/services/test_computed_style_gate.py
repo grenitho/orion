@@ -229,20 +229,20 @@ def test_nudge_gaya_setelah_rekonsiliasi_lalu_dipenuhi(tmp_path):
     assert "mcp__playwright__browser_navigate" in teks
     assert "mcp__playwright__browser_evaluate" in teks
     assert "getComputedStyle" in teks
-    assert "self-certification" in teks
+    assert "sertifikasi diri" in teks
     # commit 19 recipe: dev-server step + operate the changed controls
-    assert "dev server with run_terminal" in teks
+    assert "server-nya dengan run_terminal" in teks
     assert "browser_click" in teks
     # both MCP calls were dispatched through the manager, in order
     assert [n for n, _ in mcp.calls] == [
         "mcp__playwright__browser_navigate",
         "mcp__playwright__browser_evaluate",
     ]
-    assert sum("computed-style verification owed" in f for f in frames) == 1
-    laporan = "".join(f for f in frames if "CHECKPOINT REPORT" in f)
+    assert sum("verifikasi gaya terkomputasi wajib" in f for f in frames) == 1
+    laporan = "".join(f for f in frames if ("CHECKPOINT REPORT" in f or "LAPORAN CHECKPOINT" in f))
     assert laporan, frames
-    assert "NOT verified against rendered styles" not in laporan
-    assert "NOT consulted" not in laporan
+    assert "TIDAK diverifikasi terhadap gaya render" not in laporan
+    assert "TIDAK dibuka turn ini" not in laporan
 
 
 def test_nudge_gaya_dianggarkan_mengeskalasi_blok_checkpoint(tmp_path):
@@ -265,13 +265,13 @@ def test_nudge_gaya_dianggarkan_mengeskalasi_blok_checkpoint(tmp_path):
     assert mcp.calls == []                        # browser never opened
     assert state.gaya_diperiksa_turn_ini is False
     assert state.nudge_gaya == 1
-    assert sum("computed-style verification owed" in f for f in frames) == 1
-    laporan = "".join(f for f in frames if "CHECKPOINT REPORT" in f)
+    assert sum("verifikasi gaya terkomputasi wajib" in f for f in frames) == 1
+    laporan = "".join(f for f in frames if ("CHECKPOINT REPORT" in f or "LAPORAN CHECKPOINT" in f))
     assert laporan, frames
-    assert "NOT verified against rendered styles" in laporan
-    assert "UNVERIFIED" in laporan
-    assert "still closed without running it" in laporan
-    assert laporan.count("NOT verified against rendered styles") == 1
+    assert "TIDAK diverifikasi terhadap gaya render" in laporan
+    assert "BELUM TERVERIFIKASI" in laporan
+    assert "tetap menutup tanpa menjalankannya" in laporan
+    assert laporan.count("TIDAK diverifikasi terhadap gaya render") == 1
 
 
 def test_blok_gaya_hadir_di_ujung_jawab_normal(tmp_path):
@@ -295,12 +295,12 @@ def test_blok_gaya_hadir_di_ujung_jawab_normal(tmp_path):
         executor=ex,
         mcp=mcp,
     )
-    assert not any("TASK COMPLETED" in f for f in frames), frames
+    assert not any(("TASK COMPLETED" in f or "TUGAS SELESAI" in f) for f in frames), frames
     assert state.nudge_gaya == 1
     jawaban = "".join(f for f in frames if '"type": "token"' in f)
-    assert "NOT verified against rendered styles" in jawaban
-    assert "still closed without running it" in jawaban
-    assert jawaban.count("NOT verified against rendered styles") == 1
+    assert "TIDAK diverifikasi terhadap gaya render" in jawaban
+    assert "tetap menutup tanpa menjalankannya" in jawaban
+    assert jawaban.count("TIDAK diverifikasi terhadap gaya render") == 1
 
 
 def test_gigi_gaya_senyap_tanpa_tool_browser(tmp_path):
@@ -321,9 +321,9 @@ def test_gigi_gaya_senyap_tanpa_tool_browser(tmp_path):
     assert state.nudge_gaya == 0
     assert _injeksi_gaya(deps) == []
     assert mcp.calls == []
-    laporan = "".join(f for f in frames if "CHECKPOINT REPORT" in f)
+    laporan = "".join(f for f in frames if ("CHECKPOINT REPORT" in f or "LAPORAN CHECKPOINT" in f))
     assert laporan, frames
-    assert "NOT verified against rendered styles" not in laporan
+    assert "TIDAK diverifikasi terhadap gaya render" not in laporan
 
 
 def test_evaluate_gagal_atau_tanpa_getcomputedstyle_bukan_bukti(tmp_path):
@@ -358,10 +358,10 @@ def test_evaluate_gagal_atau_tanpa_getcomputedstyle_bukan_bukti(tmp_path):
     assert len(mcp.calls) == 2
     assert state.gaya_diperiksa_turn_ini is False  # neither call is evidence
     assert state.nudge_gaya == 1
-    laporan = "".join(f for f in frames if "CHECKPOINT REPORT" in f)
+    laporan = "".join(f for f in frames if ("CHECKPOINT REPORT" in f or "LAPORAN CHECKPOINT" in f))
     assert laporan, frames
-    assert "NOT verified against rendered styles" in laporan
-    assert "still closed without running it" in laporan
+    assert "TIDAK diverifikasi terhadap gaya render" in laporan
+    assert "tetap menutup tanpa menjalankannya" in laporan
 
 
 def test_perlu_nudge_gaya_matriks_kondisi(tmp_path):
@@ -428,10 +428,10 @@ def test_klaim_visual_ditantang_dan_dikutip_verbatim(tmp_path):
     ]
     assert len(kutip) == 1
     assert KLAIM_2 in kutip[0]                 # quoted verbatim
-    assert "not a simulation" in kutip[0]
+    assert "bukan simulasi" in kutip[0]
     assert sum("🎯" in f for f in frames) == 1
-    laporan = "".join(f for f in frames if "CHECKPOINT REPORT" in f)
-    assert "NOT verified against rendered styles" in laporan
+    laporan = "".join(f for f in frames if ("CHECKPOINT REPORT" in f or "LAPORAN CHECKPOINT" in f))
+    assert "TIDAK diverifikasi terhadap gaya render" in laporan
     assert mcp.calls == []                     # model never ran the check
 
 
@@ -458,8 +458,8 @@ def test_klaim_visual_senyap_bila_cabang_or_jujur(tmp_path):
     assert state.tantang_klaim_visual == 0
     assert not any("VISUAL CLAIM CHALLENGE" in f for f in frames)
     assert not any("TANTANGAN KLAIM VISUAL" in f for f in frames)
-    laporan = "".join(f for f in frames if "CHECKPOINT REPORT" in f)
-    assert "NOT verified against rendered styles" in laporan  # disclosure tetap
+    laporan = "".join(f for f in frames if ("CHECKPOINT REPORT" in f or "LAPORAN CHECKPOINT" in f))
+    assert "TIDAK diverifikasi terhadap gaya render" in laporan  # disclosure tetap
 
 
 def test_klaim_visual_senyap_bila_bukti_ada(tmp_path):
@@ -482,8 +482,8 @@ def test_klaim_visual_senyap_bila_bukti_ada(tmp_path):
     assert state.gaya_diperiksa_turn_ini is True
     assert state.tantang_klaim_visual == 0
     assert not any("VISUAL CLAIM CHALLENGE" in f for f in frames)
-    laporan = "".join(f for f in frames if "CHECKPOINT REPORT" in f)
-    assert "NOT verified against rendered styles" not in laporan
+    laporan = "".join(f for f in frames if ("CHECKPOINT REPORT" in f or "LAPORAN CHECKPOINT" in f))
+    assert "TIDAK diverifikasi terhadap gaya render" not in laporan
 
 
 def test_kalimat_klaim_visual_unit():

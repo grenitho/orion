@@ -37,6 +37,7 @@ from typing import AsyncIterator, Callable
 
 import tiktoken
 
+from app import logging_setup
 from app.services import guard_rules, loop_guards, project_facts, research_rules
 from app.services import sse, stream_utils, tool_dispatch
 from app.services import subagent_manager, tool_guards
@@ -517,6 +518,70 @@ _KLAIM_KERJA_ORANG_PERTAMA = (
     "i added",
     "i applied",
 )
+
+
+# >>> UPDATE-026 commit 40 (owner B12, 2026-11-03): the playwright browser
+# reported net::ERR_CONNECTION_REFUSED for http://localhost:3000 while the
+# owner's OWN browser reached the same dev server on the same machine.
+# One deterministic, self-diagnosing tooth: a refused navigate is retried
+# ONCE against the IPv4 loopback literal. If the dev server listens
+# IPv4-only while the browser resolved localhost to ::1, the retry
+# CONNECTS and the turn proceeds on real pixels; if the retry is refused
+# too, the marker states that the browser's network view differs from the
+# host (container/WSL2/proxy), so the transcript carries the diagnosis
+# instead of a bare refusal. Capped twice per turn; a decline stays a
+# decline (nothing here pays any debt or flips any ledger flag). <<<
+_REFUSED_MCP = "ERR_CONNECTION_REFUSED"
+_URL_ARG_KEYS = ("url", "href", "address")
+
+
+def _url_fallback_ipv4(func_args) -> str | None:
+    """The navigate URL with localhost swapped for 127.0.0.1, else None."""
+    if not isinstance(func_args, dict):
+        return None
+    for k in _URL_ARG_KEYS:
+        v = func_args.get(k)
+        if isinstance(v, str) and "localhost" in v.lower():
+            return re.sub(r"localhost", "127.0.0.1", v, flags=re.I)
+    return None
+
+
+async def _fallback_ipv4_bila_ditolak(state, deps, func_name, func_args, result):
+    if not str(func_name).endswith("__browser_navigate"):
+        return result
+    if _REFUSED_MCP not in str(result):
+        return result
+    if getattr(state, "fallback_ipv4_count", 0) >= 2:
+        return result
+    baru = _url_fallback_ipv4(func_args)
+    if not baru:
+        return result
+    state.fallback_ipv4_count = getattr(state, "fallback_ipv4_count", 0) + 1
+    args2 = dict(func_args)
+    for k in _URL_ARG_KEYS:
+        if k in args2:
+            args2[k] = baru
+            break
+    hasil2 = await deps.mcp.call(func_name, args2)
+    sukses = _REFUSED_MCP not in str(hasil2)
+    marker = _L(
+        state,
+        "\n[ORION IPv4 FALLBACK] navigate to localhost was refused "
+        "(ERR_CONNECTION_REFUSED); auto-retried " + baru + " -> "
+        + ("CONNECTED." if sukses else
+           "refused too: the browser's network view differs from this "
+           "host (container/WSL2/proxy suspected)."),
+        "\n[ORION IPv4 FALLBACK] navigate ke localhost ditolak "
+        "(ERR_CONNECTION_REFUSED); ulang otomatis ke " + baru + " -> "
+        + ("TERHUBUNG." if sukses else
+           "ditolak juga: pandangan jaringan browser berbeda dari host "
+           "ini (kontainer/WSL2/proxy terpandang)."),
+    )
+    logging_setup.get_logger("orion.respon").info(
+        "[RESPON] ipv4 fallback %s -> %s : %s",
+        func_name, baru, "terhubung" if sukses else "ditolak",
+    )
+    return (hasil2 if sukses else result) + marker
 
 
 _TOOL_MUTASI = ("write_file", "edit_file", "delete_file", "move_file")
@@ -2370,6 +2435,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 f'🔌 MCP {deps.mcp.status_label(func_name)} ...'
                             )
                             result = await deps.mcp.call(func_name, func_args)
+                            # >>> UPDATE-026 commit 40: a refused localhost
+                            # navigate gets ONE IPv4 retry (self-diagnosing
+                            # marker rides the result). <<<
+                            result = await _fallback_ipv4_bila_ditolak(
+                                state, deps, func_name, func_args, result
+                            )
                             # >>> UPDATE-025 commit 17: the computed-style
                             # ledger. A SUCCESSFUL browser_evaluate whose
                             # arguments carry getComputedStyle is the only

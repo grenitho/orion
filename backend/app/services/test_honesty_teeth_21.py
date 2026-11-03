@@ -66,7 +66,7 @@ def test_klaim_implementasi_ditantang_dan_dikutip_verbatim(tmp_path):
     )
     assert len(kutip) == 1
     assert KLAIM_IMPL in kutip[0]
-    assert "not a simulation" in kutip[0]
+    assert "bukan simulasi" in kutip[0]
     assert sum("✍️" in f for f in frames) == 1
     assert any(JUJUR in f for f in frames)          # honest close lands
 
