@@ -151,3 +151,11 @@ $RECYCLE.BIN/
 orion/dist/    # hasil build extension
 
 orion/node_modules/    # dependensi extension
+
+
+# ==== UPDATE-2026-11-05: artefak runtime MCP (P0 finding) ====
+backend/.playwright-mcp/
+*.playwright-mcp/
+.playwright-mcp/
+.mcp-runtime/
+**/.mcp-runtime/

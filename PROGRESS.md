@@ -1,0 +1,60 @@
+# PROGRESS — Perbaikan & Pengembangan Orion
+
+> File ini adalah memori eksternal. Setiap sesi baru, tempel isi file ini
+> ke asisten AI (Qwen, Gemini, atau Claude) agar ia tahu di mana kita
+> berada. Update file ini di akhir setiap sesi.
+
+## Environment
+- OS: Windows 11 (D:\APP Grenitho\orion-project)
+- Shell: PowerShell
+- Python: 3.11.9 ✅
+- Node: v24.19.0 ✅
+- git: 2.54.0.windows.1 ✅
+- venv: `backend\venv` (aktif saat perintah dijalankan)
+- Backend version: 0.10.44 (dari GET /health via GET /)
+- Extension version: 0.4.5 (dari package.json — akan diverifikasi)
+- Test baseline: **663 passed, 1 skipped** (135 detik)
+- Branch: main, up-to-date dengan origin
+
+## Status Fase
+- [x] P0 — Verifikasi Baseline ✅ (2026-11-05)
+- [ ] P1 — Audit Fitur Inti (attach, delegasi, MCP)
+- [ ] P1.5 — Perbaiki guard MCP
+- [ ] P2 — Bug Cepat & UX
+- [ ] P3 — Refactor agent_loop.py
+- [ ] P4 — Sandbox Eksekusi
+- [ ] P5 — Akses GitHub Terbatas
+- [ ] P6 — Pencarian Semantik
+- [ ] P7 — Pusat Konfigurasi
+- [ ] P8 — Non-Coding Tasks (eksperimental)
+- [ ] P9 — UI di Luar VS Code (vision)
+- [ ] P9.0 — Hardening Multi-Sesi (prasyarat P9)
+
+## Log Sesi
+
+### Sesi 0 — 2026-11-05 — Penyusunan Blueprint
+**Tujuan:** Sepakati rencana kerja
+**Hasil:**
+- ✅ Blueprint dan PROGRESS disusun
+- ✅ Prioritas dikoreksi: fitur inti dulu, refactor menyusul
+- ✅ Masukan AI lain dievaluasi: P1.5 (guard MCP) dan P9.0 (multi-sesi) ditambahkan
+**Berikutnya:** P0 — Verifikasi Baseline
+
+### Sesi 1 — 2026-11-05 — Verifikasi Baseline (P0)
+**Tujuan:** Pastikan environment sehat
+**Hasil:**
+- ✅ Python 3.11.9, Node v24.19.0, git 2.54.0 — semua memenuhi syarat
+- ✅ Test suite: **663 passed, 1 skipped** — hijau, di atas baseline dokumentasi (393)
+- ✅ Backend jalan, versi 0.10.44
+- ✅ Branch main, up-to-date
+- ⚠️ File untracked: `backend/.playwright-mcp/` — perlu masuk `.gitignore`
+- ⚠️ Dokumentasi menyebut 393 test, kenyataannya 663 — perlu diupdate (P2)
+**Kendala:** Tidak ada blocker
+**Berikutnya:** P1.1 — Audit Attach File
+
+## Catatan Penting
+- DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
+- Model utama: Gemini Flash Lite ×4 key + fallback OpenRouter/Cloudflare
+- Proyek uji: InvoiceFlow
+- Misi: membantu pemula belajar coding gratis + disclaimer kualitas model gratis
+- **Baseline test adalah 663 passed, bukan 393** — dokumentasi basi, akan dikoreksi
