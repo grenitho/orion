@@ -98,6 +98,14 @@
 - Catatan: MCP harus diinstal per-project (by design).
 - ✅ **P1 FASE SELESAI:** Semua fitur inti (Attach, Sub-Agent, MCP) LULUS.
 
+### Sesi 6 — 2026-11-06 — P2 Bug Cepat & UX (Selesai)
+**Tujuan:** Membungkam monolog bahasa Inggris yang bocor ke chat.
+**Hasil:**
+- ✅ **Filter Monolog:** Menambahkan blokir pola "Let's verify", "The user's instruction", dll. di `stream_utils.py` (fungsi `catatan_untuk_user`). Model sekarang menjawab bersih tanpa membocorkan instruksi sistem.
+- ⚠️ **Pending (P2):** Investigasi file `.orion/orion_config.json` yang memiliki setting `max_iterations: 500` (bisa menghabiskan kuota). (Akan dilakukan nanti saat masuk P7).
+
+**Berikutnya:** P3 — Refactor agent_loop.py (Opsional) atau P1.5 — Guard MCP.
+
 ## Catatan Penting
 - DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
 - Model utama: Gemini Flash Lite ×4 key + fallback OpenRouter/Cloudflare

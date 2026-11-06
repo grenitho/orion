@@ -40,7 +40,9 @@ async def jamin_done(aliran: AsyncIterator[str], logger=None) -> AsyncIterator[s
     if not sudah_done:
         if logger is not None:
             try:
-                logger.info("[STREAM] Stream ended without done; the wrapper is sending it.")
+                logger.info(
+                    "[STREAM] Stream ended without done; the wrapper is sending it."
+                )
             except Exception:  # noqa: BLE001 - logging must never break the stream
                 pass
         yield buat_event_done()
@@ -57,28 +59,133 @@ async def jamin_done(aliran: AsyncIterator[str], logger=None) -> AsyncIterator[s
 # markup). Deterministic on purpose — a vocabulary wish in the prompt is
 # not a tooth. <<<
 _OPENER_PERENCANAAN = (
-    "let's", "let me", "i'll", "i will", "i ", "i'", "we ", "we'", "first,",
-    "first ", "wait,", "wait ", "wait —", "hmm,", "hmm ", "okay,", "okay ",
-    "ok,", "ok ", "now,", "now ", "next,", "next ", "ah,", "ah ", "aha",
-    "yes,", "yes ", "so,", "so ", "right,", "right ", "good,", "good ",
-    "nice,", "nice ", "here ", "there ", "since", "because", "since ",
-    "saya akan", "saya ", "kami ", "mari kita", "coba ", "oke,", "oke ",
-    "pertama,", "pertama ", "tunggu,", "tunggu ", "hmm,", "baik,", "baik ",
+    "let's",
+    "let me",
+    "i'll",
+    "i will",
+    "i ",
+    "i'",
+    "we ",
+    "we'",
+    "first,",
+    "first ",
+    "wait,",
+    "wait ",
+    "wait —",
+    "hmm,",
+    "hmm ",
+    "okay,",
+    "okay ",
+    "ok,",
+    "ok ",
+    "now,",
+    "now ",
+    "next,",
+    "next ",
+    "ah,",
+    "ah ",
+    "aha",
+    "yes,",
+    "yes ",
+    "so,",
+    "so ",
+    "right,",
+    "right ",
+    "good,",
+    "good ",
+    "nice,",
+    "nice ",
+    "here ",
+    "there ",
+    "since",
+    "because",
+    "since ",
+    "saya akan",
+    "saya ",
+    "kami ",
+    "mari kita",
+    "coba ",
+    "oke,",
+    "oke ",
+    "pertama,",
+    "pertama ",
+    "tunggu,",
+    "tunggu ",
+    "hmm,",
+    "baik,",
+    "baik ",
 )
 _VERB_RENCANA = (
-    "check", "read", "run", "verify", "look", "search", "grep", "open",
-    "inspect", "compare", "call", "navigate", "snapshot", "close",
-    "cek", "baca", "jalankan", "periksa", "cari", "lihat", "bandingkan",
-    "panggil", "tutup", "review", "format", "present", "update",
-    "summarize", "ensure", "mark", "complete", "susun", "rapikan",
-    "pastikan", "tandai", "ingat", "make", "use", "try", "write",
-    "rewrite", "start", "serve", "delete", "remove", "buat", "tulis",
-    "hapus", "mulai", "coba",
+    "check",
+    "read",
+    "run",
+    "verify",
+    "look",
+    "search",
+    "grep",
+    "open",
+    "inspect",
+    "compare",
+    "call",
+    "navigate",
+    "snapshot",
+    "close",
+    "cek",
+    "baca",
+    "jalankan",
+    "periksa",
+    "cari",
+    "lihat",
+    "bandingkan",
+    "panggil",
+    "tutup",
+    "review",
+    "format",
+    "present",
+    "update",
+    "summarize",
+    "ensure",
+    "mark",
+    "complete",
+    "susun",
+    "rapikan",
+    "pastikan",
+    "tandai",
+    "ingat",
+    "make",
+    "use",
+    "try",
+    "write",
+    "rewrite",
+    "start",
+    "serve",
+    "delete",
+    "remove",
+    "buat",
+    "tulis",
+    "hapus",
+    "mulai",
+    "coba",
 )
 _TOKEN_TOOL = (
-    "git_diff", "git_status", "git_commit", "read_file", "edit_file",
-    "write_file", "search", "grep", "terminal", "bash", "playwright",
-    "mcp", "todo", "app.jsx", "uvicorn", "npm", "pytest", "browser_",
+    "git_diff",
+    "git_status",
+    "git_commit",
+    "read_file",
+    "edit_file",
+    "write_file",
+    "search",
+    "grep",
+    "terminal",
+    "bash",
+    "playwright",
+    "mcp",
+    "todo",
+    "app.jsx",
+    "uvicorn",
+    "npm",
+    "pytest",
+    "browser_",
 )
 # Markers that mean the text IS user-facing: keep it in the chat frame.
 # >>> Commit 27: boundary-aware — the bare substrings "here are"/"berikut"
@@ -92,10 +199,20 @@ _TOKEN_TOOL = (
 # at TEXT START via _PENANDA_AWAL; only genuinely user-addressed markers
 # remain in the substring scan. <<<
 _PENANDA_UNTUK_USER = (
-    "anda", "kamu", " you", " your", "jawab:", "answer:",
+    "anda",
+    "kamu",
+    " you",
+    " your",
+    "jawab:",
+    "answer:",
 )
 _PENANDA_AWAL = (
-    "here is", "here are", "berikut", "ini adalah", "ringkasan", "summary",
+    "here is",
+    "here are",
+    "berikut",
+    "ini adalah",
+    "ringkasan",
+    "summary",
 )
 
 
@@ -124,38 +241,39 @@ def prose_perencanaan(teks: str) -> bool:
     # ("Let's check code implementation … 1. **Revisi 1a** …") straight
     # through it. User-addressed markers and the honest-decline escape
     # remain the ONLY escapes. <<<
-    if not (any(v in low for v in _VERB_RENCANA)
-            or any(v in low for v in _TOKEN_TOOL)):
+    if not (any(v in low for v in _VERB_RENCANA) or any(v in low for v in _TOKEN_TOOL)):
         return False
-    kalimat = [
-        s.strip().lower()
-        for s in re.split(r"[\n;]+|\.\s", t)
-        if s.strip()
-    ]
+    kalimat = [s.strip().lower() for s in re.split(r"[\n;]+|\.\s", t) if s.strip()]
     return any(k.startswith(_OPENER_PERENCANAAN) for k in kalimat)
 
 
 def catatan_untuk_user(teks: str) -> bool:
-    """UPDATE-025 commit 28: the ONLY gate for tool-call message content
-    reaching the user frame. Three exams proved vocabulary classifiers
-    are whack-a-mole ("Ah, …", markdown blobs, "let's make sure …"), so
-    the default is now FULLY inverted: suppress everything except the
-    three escape shapes — an honest decline (the OR branch must always
-    reach the user), a user-addressed note (second person / summary
-    markers), or a direct question to the user. The model's own context
-    keeps the raw text either way."""
+    """UPDATE-026 P2: Filter monolog bahasa Inggris & instruksi sistem."""
     t = (teks or "").strip()
     if not t:
         return False
     if guard_rules.ada_penolakan_jujur(t):
         return True
     low = t.lower()
-    # >>> Commit 33: a tool-call blob quoting the challenge injection is
-    # scaffolding, not a user note — the "anda" inside the quote must not
-    # buy it a user-addressed escape. The decline escape above still
-    # outranks this suppression. <<<
+
     if any(m.lower() in low for m in MARKER_SUNTIKAN_TANTANGAN):
         return False
+
+    # >>> FIX P2: Blokir monolog perencanaan bahasa Inggris
+    _kata_terlarang = (
+        "let's verify",
+        "let's check",
+        "the user's instruction",
+        "system injection",
+        "let's craft",
+        "the user asked",
+        "according to policy",
+        "let's respond",
+        "my analysis",
+    )
+    if any(k in low for k in _kata_terlarang):
+        return False
+
     if low.startswith(_PENANDA_AWAL):
         return True
     if any(m in low for m in _PENANDA_UNTUK_USER):
@@ -216,11 +334,17 @@ MARKER_SUNTIKAN_TANTANGAN = (
     "[SYSTEM - EVIDENCE CHECK]",
 )
 _OPENER_KUTIPAN_MONOLOG = (
-    "the user's prompt", "user's prompt in this turn",
-    "the system check says", "and the system check says",
+    "the user's prompt",
+    "user's prompt in this turn",
+    "the system check says",
+    "and the system check says",
 )
 _OPENER_TAMBAH_CLOSING = (
-    "look at", "look ", "look,", "the user's", "the system check",
+    "look at",
+    "look ",
+    "look,",
+    "the user's",
+    "the system check",
     "and the system",
 )
 # >>> Commit 35 (owner transcript 2026-11-02, turn "pelajari file ini"):
@@ -232,8 +356,12 @@ _OPENER_TAMBAH_CLOSING = (
 # user-addressed escape inside the CLOSING predicate only. Bullet
 # leaders ("- First sentence: …") are unlabeled planning too. <<<
 _META_JELAS = (
-    "follow the rule", "craft the response", "double-check all requirements",
-    "first sentence", "no completion claim", "no victory/completion words",
+    "follow the rule",
+    "craft the response",
+    "double-check all requirements",
+    "first sentence",
+    "no completion claim",
+    "no victory/completion words",
     "answer the question that was actually asked",
 )
 _BULLET_LEADER = "-•* \t"
@@ -266,23 +394,21 @@ def prose_perencanaan_closing(teks: str) -> bool:
     # escape; the decline escape above still outranks everything. <<<
     _kepala = low.lstrip(_BULLET_LEADER)
     if _kepala.startswith(_OPENER_PERENCANAAN + _OPENER_TAMBAH_CLOSING) and (
-            any(v in low for v in _VERB_RENCANA)
-            or any(v in low for v in _TOKEN_TOOL)):
+        any(v in low for v in _VERB_RENCANA) or any(v in low for v in _TOKEN_TOOL)
+    ):
         return True
     if any(m in low for m in _PENANDA_UNTUK_USER):
         return False
     if low.startswith(_PENANDA_AWAL):
         return False
-    if not (any(v in low for v in _VERB_RENCANA)
-            or any(v in low for v in _TOKEN_TOOL)):
+    if not (any(v in low for v in _VERB_RENCANA) or any(v in low for v in _TOKEN_TOOL)):
         return False
-    kalimat = [
-        s.strip().lower()
-        for s in re.split(r"[\n;]+|\.\s", t)
-    ]
+    kalimat = [s.strip().lower() for s in re.split(r"[\n;]+|\.\s", t)]
     kalimat = [s for s in (k.strip(_BULLET_LEADER) for k in kalimat) if s]
-    return any(k.startswith(_OPENER_TAMBAH_CLOSING)
-               or k.startswith(_OPENER_PERENCANAAN) for k in kalimat)
+    return any(
+        k.startswith(_OPENER_TAMBAH_CLOSING) or k.startswith(_OPENER_PERENCANAAN)
+        for k in kalimat
+    )
 
 
 def _paragraf_gema_suntikan(teks: str) -> bool:
@@ -328,16 +454,22 @@ def bersih_closing(teks: str, file_berubah: int | None = None) -> str:
 # file yang berubah", "no files changed") and honest declines stay —
 # disclosure outranks every suppressor. <<<
 _MARKER_KLAIM_FILE = (
-    "files changed", "file berubah", "file yang berubah", "saya ubah",
-    "saya sunting", "saya mengubah", "mengubah file", "mengubah `",
-    "berhasil mengubah", "changed `", "successfully wrote",
+    "files changed",
+    "file berubah",
+    "file yang berubah",
+    "saya ubah",
+    "saya sunting",
+    "saya mengubah",
+    "mengubah file",
+    "mengubah `",
+    "berhasil mengubah",
+    "changed `",
+    "successfully wrote",
     "saya perbarui",
 )
 _NEGASI_KLAIM = ("belum", "tidak", "bukan", "not", "never", "no")
 _AWAL_KUTIPAN = (">", '"', "`", "'")
-_POLA_PATH = re.compile(
-    r"[\w./\\-]+\.(?:py|jsx|js|tsx|ts|html|css|json|md)\b"
-)
+_POLA_PATH = re.compile(r"[\w./\\-]+\.(?:py|jsx|js|tsx|ts|html|css|json|md)\b")
 
 
 def _paragraf_klaim_file(teks: str) -> bool:
@@ -377,6 +509,7 @@ def rekam_respon_mentah(mentah: str, bersih: str, logger=None) -> None:
     if logger is None:
         try:
             from app import logging_setup
+
             logger = logging_setup.get_logger("orion.respon")
         except Exception:  # noqa: BLE001 - no logger, no record, no crash
             return
@@ -384,13 +517,15 @@ def rekam_respon_mentah(mentah: str, bersih: str, logger=None) -> None:
         mentah = mentah or ""
         bersih = bersih or ""
         if mentah == bersih:
-            logger.info("[RESPON] closing clean, no strip (%d chars)",
-                        len(mentah))
+            logger.info("[RESPON] closing clean, no strip (%d chars)", len(mentah))
         else:
             logger.info(
                 "[RESPON] raw closing recorded (%d chars, %d stripped):"
                 "\n----- RAW -----\n%s\n----- CLEAN -----\n%s",
-                len(mentah), len(mentah) - len(bersih), mentah, bersih,
+                len(mentah),
+                len(mentah) - len(bersih),
+                mentah,
+                bersih,
             )
     except Exception:  # noqa: BLE001 - logging must never break a closing
         pass
@@ -409,7 +544,6 @@ def tambah_ledger_gaya(teks: str, bukti) -> str:
         return teks or ""
     blok = (
         "\n\n📐 NILAI TERBACA dari browser turn ini (ledger gaya, "
-        "ditangkap kode — bukan klaim model):\n"
-        + "\n".join(f"- {b}" for b in sisa[:6])
+        "ditangkap kode — bukan klaim model):\n" + "\n".join(f"- {b}" for b in sisa[:6])
     )
     return (teks or "") + blok
