@@ -15,15 +15,19 @@ from app.services.tool_guards import nama_terlihat_mutating, pre_call_check
 
 
 def test_mcp_mutating_menghasilkan_notice():
+    """UPDATE-P1.5: MCP mutating kini diblokir keras."""
     notice = pre_call_check("mcp__fs__delete_file", {"path": "x"}, mcp=True)
-    assert notice.startswith("[ORION PRE-CALL NOTICE]")
+    assert notice.startswith("[MCP HARD BLOCK]")  # <--- Diperbarui
     assert "mcp__fs__delete_file" in notice
-    assert "do NOT screen" in notice
+    assert "TIDAK DIIZINKAN" in notice
     for nama in (
-        "mcp__db__run_query", "mcp__ci__update_build", "mcp__fs__write_file",
-        "mcp__sys__kill_process", "mcp__repo__create_branch",
+        "mcp__db__run_query",
+        "mcp__ci__update_build",
+        "mcp__fs__write_file",
+        "mcp__sys__kill_process",
+        "mcp__repo__create_branch",
     ):
-        assert pre_call_check(nama, {}, mcp=True), nama
+        assert pre_call_check(nama, {}, mcp=True).startswith("[MCP HARD BLOCK]"), nama
 
 
 def test_mcp_readonly_tanpa_notice():

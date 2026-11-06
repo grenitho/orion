@@ -124,6 +124,16 @@
 
 **Berikutnya:** P3 — Refactor agent_loop.py atau P5 — Akses GitHub.
 
+### Sesi 9 — 2026-11-06 — P3 Refactor & Finalisasi Keamanan (Selesai)
+**Tujuan:** Memisahkan utilitas teks dari agent_loop dan memastikan semua test hijau.
+**Hasil:**
+- ✅ `text_cleaner.py` dibuat: memisahkan fungsi pembersih teks dan estimasi token.
+- ✅ `tool_guards.py`: Menerapkan blokir keras (HARD BLOCK) untuk MCP tool berbahaya.
+- ✅ `agent_loop.py`: Diperbaiki dari error referensi variabel.
+- ✅ **Test Suite: 663 passed, 1 skipped.** 100% hijau.
+
+**Berikutnya:** P5 — Akses GitHub Terbatas.
+
 ## Catatan Penting
 - DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
 - Model utama: Gemini Flash Lite ×4 key + fallback OpenRouter/Cloudflare

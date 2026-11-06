@@ -25,6 +25,11 @@ semantics are the stricter, more predictable behaviour.
 """
 
 from __future__ import annotations
+from app.services.text_cleaner import (
+    fix_over_escaped_text,
+    strip_thinking_blocks,
+    estimate_tokens,
+)
 
 import asyncio
 import json
@@ -55,52 +60,6 @@ from app.services.tools_schema import TOOLS
 _THINKING_BLOCK_RE = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
 
 _token_encoder = tiktoken.get_encoding("cl100k_base")
-
-
-def fix_over_escaped_text(text) -> str:
-    """Some models (especially the OpenRouter/Cloudflare fallback tiers)
-    sometimes double-escape newlines when generating the JSON 'arguments'
-    of a tool call containing multi-line text (e.g. the 'question' in
-    ask_user) — writing '\\\\n' instead of '\\n' inside the JSON. After
-    json.loads(), this shows up on the user's screen as the two-character
-    literal '\\n' (not a real newline). This function normalizes that
-    without breaking strings that were already correct.
-
-    >>> FIX: the old version only did .replace("\\n", "\n") in a single
-    pass. That is enough for 1 layer of over-escaping, but when the model
-    over-escapes 2x or more (e.g. raw JSON containing many consecutive
-    backslashes before 'n'), a single replace pass — or even repeated
-    replaces — still leaves stray backslashes in front of the newline (e.g.
-    it becomes '\\\\n' instead of a clean newline) because replace()
-    matches exactly 1 backslash + 'n', not a RUN of backslashes + 'n'.
-    It now uses the regex \\+n / \\+t / \\+r which sweeps the ENTIRE
-    run of backslashes in front of n/t/r into a single real whitespace
-    character, however many escape layers there are, in 1 pass — no
-    leftover backslashes."""
-    if not isinstance(text, str):
-        return text
-    text = re.sub(r"\\+n", "\n", text)
-    text = re.sub(r"\\+t", "\t", text)
-    text = re.sub(r"\\+r", "\r", text)
-    return text
-
-
-def strip_thinking_blocks(text: str) -> str:
-    """Strip <thinking>...</thinking> blocks before showing text to the user in the frontend.
-    The RAW version (with thinking) is still saved to context_manager for Orion's
-    internal memory — only what is yielded to the stream gets cleaned."""
-    if not text:
-        return text
-    return _THINKING_BLOCK_RE.sub("", text).strip()
-
-
-def estimate_tokens(text: str) -> int:
-    if not text:
-        return 0
-    try:
-        return len(_token_encoder.encode(text))
-    except Exception:
-        return len(text) // 3
 
 
 def estimate_message_tokens(msg: dict) -> int:
@@ -2348,7 +2307,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     # future shared teeth cannot drift apart again. <<<
                     _pre_notice = tool_guards.pre_call_check(
                         func_name,
-                        args,
+                        func_args,
                         mcp=deps.mcp is not None and deps.mcp.has_tool(func_name),
                     )
                     if _pre_notice:
@@ -4377,10 +4336,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
     except Exception as e:
         error_msg = str(e)
         # >>> PATCH ORION-2: use the logger, not print (stdout = pipe to the extension)
-        deps.logger.exception("[ORION EXCEPTION] agent loop failed")
+        if deps.logger is not None:
+            deps.logger.exception("[ORION EXCEPTION] agent loop failed")
+        else:
+            print(f"[ORION EXCEPTION] {error_msg}")
         yield sse.ev("error", text=error_msg)
-        # >>> PATCH ORION-2 (CRITICAL): MUST send 'done' after 'error'.
-        # Previously only 'error' was sent, so the webview never got a
-        # completion signal -> the UI hung and the user saw the assistant
-        # "stop silently".
         yield sse.ev("done")
