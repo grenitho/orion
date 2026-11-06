@@ -52,6 +52,28 @@
 **Kendala:** Tidak ada blocker
 **Berikutnya:** P1.1 — Audit Attach File
 
+### Sesi 3 — 2026-11-06 — P1.1 Audit Attach File (Selesai)
+**Tujuan:** Uji pipeline attach untuk 5 jenis file & perbaiki bug.
+**Hasil:**
+- ✅ txt, pdf, docx, xlsx: Lulus (tersalin ke `.orion/attachments/`).
+- ✅ **Perbaikan Bug 1 (Vision PNG):** Memperbaiki format injeksi `api_messages` di `agent_loop.py` agar gambar terkirim ke LLM.
+- ✅ **Perbaikan Bug 2 (Memori PNG):** Menambahkan `_simpan_referensi` di `attachments.py` agar gambar disalin ke disk dan bisa dibaca setelah restart.
+- ✅ Memori jangka pendek (E2) dan pasca-restart (E3) terverifikasi bekerja.
+- ⚠️ **Temuan Baru (UI/UX):** Model (Flash Lite) sering membocorkan monolog bahasa Inggris dan halusinasi "file berubah" saat menjawab. (Masuk ke antrean P2 — UX & Prompt).
+
+**Berikutnya:** P1.2 Audit Delegasi Sub-Agent.
+
+### Sesi 4 — 2026-11-06 — P1.2 Audit Delegasi Sub-Agent (Selesai)
+**Tujuan:** Uji apakah model benar-benar memanggil sub-agent.
+**Hasil:**
+- ✅ Explorer berfungsi (menemukan fungsi di 3 file).
+- ✅ Verifier berfungsi (memberikan vonis PASS).
+- ✅ Workers berfungsi (membuat 2 file paralel dengan benar).
+- ⚠️ **Temuan UX Kritis:** Model sering bocor mulut (monolog bahasa Inggris & bocor instruksi sistem) ke UI. Memori chat juga cepat penuh ("Memory full, compressing context").
+- ⚠️ **Temuan Konfigurasi:** Ditemukan file `.orion/orion_config.json` di suatu tempat dengan setting ekstrem (`max_iterations: 500`, `subagent_max_per_turn: 30`). Ini berbahaya untuk kuota free tier. (Perlu investigasi di P2).
+
+**Berikutnya:** P1.3 Audit MCP Playwright.
+
 ## Catatan Penting
 - DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
 - Model utama: Gemini Flash Lite ×4 key + fallback OpenRouter/Cloudflare
