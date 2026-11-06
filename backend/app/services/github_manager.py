@@ -7,21 +7,33 @@ import shutil
 import json
 
 
+import os
+
+
 def _cek_gh() -> bool:
-    return shutil.which("gh") is not None
+    if shutil.which("gh") is not None:
+        return True
+    # Paksa cek lokasi default Windows jika PATH gagal
+    if os.name == "nt":
+        default_path = r"C:\Program Files\GitHub CLI\gh.exe"
+        if os.path.isfile(default_path):
+            return True
+    return False
 
 
 def _jalankan_gh(args: list[str], cwd: str) -> tuple[bool, str]:
-    if not _cek_gh():
-        return (
-            False,
-            "Error: GitHub CLI (gh) tidak terinstal di sistem ini. Minta user untuk menginstalnya.",
-        )
+    gh_exe = shutil.which("gh")
+    if not gh_exe and os.name == "nt":
+        default_path = r"C:\Program Files\GitHub CLI\gh.exe"
+        if os.path.isfile(default_path):
+            gh_exe = default_path
+
+    if not gh_exe:
+        return False, "Error: GitHub CLI (gh) tidak terinstal di sistem ini."
 
     try:
-        # Timeout 30 detik agar tidak menggantung
         r = subprocess.run(
-            ["gh"] + args, cwd=cwd, capture_output=True, text=True, timeout=30
+            [gh_exe] + args, cwd=cwd, capture_output=True, text=True, timeout=30
         )
         if r.returncode == 0:
             return True, r.stdout.strip()
@@ -68,42 +80,6 @@ def create_pr(
 def get_repo_info(project_path: str) -> str:
     """Melihat info repo saat ini (nama, owner, url)."""
     ok, hasil = _jalankan_gh(["repo", "view", "--json", "name,owner,url"], project_path)
-    if ok:
+    if not ok:
         return hasil
-
-    # Fallback ke git remote origin jika gh CLI tidak ada / error
-    try:
-        res = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if res.returncode == 0:
-            url = res.stdout.strip()
-            owner = ""
-            name = ""
-            if "github.com" in url:
-                if ":" in url and "@" in url:
-                    path_part = url.split(":")[-1]
-                else:
-                    path_part = url.split("github.com/")[-1]
-                path_part = path_part.removesuffix(".git")
-                subparts = path_part.split("/")
-                if len(subparts) >= 2:
-                    owner = subparts[0]
-                    name = subparts[1]
-            return json.dumps(
-                {
-                    "owner": owner,
-                    "name": name,
-                    "url": url,
-                    "note": "Diperoleh via git remote fallback (GitHub CLI tidak aktif).",
-                },
-                indent=2,
-            )
-    except Exception:
-        pass
-
     return hasil

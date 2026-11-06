@@ -134,6 +134,16 @@
 
 **Berikutnya:** P5 — Akses GitHub Terbatas.
 
+### Sesi 10 — 2026-11-06 — P5 Akses GitHub (Selesai)
+**Tujuan:** Menghubungkan Orion dengan GitHub secara aman.
+**Hasil:**
+- ✅ `github_manager.py` dibuat: membungkus `gh` CLI (list_issues, create_pr, get_repo_info).
+- ✅ Tool didaftarkan di schema, dispatch, dan executor.
+- ✅ Terverifikasi: Orion berhasil membaca info repo (grenitho/orion) langsung dari GitHub.
+- ✅ Perbaikan bug: `gh.exe` di Windows kini dicari secara eksplisit jika VS Code menyembunyikan PATH.
+
+**Berikutnya:** Panduan GitHub untuk Pengguna Lain (Dokumentasi) & P6 Pencarian Semantik.
+
 ## Catatan Penting
 - DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
 - Model utama: Gemini Flash Lite ×4 key + fallback OpenRouter/Cloudflare

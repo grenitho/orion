@@ -548,18 +548,26 @@ TOOLS = [
             },
         },
     },
-    # >>> P5: GitHub Integration (via gh CLI)
+    # >>> P5: GitHub Integration
+    {
+        "type": "function",
+        "function": {
+            "name": "github_repo_info",
+            "description": "Melihat informasi repository GitHub saat ini (nama, pemilik, URL).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
     {
         "type": "function",
         "function": {
             "name": "github_list_issues",
-            "description": "Melihat daftar issue (masalah/tugas) yang terbuka di repository GitHub proyek ini. Berguna untuk mencari tahu apa yang harus dikerjakan.",
+            "description": "Melihat daftar issue (masalah/tugas) yang terbuka di repository GitHub proyek ini.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "limit": {
                         "type": "integer",
-                        "description": "Jumlah issue maksimal yang ditampilkan (default 5).",
+                        "description": "Jumlah issue maksimal (default 5).",
                     }
                 },
             },
@@ -569,7 +577,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "github_create_pr",
-            "description": "Membuat Pull Request (PR) baru di GitHub. Gunakan ini jika user meminta untuk mengajukan perubahan ke repo. JANGAN gunakan jika belum melakukan git push.",
+            "description": "Membuat Pull Request (PR) baru di GitHub. Gunakan ini jika user meminta untuk mengajukan perubahan ke repo.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -582,14 +590,6 @@ TOOLS = [
                 },
                 "required": ["title", "body"],
             },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "github_repo_info",
-            "description": "Melihat informasi repository GitHub saat ini (nama, pemilik, URL).",
-            "parameters": {"type": "object", "properties": {}},
         },
     },
 ]

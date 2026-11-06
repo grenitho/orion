@@ -61,18 +61,9 @@ TABLE: dict[str, tuple[Label, Optional[Label]]] = {
         lambda a: f"📦 Moving: {a.get('from_path', '')} -> {a.get('to_path', '')}",
         None,
     ),
-    "github_list_issues": (
-        lambda a: "🐙 Membaca daftar Issue GitHub...",
-        lambda a: "✅ Daftar Issue berhasil dibaca",
-    ),
-    "github_repo_info": (
-        lambda a: "🐙 Membaca informasi Repository GitHub...",
-        lambda a: "✅ Informasi Repository berhasil dibaca",
-    ),
-    "github_create_pr": (
-        lambda a: "🐙 Membuat Pull Request GitHub...",
-        lambda a: "✅ Pull Request berhasil dibuat",
-    ),
+    "github_repo_info": (lambda a: "🐙 Membaca info repo GitHub...", None),
+    "github_list_issues": (lambda a: "🐙 Membaca daftar issue GitHub...", None),
+    "github_create_pr": (lambda a: "🐙 Membuat Pull Request GitHub...", None),
 }
 
 # For these 14 entries, tool name == method name on ToolExecutor.
@@ -84,22 +75,6 @@ from app.services import github_manager
 
 
 def jalankan(nama: str, executor, args: dict):
-    if nama.startswith("github_"):
-        if nama == "github_repo_info":
-            return github_manager.get_repo_info(executor.project_path)
-        elif nama == "github_list_issues":
-            return github_manager.list_issues(
-                executor.project_path, args.get("limit", 5)
-            )
-        elif nama == "github_create_pr":
-            return github_manager.create_pr(
-                executor.project_path,
-                args.get("title", ""),
-                args.get("body", ""),
-                args.get("base_branch", "main"),
-            )
-
-    # Fallback ke tool bawaan (bukan GitHub)
     method = getattr(executor, METHOD[nama])
     return method(**(args or {}))
 
@@ -115,6 +90,9 @@ WAJIB_DI_MAIN = {
     "edit_file",  # permission_manager + post_edit_verifier
     "run_terminal",  # confirmation modal + heartbeat + kill tree
     "git_diff",  # special handling of large output
+    "github_repo_info",
+    "github_list_issues",
+    "github_create_pr",
 }
 
 

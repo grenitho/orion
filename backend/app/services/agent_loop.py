@@ -1087,9 +1087,9 @@ NAMA_TOOL_AKTIF = {
     "move_file",
     "git_commit",
     "run_tests",
+    "github_repo_info",
     "github_list_issues",
     "github_create_pr",
-    "github_repo_info",
 }
 
 
