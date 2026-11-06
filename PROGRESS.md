@@ -52,6 +52,22 @@
 **Kendala:** Tidak ada blocker
 **Berikutnya:** P1.1 — Audit Attach File
 
+### Sesi 2 — 2026-11-05 — E1 Smoke Test Attach File (P1.1 Awal)
+**Tujuan:** Uji pipeline attach untuk 5 jenis file
+**Hasil:**
+- ✅ txt: LULUS, tersalin ke `.orion/attachments/test.txt`
+- ❌ **png: GAGAL, model "cannot see image", file TIDAK tersalin**
+- ✅ pdf: LULUS, tersalin (1369 byte)
+- ✅ docx: LULUS, tersalin (36594 byte)
+- ✅ xlsx: LULUS, tersalin (4879 byte)
+
+**Temuan:**
+- **BUG-1 (Kritis):** PNG tidak terbaca model. Diagnosis sedang berjalan.
+- **BUG-2 (Sedang):** PNG tidak disalin ke `.orion/attachments/` — inkonsistensi dengan tipe lain. Hilang setelah turn berikutnya.
+- Catatan: model berhasil membaca ulang `.orion/attachments/test.txt` di turn berikutnya (via `read_file`) — memori jangka pendek BEKERJA untuk teks.
+
+**Berikutnya:** Diagnosis PNG (log + versi litellm)
+
 ### Sesi 3 — 2026-11-06 — P1.1 Audit Attach File (Selesai)
 **Tujuan:** Uji pipeline attach untuk 5 jenis file & perbaiki bug.
 **Hasil:**
@@ -73,6 +89,14 @@
 - ⚠️ **Temuan Konfigurasi:** Ditemukan file `.orion/orion_config.json` di suatu tempat dengan setting ekstrem (`max_iterations: 500`, `subagent_max_per_turn: 30`). Ini berbahaya untuk kuota free tier. (Perlu investigasi di P2).
 
 **Berikutnya:** P1.3 Audit MCP Playwright.
+
+### Sesi 5 — 2026-11-06 — P1.3 Audit MCP Playwright (LULUS)
+**Tujuan:** Uji apakah Orion bisa menggunakan Playwright MCP.
+**Hasil:**
+- ✅ **Playwright MCP Bekerja Sempurna:** Berhasil membuka `localhost:8080`, mengambil teks (9988), dan mengevaluasi `getComputedStyle` (rgb(255,0,0)).
+- ✅ **Fitur Ledger Gaya (Computed Style Gate) bekerja:** Output browser disuntikkan ke layar oleh kode backend, bukan klaim halusinasi model.
+- Catatan: MCP harus diinstal per-project (by design).
+- ✅ **P1 FASE SELESAI:** Semua fitur inti (Attach, Sub-Agent, MCP) LULUS.
 
 ## Catatan Penting
 - DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
