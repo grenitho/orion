@@ -42,6 +42,7 @@ from app.services import guard_rules, loop_guards, project_facts, research_rules
 from app.services import sse, stream_utils, tool_dispatch
 from app.services import subagent_manager, tool_guards
 from app.services.llm_router import get_ai_response
+
 # >>> UPDATE-024 Commit 1: the jsonl writer moved to perf_log.py so
 # subagent_manager can record sub-run usage without a circular import.
 # Re-exported here for backwards compatibility with any caller that
@@ -112,11 +113,14 @@ def estimate_message_tokens(msg: dict) -> int:
     _c = msg.get("content")
     if isinstance(_c, list):
         _teks = " ".join(
-            str(p.get("text", "")) for p in _c
+            str(p.get("text", ""))
+            for p in _c
             if isinstance(p, dict) and p.get("type") == "text"
         )
         # Gemini charges +/- 258 tokens per image, far cheaper than its base64
-        _n_img = sum(1 for p in _c if isinstance(p, dict) and p.get("type") == "image_url")
+        _n_img = sum(
+            1 for p in _c if isinstance(p, dict) and p.get("type") == "image_url"
+        )
         total = estimate_tokens(_teks) + (_n_img * 258)
     else:
         total = estimate_tokens(str(_c or ""))
@@ -296,9 +300,7 @@ def _perlu_nudge_referensi(state, tool_executor) -> bool:
     if getattr(state, "nudge_referensi", 0):
         return False
     return bool(
-        _referensi_belum_dibaca(
-            state, getattr(tool_executor, "project_path", ".")
-        )
+        _referensi_belum_dibaca(state, getattr(tool_executor, "project_path", "."))
     )
 
 
@@ -448,9 +450,17 @@ def _browser_hasil_sukses(result) -> bool:
     return not any(
         m in low
         for m in (
-            "error:", "error ", "failed", "failure", "blocked",
-            "refused", "timeout", "err_", "cannot navigate",
-            "protocol is blocked", "net::",
+            "error:",
+            "error ",
+            "failed",
+            "failure",
+            "blocked",
+            "refused",
+            "timeout",
+            "err_",
+            "cannot navigate",
+            "protocol is blocked",
+            "net::",
         )
     )
 
@@ -497,9 +507,7 @@ def _perlu_tantang_klaim_implementasi(state, konten) -> bool:
         and bool(guard_rules.kalimat_klaim_implementasi(konten))
     ):
         return False
-    if guard_rules.kalimat_perintah_kerja(
-        getattr(state, "permintaan_turn_ini", "")
-    ):
+    if guard_rules.kalimat_perintah_kerja(getattr(state, "permintaan_turn_ini", "")):
         return True
     rendah = (konten or "").lower()
     return any(k in rendah for k in _KLAIM_KERJA_ORANG_PERTAMA)
@@ -567,19 +575,31 @@ async def _fallback_ipv4_bila_ditolak(state, deps, func_name, func_args, result)
     marker = _L(
         state,
         "\n[ORION IPv4 FALLBACK] navigate to localhost was refused "
-        "(ERR_CONNECTION_REFUSED); auto-retried " + baru + " -> "
-        + ("CONNECTED." if sukses else
-           "refused too: the browser's network view differs from this "
-           "host (container/WSL2/proxy suspected)."),
+        "(ERR_CONNECTION_REFUSED); auto-retried "
+        + baru
+        + " -> "
+        + (
+            "CONNECTED."
+            if sukses
+            else "refused too: the browser's network view differs from this "
+            "host (container/WSL2/proxy suspected)."
+        ),
         "\n[ORION IPv4 FALLBACK] navigate ke localhost ditolak "
-        "(ERR_CONNECTION_REFUSED); ulang otomatis ke " + baru + " -> "
-        + ("TERHUBUNG." if sukses else
-           "ditolak juga: pandangan jaringan browser berbeda dari host "
-           "ini (kontainer/WSL2/proxy terpandang)."),
+        "(ERR_CONNECTION_REFUSED); ulang otomatis ke "
+        + baru
+        + " -> "
+        + (
+            "TERHUBUNG."
+            if sukses
+            else "ditolak juga: pandangan jaringan browser berbeda dari host "
+            "ini (kontainer/WSL2/proxy terpandang)."
+        ),
     )
     logging_setup.get_logger("orion.respon").info(
         "[RESPON] ipv4 fallback %s -> %s : %s",
-        func_name, baru, "terhubung" if sukses else "ditolak",
+        func_name,
+        baru,
+        "terhubung" if sukses else "ditolak",
     )
     return (hasil2 if sukses else result) + marker
 
@@ -608,10 +628,7 @@ def _perlu_tantang_perintah_tool(state) -> bool:
     if honor:
         return False
     cap = 2 if state.panggilan_browser_turn_ini == 0 else 1
-    return (
-        state.tantang_perintah_tool < cap
-        and bool(state.perintah_tool_eksplisit)
-    )
+    return state.tantang_perintah_tool < cap and bool(state.perintah_tool_eksplisit)
 
 
 def _perlu_tantang_nihil_mutasi(state, konten) -> bool:
@@ -733,9 +750,7 @@ def _blok_debt_verifikasi(state) -> str:
     sight of them); debts created in an EARLIER turn close here — the
     decline about an older debt reached the user, which is exactly the
     OR branch paying out. Returns '' when nothing but gaya is open."""
-    terbuka = [
-        d for d in state.utang_verifikasi_terbuka() if d.get("jenis") != "gaya"
-    ]
+    terbuka = [d for d in state.utang_verifikasi_terbuka() if d.get("jenis") != "gaya"]
     if not terbuka:
         return ""
     baris = [
@@ -865,8 +880,11 @@ def _blok_delegasi_akhir(state, klaim: bool = False) -> str:
         )
         if belum:
             baris += "\n" + "\n".join(
-                _L(state, f"- ⚠️ `{r}` was never dispatched",
-                   f"- ⚠️ `{r}` tidak pernah dispatch")
+                _L(
+                    state,
+                    f"- ⚠️ `{r}` was never dispatched",
+                    f"- ⚠️ `{r}` tidak pernah dispatch",
+                )
                 for r in belum
             )
         paragraf = _L(
@@ -1083,16 +1101,33 @@ except Exception as e:
     def is_sensitive_file(file_path):
         return False
 
+
 # The 22 tool names that REALLY have a dispatch branch in the agent loop.
 # Lives here (next to the dispatch table) since Phase C step 4; main.py's
 # startup consistency checker and the loop's unknown-tool message both use
 # it via tool_dispatch.NAMA_TOOL_AKTIF.
 NAMA_TOOL_AKTIF = {
-    "ask_user", "update_todos", "list_files", "read_file", "read_file_range",
-    "write_file", "edit_file", "search_code", "read_json_path", "run_terminal",
-    "web_search", "web_fetch", "git_status", "git_diff", "verify_html",
+    "ask_user",
+    "update_todos",
+    "list_files",
+    "read_file",
+    "read_file_range",
+    "write_file",
+    "edit_file",
+    "search_code",
+    "read_json_path",
+    "run_terminal",
+    "web_search",
+    "web_fetch",
+    "git_status",
+    "git_diff",
+    "verify_html",
     "verify_code",
-    "restore_backup", "list_backups", "delete_file", "move_file", "git_commit",
+    "restore_backup",
+    "list_backups",
+    "delete_file",
+    "move_file",
+    "git_commit",
     "run_tests",
 }
 
@@ -1149,6 +1184,8 @@ def _catatan_tool(nama: str, args) -> str:
         return str(nama)
     except Exception:
         return str(nama)
+
+
 # >>> END OF UPDATE-025 hotfix helpers <<<
 
 
@@ -1170,7 +1207,8 @@ def _teks_user(msg) -> str:
     content = msg.get("content")
     if isinstance(content, list):
         content = " ".join(
-            str(p.get("text", "")) for p in content
+            str(p.get("text", ""))
+            for p in content
             if isinstance(p, dict) and p.get("type") == "text"
         )
     content = str(content or "").strip()
@@ -1218,7 +1256,8 @@ def blok_jangkar_tugas(history, todo_manager=None, debt=None) -> str:
     if todo_manager is not None:
         try:
             terbuka = [
-                t for t in todo_manager.get_todos()
+                t
+                for t in todo_manager.get_todos()
                 if t.get("status") in ("pending", "in_progress")
             ]
         except Exception:
@@ -1282,6 +1321,8 @@ def blok_jangkar_tugas(history, todo_manager=None, debt=None) -> str:
     if not bagian:
         return ""
     return "\n\n[TASK ANCHOR — THIS TURN ONLY]\n" + "\n\n".join(bagian)
+
+
 # >>> END OF UPDATE-025 commit 24 task anchor <<<
 
 
@@ -1298,12 +1339,12 @@ class Deps:
     context_manager: object
     todo_manager: object | None
     tool_executor: object | None
-    llm_call: Callable            # get_ai_response (heartbeat wrapper stays in the loop)
-    kirim_status: Callable[[str], str]   # teks -> SSE 'status' frame (sse.ev partial)
-    config: dict                  # orion_config: max_iterations, token_budget_threshold
+    llm_call: Callable  # get_ai_response (heartbeat wrapper stays in the loop)
+    kirim_status: Callable[[str], str]  # teks -> SSE 'status' frame (sse.ev partial)
+    config: dict  # orion_config: max_iterations, token_budget_threshold
     logger: object
-    context_message: dict         # "Current project structure" + editor context
-    lampiran_desc: str = ""       # one-line attachment description (may be empty)
+    context_message: dict  # "Current project structure" + editor context
+    lampiran_desc: str = ""  # one-line attachment description (may be empty)
     # >>> UPDATE-014: the MCP client manager (app.services.mcp_manager.MCPManager)
     # or None when MCP is unavailable/unconfigured. The loop only ever calls
     # has_tool/status_label/tool_names/openai_tools/call on it — all of them
@@ -1332,7 +1373,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
     # >>> AUTO-SUMMARIZE CONTEXT WINDOW (START OF CHAT) <<<
     history = deps.context_manager.get_history()
     if len(history) > 15:
-        yield deps.kirim_status('🧠 Memory full, compressing context...')
+        yield deps.kirim_status("🧠 Memory full, compressing context...")
         try:
             # >>> UPDATE-025 commit 7: keepalive across the silent summarize
             _hasil_summarize: list = []
@@ -1354,7 +1395,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
     max_iter = deps.config.get("max_iterations", 20)
     if not isinstance(max_iter, int) or max_iter < 1:
         max_iter = 20
-    max_iter = min(max_iter, 200)   # safety brake: prevent an endless loop
+    max_iter = min(max_iter, 200)  # safety brake: prevent an endless loop
     # >>> UPDATE-025 commit 25: adaptive ceiling — every OPEN verification
     # debt widens the budget by 4 iterations so a debt carried from an
     # earlier turn gets room to be PAID instead of re-disclosed. The
@@ -1382,7 +1423,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         _mcp_tools = deps.mcp.openai_tools()
         if _mcp_tools:
             tools_for_llm = TOOLS + _mcp_tools
-            print(f"[ORION MCP] {len(_mcp_tools)} MCP tool(s) added to this turn's schema.")
+            print(
+                f"[ORION MCP] {len(_mcp_tools)} MCP tool(s) added to this turn's schema."
+            )
     # >>> END OF UPDATE-014 tools merge
 
     try:
@@ -1432,8 +1475,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # handoff mentioning "Playwright MCP" anchored a phantom
         # [perintah_tool] debt for "periksa file yang ini". The block
         # rides `lampiran_blok` for the attachment note instead. <<<
-        state.permintaan_turn_ini, state.lampiran_blok = (
-            guard_rules.pisahkan_lampiran(state.permintaan_turn_ini)
+        state.permintaan_turn_ini, state.lampiran_blok = guard_rules.pisahkan_lampiran(
+            state.permintaan_turn_ini
         )
         # >>> UPDATE-025 commit 13 (owner: Orion answers in English to an
         # Indonesian user): the LANGUAGE RULE in SYSTEM_PROMPT was losing
@@ -1456,24 +1499,29 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         if _tool_hilang and not state.probe_tool_hilang:
             state.probe_tool_hilang = 1
             _daftar_hilang = ", ".join(f"`{n}`" for n in _tool_hilang)
-            deps.context_manager.add_message("user", _L(
-                state,
-                f"[SYSTEM - TOOL AVAILABILITY]: this turn's order names "
-                f"tool(s) {_daftar_hilang} which are NOT available in the "
-                "MCP configuration connected right now. Do not attempt "
-                "them; decline that part honestly in your first answer "
-                "and serve the rest of the order.",
-                f"[SISTEM - KETERSEDIAAN TOOL]: perintah turn ini menyebut "
-                f"tool {_daftar_hilang} yang TIDAK tersedia di konfigurasi "
-                "MCP yang terhubung sekarang. Jangan mencoba memanggilnya; "
-                "tolak bagian itu dengan jujur pada jawaban pertama dan "
-                "kerjakan sisa perintah.",
-            ))
-            yield deps.kirim_status(_L(
-                state,
-                f'🔌 Tool not connected this turn: {_daftar_hilang}',
-                f'🔌 Tool tidak terhubung turn ini: {_daftar_hilang}',
-            ))
+            deps.context_manager.add_message(
+                "user",
+                _L(
+                    state,
+                    f"[SYSTEM - TOOL AVAILABILITY]: this turn's order names "
+                    f"tool(s) {_daftar_hilang} which are NOT available in the "
+                    "MCP configuration connected right now. Do not attempt "
+                    "them; decline that part honestly in your first answer "
+                    "and serve the rest of the order.",
+                    f"[SISTEM - KETERSEDIAAN TOOL]: perintah turn ini menyebut "
+                    f"tool {_daftar_hilang} yang TIDAK tersedia di konfigurasi "
+                    "MCP yang terhubung sekarang. Jangan mencoba memanggilnya; "
+                    "tolak bagian itu dengan jujur pada jawaban pertama dan "
+                    "kerjakan sisa perintah.",
+                ),
+            )
+            yield deps.kirim_status(
+                _L(
+                    state,
+                    f"🔌 Tool not connected this turn: {_daftar_hilang}",
+                    f"🔌 Tool tidak terhubung turn ini: {_daftar_hilang}",
+                )
+            )
         # >>> Commit 35 (owner transcript 2026-11-02): the inline
         # attachment block IS the file — attachments.py pastes text
         # attachments into the user message by design. Without this
@@ -1482,24 +1530,29 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         # note per turn, before the first answer. <<<
         if state.lampiran_blok and not state.lampiran_note_turn:
             state.lampiran_note_turn = 1
-            deps.context_manager.add_message("user", _L(
-                state,
-                "[SYSTEM - ATTACHMENT]: the block 'ATTACHED FILE CONTENT' "
-                "inside the user message IS the attached file (text "
-                "attachments are pasted inline by design). Study that "
-                "block directly; NEVER answer 'the file does not exist "
-                "on disk' for it.",
-                "[SISTEM - LAMPIRAN]: blok 'ATTACHED FILE CONTENT' di "
-                "dalam pesan user ADALAH file lampiran itu sendiri "
-                "(lampiran teks ditempel inline sesuai desain). Pelajari "
-                "blok itu langsung; JANGAN pernah menjawab 'file tidak "
-                "ada di disk' untuknya.",
-            ))
-            yield deps.kirim_status(_L(
-                state,
-                '📎 Attachment content read from the message block',
-                '📎 Isi lampiran dibaca dari blok pesan',
-            ))
+            deps.context_manager.add_message(
+                "user",
+                _L(
+                    state,
+                    "[SYSTEM - ATTACHMENT]: the block 'ATTACHED FILE CONTENT' "
+                    "inside the user message IS the attached file (text "
+                    "attachments are pasted inline by design). Study that "
+                    "block directly; NEVER answer 'the file does not exist "
+                    "on disk' for it.",
+                    "[SISTEM - LAMPIRAN]: blok 'ATTACHED FILE CONTENT' di "
+                    "dalam pesan user ADALAH file lampiran itu sendiri "
+                    "(lampiran teks ditempel inline sesuai desain). Pelajari "
+                    "blok itu langsung; JANGAN pernah menjawab 'file tidak "
+                    "ada di disk' untuknya.",
+                ),
+            )
+            yield deps.kirim_status(
+                _L(
+                    state,
+                    "📎 Attachment content read from the message block",
+                    "📎 Isi lampiran dibaca dari blok pesan",
+                )
+            )
         if state.bahasa_turn == "id" and isinstance(deps.context_message, dict):
             deps.context_message["content"] = str(
                 deps.context_message.get("content", "")
@@ -1574,8 +1627,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # debt from the document's own sentence). Classify the
             # user's own words only; the block stays in lampiran_blok. <<<
             _teks_murni = guard_rules.pisahkan_lampiran(_teks)[0]
-            _p29, _butuh29 = guard_rules.perintah_verifikasi_gaya(
-                _teks_murni)
+            _p29, _butuh29 = guard_rules.perintah_verifikasi_gaya(_teks_murni)
             state.perintah_tool_eksplisit = _p29
             state.perintah_butuh_gaya = _butuh29
             # >>> UPDATE-025 commit 31: zero-mutation orders become a
@@ -1619,32 +1671,28 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 yield deps.kirim_status(
                     _L(
                         state,
-                        '🛑 Stagnation breaker: 12+ iterations without a '
-                        'successful mutation and 3+ consecutive failed '
-                        'writes - stopping the thrash, debt recorded...',
-                        '🛑 Pemutus stagnasi: 12+ iterasi tanpa mutasi sukses '
-                        'dan 3+ tulis gagal beruntun - thrash dihentikan, '
-                        'utang dicatat...',
+                        "🛑 Stagnation breaker: 12+ iterations without a "
+                        "successful mutation and 3+ consecutive failed "
+                        "writes - stopping the thrash, debt recorded...",
+                        "🛑 Pemutus stagnasi: 12+ iterasi tanpa mutasi sukses "
+                        "dan 3+ tulis gagal beruntun - thrash dihentikan, "
+                        "utang dicatat...",
                     )
                 )
                 break
             # >>> STEP 1: DYNAMIC SLIDING WINDOW SUMMARIZE (INSIDE THE LOOP) <<<
             history = deps.context_manager.get_history()
             if len(history) > 20:
-                yield deps.kirim_status('🧠 Memory full, compressing context...')
+                yield deps.kirim_status("🧠 Memory full, compressing context...")
                 try:
                     # >>> UPDATE-025 commit 7: keepalive across the silent summarize
                     _hasil_summarize_loop: list = []
                     async for _ka in _keepalive(
-                        execute_summarize(
-                            deps.context_manager, history, threshold=20
-                        ),
+                        execute_summarize(deps.context_manager, history, threshold=20),
                         _hasil_summarize_loop,
                     ):
                         yield _ka
-                    print(
-                        "[ORION SUMMARIZE] In-loop context summarized successfully."
-                    )
+                    print("[ORION SUMMARIZE] In-loop context summarized successfully.")
                 except Exception as e:
                     print(
                         f"[ORION SUMMARIZE WARNING] In-loop summarization failed: {e}. History preserved."
@@ -1674,13 +1722,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 _status_permintaan = (
                     f'"{_permintaan}"' if _permintaan else "(not captured)"
                 )
-                _status_aksi = (
-                    state.last_tool_note
-                    or _L(
-                        state,
-                        "(no tool executed yet this turn)",
-                        "(belum ada tool yang jalan turn ini)",
-                    )
+                _status_aksi = state.last_tool_note or _L(
+                    state,
+                    "(no tool executed yet this turn)",
+                    "(belum ada tool yang jalan turn ini)",
                 )
                 _todo_pending = state.sisa_todo(deps.todo_manager)
                 if _todo_pending:
@@ -1690,8 +1735,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     ]
                     if len(_todo_pending) > 4:
                         _baris_todo.append(f"+{len(_todo_pending) - 4} more")
-                    _status_todo = (
-                        f"{len(_todo_pending)} pending — " + "; ".join(_baris_todo)
+                    _status_todo = f"{len(_todo_pending)} pending — " + "; ".join(
+                        _baris_todo
                     )
                 else:
                     _status_todo = _L(state, "none", "tidak ada")
@@ -1727,13 +1772,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 )
 
                 # Send to the frontend and PAUSE
-                yield sse.ev('token', text=warning_msg)
-                yield sse.ev('ask_user', question=_L(
-                    state,
-                    'Soft limit reached. Continue, or give new instructions?',
-                    'Batas lunak tercapai. Lanjutkan, atau beri instruksi baru?',
-                ))
-                yield sse.ev('done')
+                yield sse.ev("token", text=warning_msg)
+                yield sse.ev(
+                    "ask_user",
+                    question=_L(
+                        state,
+                        "Soft limit reached. Continue, or give new instructions?",
+                        "Batas lunak tercapai. Lanjutkan, atau beri instruksi baru?",
+                    ),
+                )
+                yield sse.ev("done")
                 print(
                     "[ORION SOFT LIMIT] Reached 80% of iterations. Waiting for user instructions."
                 )
@@ -1754,11 +1802,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             if _ == 0 and state.pending_image:
                 for _i in range(len(api_messages) - 1, -1, -1):
                     if api_messages[_i].get("role") == "user":
-                        api_messages[_i] = {**api_messages[_i], "content": state.pending_image}
+                        # FIX P1.1: Buat objek message yang benar-benar baru
+                        # agar litellm mendeteksi format vision dengan benar.
+                        api_messages[_i] = {
+                            "role": "user",
+                            "content": state.pending_image,
+                        }
                         break
-                state.pending_image = None   # single use
+                state.pending_image = None  # single use
                 if deps.lampiran_desc:
-                    yield deps.kirim_status(f'📎 {deps.lampiran_desc}')
+                    yield deps.kirim_status(f"📎 {deps.lampiran_desc}")
             # >>> END OF ATTACHMENT FEATURE
 
             # >>> UPDATE-018: announce what the inbox drop-zone delivered on
@@ -1767,7 +1820,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # when deps.inbox_desc is empty — so a project without an inbox
             # produces a byte-identical stream.
             if _ == 0 and deps.inbox_desc:
-                yield deps.kirim_status(f'📥 {deps.inbox_desc}')
+                yield deps.kirim_status(f"📥 {deps.inbox_desc}")
             # >>> END OF UPDATE-018 inbox frame
 
             # >>> STEP 3: SHORT REPLY ANTI-AMNESIA GUARD <<<
@@ -1878,7 +1931,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                         and _p.get("type") == "text"
                                     ):
                                         _patched.append(
-                                            {**_p, "text": str(_p.get("text") or "") + reminder}
+                                            {
+                                                **_p,
+                                                "text": str(_p.get("text") or "")
+                                                + reminder,
+                                            }
                                         )
                                         _done = True
                                     else:
@@ -1897,9 +1954,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             compressed_messages = []
             total_msgs = len(api_messages)  # ✅ FIXED: use api_messages
 
-            for i, msg in enumerate(
-                api_messages
-            ):  # ✅ FIXED: iterate api_messages
+            for i, msg in enumerate(api_messages):  # ✅ FIXED: iterate api_messages
                 content_len = len(str(msg.get("content") or ""))
 
                 # LAYER 3: trimming old history (safe, does not make the model dumb)
@@ -1990,7 +2045,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # >>> END OF TOKEN BUDGET GUARD <<<
 
             # >>> STEP 5: CLEAN CALL TO LLM_ROUTER (RESILIENT) <<<
-            yield deps.kirim_status('⏳ Thinking...')
+            yield deps.kirim_status("⏳ Thinking...")
 
             response = None  # Reset the variable so it cannot use a stale value from the previous iteration
             start_time = asyncio.get_event_loop().time()
@@ -2058,9 +2113,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # --- END OF VARIABLE CREATION ---
 
             # --- 2. DEBUG: CHECK PAYLOAD SIZE (safe now that the variables exist) ---
-            print(
-                f"[DEBUG] Number of messages to send: {len(clean_api_messages)}"
-            )
+            print(f"[DEBUG] Number of messages to send: {len(clean_api_messages)}")
             print(f"[DEBUG] Number of tools to send: {len(tools_for_llm)}")
             # --- END OF DEBUG ---
 
@@ -2098,10 +2151,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # `_` is the agent LOOP COUNTER (for _ in range(max_iter));
                         # overwriting it makes `_ > 0` compare a set with an int.
                         # (Real bug ORION-29 v1: asyncio.wait returns two sets.)
-                        _selesai, _tunggu_pending = await asyncio.wait({_tugas_llm}, timeout=15)
+                        _selesai, _tunggu_pending = await asyncio.wait(
+                            {_tugas_llm}, timeout=15
+                        )
                         if not _selesai:
                             _detik = int(_loop_waktu.time() - _mulai)
-                            yield deps.kirim_status(f'🤔 Still thinking... {_detik} seconds')
+                            yield deps.kirim_status(
+                                f"🤔 Still thinking... {_detik} seconds"
+                            )
                     response = _tugas_llm.result()
                 except BaseException:
                     if not _tugas_llm.done():
@@ -2130,7 +2187,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         and current_error_msg == last_400_error_msg
                     ):
                         # SAME ERROR REPEATED - STOP NOW
-                        yield sse.ev('error', text=f'⚠️ The current model is probably INCOMPATIBLE with the request format. The same error occurred twice: {err_str[:250]}. Change DEFAULT_MODEL in your .env file or check the provider documentation.')
+                        yield sse.ev(
+                            "error",
+                            text=f"⚠️ The current model is probably INCOMPATIBLE with the request format. The same error occurred twice: {err_str[:250]}. Change DEFAULT_MODEL in your .env file or check the provider documentation.",
+                        )
                         print(
                             "[ORION RECOVERY] ❌ Same 400 error repeated. Stopping to prevent an infinite loop."
                         )
@@ -2186,10 +2246,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             if not getattr(response, "choices", None):
                 print("[ORION RECOVERY] Model returned an empty response (no choices).")
                 yield sse.ev(
-                    'error',
+                    "error",
                     text=(
-                        '⚠️ The model returned an empty response (no choices). '
-                        'Send your message again — if it repeats, switch the model/provider.'
+                        "⚠️ The model returned an empty response (no choices). "
+                        "Send your message again — if it repeats, switch the model/provider."
                     ),
                 )
                 break
@@ -2216,12 +2276,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # >>> END OF LOGGING <<<
 
             if getattr(msg, "tool_calls", None):
-                yield deps.kirim_status('Processing tool...')
+                yield deps.kirim_status("Processing tool...")
 
                 if msg.content:
-                    cleaned = fix_over_escaped_text(
-                        strip_thinking_blocks(msg.content)
-                    )
+                    cleaned = fix_over_escaped_text(strip_thinking_blocks(msg.content))
                     # >>> UPDATE-025 commit 28: FULLY inverted default —
                     # tool-call message content reaches the user frame ONLY
                     # when it is clearly user-addressed (honest decline,
@@ -2232,7 +2290,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     # is the tooth. The context keeps the raw text, so the
                     # model still remembers its own plan. <<<
                     if cleaned and stream_utils.catatan_untuk_user(cleaned):
-                        yield sse.ev('token', text=cleaned + chr(10) + chr(10))
+                        yield sse.ev("token", text=cleaned + chr(10) + chr(10))
 
                 reasoning_content = getattr(msg, "reasoning_content", None)
 
@@ -2303,7 +2361,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         question_text = fix_over_escaped_text(
                             func_args.get("question", "")
                         )
-                        yield sse.ev('ask_user', question=question_text)
+                        yield sse.ev("ask_user", question=question_text)
 
                         deps.context_manager.add_message(
                             "assistant",
@@ -2419,7 +2477,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                             state.terminal_ok,
                                             state.subagent_calls,
                                         )
-                                yield sse.ev('todo_update', markdown=rendered, todos=deps.todo_manager.get_todos())
+                                yield sse.ev(
+                                    "todo_update",
+                                    markdown=rendered,
+                                    todos=deps.todo_manager.get_todos(),
+                                )
                                 result = f"Todo list updated:\n{rendered}"
 
                         # >>> UPDATE-014: MCP tools — one dynamic branch for
@@ -2432,7 +2494,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # exactly like any other tool result.
                         elif deps.mcp is not None and deps.mcp.has_tool(func_name):
                             yield deps.kirim_status(
-                                f'🔌 MCP {deps.mcp.status_label(func_name)} ...'
+                                f"🔌 MCP {deps.mcp.status_label(func_name)} ..."
                             )
                             result = await deps.mcp.call(func_name, func_args)
                             # >>> UPDATE-026 commit 40: a refused localhost
@@ -2503,30 +2565,32 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 if guard_rules.perlu_nudge_ledger(state):
                                     state.nudge_ledger += 1
                                     result = (
-                                        "📐 [ORION LEDGER GAP] The user's "
-                                        "order requires getComputedStyle "
-                                        "evidence: '"
-                                        + str(state.perintah_tool_eksplisit)[:160]
-                                        + "'. As of this call NO "
-                                        "browser_evaluate carrying "
-                                        "getComputedStyle has landed in "
-                                        "the ledger. Your NEXT browser "
-                                        "action MUST be browser_evaluate "
-                                        "whose arguments carry "
-                                        "getComputedStyle(color)/"
-                                        "backgroundColor/borderTopWidth/"
-                                        "borderRadius as ordered — or "
-                                        "close with an explicit decline."
-                                    ) + "\n" + str(result)
+                                        (
+                                            "📐 [ORION LEDGER GAP] The user's "
+                                            "order requires getComputedStyle "
+                                            "evidence: '"
+                                            + str(state.perintah_tool_eksplisit)[:160]
+                                            + "'. As of this call NO "
+                                            "browser_evaluate carrying "
+                                            "getComputedStyle has landed in "
+                                            "the ledger. Your NEXT browser "
+                                            "action MUST be browser_evaluate "
+                                            "whose arguments carry "
+                                            "getComputedStyle(color)/"
+                                            "backgroundColor/borderTopWidth/"
+                                            "borderRadius as ordered — or "
+                                            "close with an explicit decline."
+                                        )
+                                        + "\n"
+                                        + str(result)
+                                    )
                             # >>> UPDATE-025 hotfix-2: surface the shared
                             # pre-call notice (logging-first, per the
                             # reviewer's suggestion): log it AND prepend
                             # it to the tool result so the unscreened
                             # path is visible in the transcript. <<<
                             if _pre_notice:
-                                deps.logger.info(
-                                    "[ORION PRE-CALL] %s", _pre_notice
-                                )
+                                deps.logger.info("[ORION PRE-CALL] %s", _pre_notice)
                                 result = _pre_notice + "\n" + str(result)
                         # >>> END OF UPDATE-014 MCP branch
 
@@ -2539,13 +2603,19 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         elif tool_dispatch.tool_sederhana(func_name):
                             _lm, _ls = tool_dispatch.label(func_name, func_args)
                             yield deps.kirim_status(_lm)
-                            result = tool_dispatch.jalankan(func_name, deps.tool_executor, func_args)
+                            result = tool_dispatch.jalankan(
+                                func_name, deps.tool_executor, func_args
+                            )
                             # >>> UPDATE-025 hotfix-2: count successful
                             # terminal runs as work evidence for the
                             # todo-evidence disclosure (a command that
                             # errored or was rejected proves nothing). <<<
-                            if func_name == "run_terminal" and isinstance(result, str) and (
-                                not result.startswith(("Error", "❌", "[REJECTED"))
+                            if (
+                                func_name == "run_terminal"
+                                and isinstance(result, str)
+                                and (
+                                    not result.startswith(("Error", "❌", "[REJECTED"))
+                                )
                             ):
                                 state.terminal_ok += 1
                             if _ls:
@@ -2567,7 +2637,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             else:
                                 _sa_snippet = str(func_args.get("task") or "")[:80]
                             yield deps.kirim_status(
-                                f'🤖 Sub-agent {_sa_role}: {_sa_snippet} ...'
+                                f"🤖 Sub-agent {_sa_role}: {_sa_snippet} ..."
                             )
                             # >>> UPDATE-025 commit 7 (the owner's "backend
                             # terputus padahal tidak"): a sub-run bundles
@@ -2594,7 +2664,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 yield _ka
                             result = _hasil_dispatch[0]
                             yield deps.kirim_status(
-                                f'🤖 Sub-agent {_sa_role} finished.'
+                                f"🤖 Sub-agent {_sa_role} finished."
                             )
                         # >>> END OF UPDATE-016 sub-agent branch
 
@@ -2604,9 +2674,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         ) or (
                             func_name == "run_terminal"
                             and getattr(state, "zero_mutasi_turn", False)
-                            and guard_rules.perintah_build_terlarang(
-                                str(func_args)
-                            )
+                            and guard_rules.perintah_build_terlarang(str(func_args))
                         ):
                             # >>> UPDATE-025 commit 31: HARD BLOCK. The
                             # 0.10.34 exam mutated app/main.py inside a
@@ -2663,10 +2731,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             if file_path in state.analyzed_files and not _referensi:
                                 result = f"[SYSTEM WARNING] REDUNDANCY DETECTED: You already read '{file_path}' in this session. The information is already in your memory. Do NOT re-read it. Continue the analysis or execution based on what you already know."
                             else:
-                                yield deps.kirim_status(f' Reading file: {file_path}')
+                                yield deps.kirim_status(f" Reading file: {file_path}")
                                 result = deps.tool_executor.read_file(**func_args)
                                 state.analyzed_files.add(file_path)
-                                yield deps.kirim_status(f'✅ File {file_path} read')
+                                yield deps.kirim_status(f"✅ File {file_path} read")
 
                         elif func_name == "read_file_range":
                             file_path = func_args.get("file_path", "")
@@ -2687,13 +2755,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             if range_key in state.analyzed_files and not _referensi:
                                 result = f"[SYSTEM WARNING] REDUNDANCY DETECTED: You already read lines {start}-{end} of '{file_path}' in this session. Use the information you already have."
                             else:
-                                yield deps.kirim_status(f'📖 Reading {file_path} (lines {start}-{end})')
+                                yield deps.kirim_status(
+                                    f"📖 Reading {file_path} (lines {start}-{end})"
+                                )
                                 result = deps.tool_executor.read_file_range(**func_args)
 
                                 # Store this unique key, not just the file name
                                 state.analyzed_files.add(range_key)
 
-                                yield deps.kirim_status(f'✅ File {file_path} read')
+                                yield deps.kirim_status(f"✅ File {file_path} read")
 
                         elif func_name == "write_file":
                             file_path = func_args.get("file_path", "unknown")
@@ -2711,7 +2781,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 state.catat_edit_gagal(
                                     file_path, "REJECTED BY SYSTEM - UNSAFE PATH"
                                 )
-                                yield deps.kirim_status('🚫 File operation denied (outside the project folder)')
+                                yield deps.kirim_status(
+                                    "🚫 File operation denied (outside the project folder)"
+                                )
                             elif is_sensitive_file(file_path):
                                 result = (
                                     f"🚫 [REJECTED BY SYSTEM - SENSITIVE FILE]: '{file_path}' was detected "
@@ -2722,9 +2794,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 state.catat_edit_gagal(
                                     file_path, "REJECTED BY SYSTEM - SENSITIVE FILE"
                                 )
-                                yield deps.kirim_status('🚫 Denied: sensitive file')
+                                yield deps.kirim_status("🚫 Denied: sensitive file")
                             else:
-                                yield deps.kirim_status(f'📝 Creating/overwriting file: {file_path}')
+                                yield deps.kirim_status(
+                                    f"📝 Creating/overwriting file: {file_path}"
+                                )
                                 result = deps.tool_executor.write_file(**func_args)
                                 # Only record as proof of real work when it truly succeeded
                                 if isinstance(
@@ -2748,9 +2822,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                         )
                                         verification_msg = verify_file_write(
                                             full_path,
-                                            expected_content=func_args.get(
-                                                "content"
-                                            ),
+                                            expected_content=func_args.get("content"),
                                         )
                                         result = f"{result}\n{verification_msg}"
                                     except Exception as verify_err:
@@ -2765,8 +2837,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                     # claim naming this file gets challenged.
                                     state.catat_edit_gagal(
                                         file_path,
-                                        str(result).splitlines()[0][:200] if result
-                                        else "tool returned no result",
+                                        (
+                                            str(result).splitlines()[0][:200]
+                                            if result
+                                            else "tool returned no result"
+                                        ),
                                     )
                                     print(
                                         f"[ORION WRITE_FILE] FAILED for {file_path}: "
@@ -2778,10 +2853,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 # >>> UPDATE-022: the status frame used to claim
                                 # "✅ created" even when the write failed — the UI
                                 # layer of the same no-op-claim defect class.
-                                if isinstance(result, str) and result.lower().startswith("success"):
-                                    yield deps.kirim_status(f'✅ File {file_path} created')
+                                if isinstance(
+                                    result, str
+                                ) and result.lower().startswith("success"):
+                                    yield deps.kirim_status(
+                                        f"✅ File {file_path} created"
+                                    )
                                 else:
-                                    yield deps.kirim_status(f'❌ File {file_path} NOT created (write failed)')
+                                    yield deps.kirim_status(
+                                        f"❌ File {file_path} NOT created (write failed)"
+                                    )
 
                         elif func_name == "edit_file":
                             file_path = func_args.get("file_path", "unknown")
@@ -2797,7 +2878,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 state.catat_edit_gagal(
                                     file_path, "REJECTED BY SYSTEM - UNSAFE PATH"
                                 )
-                                yield deps.kirim_status('🚫 File operation denied (outside the project folder)')
+                                yield deps.kirim_status(
+                                    "🚫 File operation denied (outside the project folder)"
+                                )
                             elif is_sensitive_file(file_path):
                                 result = (
                                     f"🚫 [REJECTED BY SYSTEM - SENSITIVE FILE]: '{file_path}' was detected "
@@ -2808,9 +2891,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 state.catat_edit_gagal(
                                     file_path, "REJECTED BY SYSTEM - SENSITIVE FILE"
                                 )
-                                yield deps.kirim_status('🚫 Denied: sensitive file')
+                                yield deps.kirim_status("🚫 Denied: sensitive file")
                             else:
-                                yield deps.kirim_status(f'🔧 Editing file: {file_path}')
+                                yield deps.kirim_status(f"🔧 Editing file: {file_path}")
                                 result = deps.tool_executor.edit_file(**func_args)
                                 # Only record as proof of real work when it truly succeeded
                                 if isinstance(
@@ -2849,8 +2932,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                     # claim naming this file challengeable.
                                     state.catat_edit_gagal(
                                         file_path,
-                                        str(result).splitlines()[0][:200] if result
-                                        else "tool returned no result",
+                                        (
+                                            str(result).splitlines()[0][:200]
+                                            if result
+                                            else "tool returned no result"
+                                        ),
                                     )
                                     print(
                                         f"[ORION EDIT_FILE] FAILED for {file_path}: "
@@ -2862,16 +2948,22 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 # >>> UPDATE-022: failure-aware status frame —
                                 # "✅ edited" on a failed edit was the UI layer
                                 # of the no-op-claim defect class.
-                                if isinstance(result, str) and result.lower().startswith("success"):
-                                    yield deps.kirim_status(f'✅ File {file_path} edited')
+                                if isinstance(
+                                    result, str
+                                ) and result.lower().startswith("success"):
+                                    yield deps.kirim_status(
+                                        f"✅ File {file_path} edited"
+                                    )
                                 else:
-                                    yield deps.kirim_status(f'❌ File {file_path} NOT edited (edit failed)')
+                                    yield deps.kirim_status(
+                                        f"❌ File {file_path} NOT edited (edit failed)"
+                                    )
 
                         elif func_name == "run_terminal":
                             cmd_to_run = func_args.get("command", "")
 
                             try:
-                                yield deps.kirim_status(f'⚙️ Running: {cmd_to_run}')
+                                yield deps.kirim_status(f"⚙️ Running: {cmd_to_run}")
 
                                 # 1. Check for a dangerous command
                                 if is_dangerous_command(cmd_to_run):
@@ -2899,7 +2991,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                     # accumulated before this confirmation was triggered.
                                     for notice in state.pending_system_notices:
                                         deps.context_manager.add_message("user", notice)
-                                    yield sse.ev('confirm_terminal', command=cmd_to_run)
+                                    yield sse.ev("confirm_terminal", command=cmd_to_run)
                                     result = "[AWAITING USER CONFIRMATION]"
                                     return  # Exit the current tool loop, let the frontend wait for the user
 
@@ -2921,7 +3013,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                         f"If the user explicitly asked to run a server, tell the user to "
                                         f"run it themselves manually in their own terminal."
                                     )
-                                    yield deps.kirim_status('🚫 Server command denied (prevents a hanging process)')
+                                    yield deps.kirim_status(
+                                        "🚫 Server command denied (prevents a hanging process)"
+                                    )
 
                                 else:
                                     # 2. RUN WITH THE HEARTBEAT MECHANISM
@@ -2941,12 +3035,16 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
 
                                     # 3. HEARTBEAT LOOP: send a signal to the frontend every 10 seconds
                                     while not future.done():
-                                        yield deps.kirim_status('⏳ Process still running, please wait... (heartbeat)')
+                                        yield deps.kirim_status(
+                                            "⏳ Process still running, please wait... (heartbeat)"
+                                        )
                                         await asyncio.sleep(10)
 
                                     # 4. Fetch the result after the process has truly finished
                                     result = future.result()
-                                    yield deps.kirim_status('✅ Terminal command finished')
+                                    yield deps.kirim_status(
+                                        "✅ Terminal command finished"
+                                    )
 
                             except (RuntimeError, asyncio.CancelledError):
                                 # Caught when VS Code closes the chat/refreshes mid-process
@@ -2982,7 +3080,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # "stops silently" that had gone undetected until now.
                         # ==========================================================
                         elif func_name == "git_diff":
-                            yield deps.kirim_status('🔀 Checking git diff...')
+                            yield deps.kirim_status("🔀 Checking git diff...")
                             result = deps.tool_executor.git_diff(**func_args)
 
                         else:
@@ -3001,7 +3099,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "Use one of those, or accomplish the goal another way. "
                                 "Do NOT call the same tool again."
                             )
-                            deps.logger.error("[DEAD TOOL] Model called %r which has no dispatch branch.", func_name)
+                            deps.logger.error(
+                                "[DEAD TOOL] Model called %r which has no dispatch branch.",
+                                func_name,
+                            )
 
                     except (RuntimeError, asyncio.CancelledError):
                         # CRITICAL FIX: prevent a crash/terminate when VS Code (frontend) drops the connection
@@ -3076,8 +3177,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             not item["success"] for item in last_tool_calls
                         )
                         all_same_action = (
-                            len(set(item["action"] for item in last_tool_calls))
-                            == 1
+                            len(set(item["action"] for item in last_tool_calls)) == 1
                         )
 
                         if all_failed and all_same_action:
@@ -3106,12 +3206,18 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             # ==================================================
                             try:
                                 _kueri_riset = research_rules.rancang_kueri_riset(
-                                    func_name, res_str)
+                                    func_name, res_str
+                                )
                                 _temuan_riset = deps.tool_executor.web_search(
-                                    _kueri_riset, max_results=3)
-                                deps.logger.info("[AUTO RESEARCH] query=%s", _kueri_riset)
+                                    _kueri_riset, max_results=3
+                                )
+                                deps.logger.info(
+                                    "[AUTO RESEARCH] query=%s", _kueri_riset
+                                )
                             except Exception as _err_riset:  # noqa: BLE001
-                                _temuan_riset = f"(automatic research failed: {_err_riset})"
+                                _temuan_riset = (
+                                    f"(automatic research failed: {_err_riset})"
+                                )
                             state.tambah_notice(
                                 "[SYSTEM - AUTOMATIC RESEARCH]: Before giving up and reporting to the "
                                 "user, read the following web findings, then try ONE approach "
@@ -3152,9 +3258,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     ):
                         has_terminal_error = True
                         # 🛡️ SAFEGUARD: take only the first 3 lines of the error to save input tokens
-                        error_snippet = "\n".join(
-                            tr["content"].split("\n")[:3]
-                        ).strip()
+                        error_snippet = "\n".join(tr["content"].split("\n")[:3]).strip()
                         break
 
                 if has_terminal_error:
@@ -3237,9 +3341,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "[SYSTEM - REFERENCE RECONCILIATION]: you are closing "
                             "a turn that changed UI files while the user's saved "
                             "reference attachments were never read: "
-                            + ", ".join(
-                                f"`.orion/attachments/{r}`" for r in _refs
-                            )
+                            + ", ".join(f"`.orion/attachments/{r}`" for r in _refs)
                             + ". "
                             + _kalimat_referensi_ada(state)
                             + " Before this turn may end, EITHER read them with "
@@ -3253,9 +3355,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "menutup turn yang mengubah file UI sementara "
                             "lampiran referensi tersimpan milik user belum "
                             "dibaca sama sekali: "
-                            + ", ".join(
-                                f"`.orion/attachments/{r}`" for r in _refs
-                            )
+                            + ", ".join(f"`.orion/attachments/{r}`" for r in _refs)
                             + ". "
                             + _kalimat_referensi_ada(state)
                             + " Sebelum turn ini boleh berakhir, BACA dulu "
@@ -3271,11 +3371,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     yield deps.kirim_status(
                         _L(
                             state,
-                            '📖 UI changed with saved references unread - '
-                            'reconciliation owed before this turn can close...',
-                            '📖 UI berubah sementara referensi tersimpan belum '
-                            'dibaca - rekonsiliasi wajib sebelum turn ini '
-                            'boleh ditutup...',
+                            "📖 UI changed with saved references unread - "
+                            "reconciliation owed before this turn can close...",
+                            "📖 UI berubah sementara referensi tersimpan belum "
+                            "dibaca - rekonsiliasi wajib sebelum turn ini "
+                            "boleh ditutup...",
                         )
                     )
                     continue
@@ -3305,9 +3405,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     # SESSION-scoped debt — the ordered check rides the
                     # TASK ANCHOR until a ledger entry or a plain decline
                     # about an OLDER debt pays it. <<<
-                    state.catat_debt_verifikasi(
-                        "gaya", state.permintaan_turn_ini
-                    )
+                    state.catat_debt_verifikasi("gaya", state.permintaan_turn_ini)
                     _proj = getattr(deps.tool_executor, "project_path", ".")
                     _daftar_ref = ", ".join(
                         f"`.orion/attachments/{r}`"
@@ -3344,7 +3442,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "browser tools are connected, and the RENDERED "
                             "styles were never inspected this turn. The "
                             "user's saved references: "
-                            + _daftar_ref + "."
+                            + _daftar_ref
+                            + "."
                             + _baris_token
                             + " Before this turn may end, EITHER open the "
                             "rendered result with `" + _navigate + "` and "
@@ -3369,7 +3468,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "sementara tool browser terhubung, dan gaya "
                             "RENDER tidak pernah diperiksa turn ini. "
                             "Referensi tersimpan user: "
-                            + _daftar_ref + "."
+                            + _daftar_ref
+                            + "."
                             + _baris_token
                             + " Sebelum turn ini boleh berakhir, BUKA hasil "
                             "render dengan `" + _navigate + "` lalu ekstrak "
@@ -3395,12 +3495,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     yield deps.kirim_status(
                         _L(
                             state,
-                            '🎨 UI changed with browser tools connected - '
-                            'computed-style verification owed before this '
-                            'turn can close...',
-                            '🎨 UI berubah sementara tool browser terhubung - '
-                            'verifikasi gaya terkomputasi wajib sebelum turn '
-                            'ini boleh ditutup...',
+                            "🎨 UI changed with browser tools connected - "
+                            "computed-style verification owed before this "
+                            "turn can close...",
+                            "🎨 UI berubah sementara tool browser terhubung - "
+                            "verifikasi gaya terkomputasi wajib sebelum turn "
+                            "ini boleh ditutup...",
                         )
                     )
                     continue
@@ -3427,7 +3527,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         _L(
                             state,
                             "[SYSTEM - VISUAL CLAIM CHALLENGE]: your closing "
-                            "claims verification — \"" + _kutip + "\" — but "
+                            'claims verification — "' + _kutip + '" — but '
                             "this turn's ledger holds no getComputedStyle "
                             "evidence while browser tools are connected. "
                             "Reading a file or passing a build is not visual "
@@ -3441,7 +3541,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "challenge is generated from the turn's own "
                             "ledger — not a simulation.",
                             "[SISTEM - TANTANGAN KLAIM VISUAL]: penutup Anda "
-                            "mengklaim verifikasi — \"" + _kutip + "\" — "
+                            'mengklaim verifikasi — "' + _kutip + '" — '
                             "tetapi ledger turn ini tidak memuat bukti "
                             "getComputedStyle sementara tool browser "
                             "terhubung. Membaca file atau build yang lulus "
@@ -3460,12 +3560,12 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     yield deps.kirim_status(
                         _L(
                             state,
-                            '🎯 Visual verification claimed without '
-                            'rendered-style evidence - the claim must be '
+                            "🎯 Visual verification claimed without "
+                            "rendered-style evidence - the claim must be "
                             "earned or withdrawn...",
-                            '🎯 Klaim verifikasi visual tanpa bukti gaya '
-                            'render - klaim harus dibuktikan atau '
-                            'ditarik...',
+                            "🎯 Klaim verifikasi visual tanpa bukti gaya "
+                            "render - klaim harus dibuktikan atau "
+                            "ditarik...",
                         )
                     )
                     continue
@@ -3493,7 +3593,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         _L(
                             state,
                             "[SYSTEM - IMPLEMENTATION CLAIM CHALLENGE]: your closing "
-                            "claims implementation - \"" + _kutip + "\" - but this "
+                            'claims implementation - "' + _kutip + '" - but this '
                             "turn's ledger holds ZERO successful write/edit operations "
                             "on project files. A claim of work without a single mutated "
                             "file is not work. BEFORE this turn may end, EITHER perform "
@@ -3502,7 +3602,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "turn. This challenge is generated from the turn's own "
                             "ledger - not a simulation.",
                             "[SISTEM - TANTANGAN KLAIM IMPLEMENTASI]: penutup Anda "
-                            "mengklaim implementasi - \"" + _kutip + "\" - tetapi "
+                            'mengklaim implementasi - "' + _kutip + '" - tetapi '
                             "ledger turn ini memuat NOL operasi tulis/edit yang sukses "
                             "pada file proyek. Klaim kerja tanpa satu pun file berubah "
                             "bukan kerja. SEBELUM turn ini boleh berakhir, LAKUKAN "
@@ -3515,10 +3615,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     yield deps.kirim_status(
                         _L(
                             state,
-                            '✍️ Implementation claimed with zero mutated files - '
-                            'edit now or withdraw the claim...',
-                            '✍️ Klaim implementasi tanpa satu pun file berubah - '
-                            'sunting sekarang atau tarik klaim...',
+                            "✍️ Implementation claimed with zero mutated files - "
+                            "edit now or withdraw the claim...",
+                            "✍️ Klaim implementasi tanpa satu pun file berubah - "
+                            "sunting sekarang atau tarik klaim...",
                         )
                     )
                     continue
@@ -3557,7 +3657,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         _L(
                             state,
                             "[SYSTEM - EXPLICIT TOOL ORDER]: the user's instruction "
-                            "this turn ordered a tool by name - \"" + _kutip + "\" - "
+                            'this turn ordered a tool by name - "' + _kutip + '" - '
                             "but the ledger holds ZERO successful calls to browser/MCP "
                             "tools. Silently ignoring a named tool is not allowed. "
                             "BEFORE this turn may end, EITHER run the ordered tool now, "
@@ -3565,7 +3665,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "what you did instead. This challenge is generated from the "
                             "turn's own ledger - not a simulation.",
                             "[SISTEM - PERINTAH TOOL EKSPLISIT]: instruksi user turn "
-                            "ini menyebut tool berdasarkan namanya - \"" + _kutip + "\" "
+                            'ini menyebut tool berdasarkan namanya - "' + _kutip + '" '
                             "- tetapi ledger memuat NOL panggilan sukses ke tool "
                             "browser/MCP. Mengabaikan tool yang disebut namanya secara "
                             "diam-diam tidak diizinkan. SEBELUM turn ini boleh berakhir, "
@@ -3580,10 +3680,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     yield deps.kirim_status(
                         _L(
                             state,
-                            '🔧 Explicit tool order unexecuted - run it or explain '
-                            'plainly...',
-                            '🔧 Perintah tool eksplisit belum dijalankan - jalankan '
-                            'atau jelaskan terang-terangan...',
+                            "🔧 Explicit tool order unexecuted - run it or explain "
+                            "plainly...",
+                            "🔧 Perintah tool eksplisit belum dijalankan - jalankan "
+                            "atau jelaskan terang-terangan...",
                         )
                     )
                     continue
@@ -3615,8 +3715,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         _L(
                             state,
                             "[SYSTEM - ZERO-MUTATION CHALLENGE]: this turn's "
-                            "instruction ordered mutating work - \""
-                            + _kutip + "\" - but the ledger holds ZERO "
+                            'instruction ordered mutating work - "'
+                            + _kutip
+                            + '" - but the ledger holds ZERO '
                             "mutated files, and your closing does not plainly "
                             "decline either. A verification ritual (builds, "
                             "syntax checks, reads) is not the ordered work. "
@@ -3626,8 +3727,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "challenge is generated from the turn's own "
                             "ledger and instruction - not a simulation.",
                             "[SISTEM - TANTANGAN NIHIL-MUTASI]: instruksi turn "
-                            "ini memerintahkan kerja bersifat mutasi - \""
-                            + _kutip + "\" - tetapi ledger memuat NOL file "
+                            'ini memerintahkan kerja bersifat mutasi - "'
+                            + _kutip
+                            + '" - tetapi ledger memuat NOL file '
                             "berubah, dan penutup Anda juga tidak menyatakan "
                             "penolakan terang-terangan. Ritual verifikasi "
                             "(build, cek sintaks, pembacaan) bukan kerja yang "
@@ -3642,11 +3744,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     yield deps.kirim_status(
                         _L(
                             state,
-                            '🛑 Work ordered but zero files mutated and no '
-                            'plain decline - edit now or decline plainly...',
-                            '🛑 Kerja diperintahkan tetapi nol file berubah '
-                            'dan tiada penolakan terang - sunting sekarang '
-                            'atau tolak terang-terangan...',
+                            "🛑 Work ordered but zero files mutated and no "
+                            "plain decline - edit now or decline plainly...",
+                            "🛑 Kerja diperintahkan tetapi nol file berubah "
+                            "dan tiada penolakan terang - sunting sekarang "
+                            "atau tolak terang-terangan...",
                         )
                     )
                     continue
@@ -3657,9 +3759,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 # One shot per turn; the debt ledger carries the rest. <<<
                 if keputusan == loop_guards.Keputusan.TANTANG_STAGNASI:
                     state.tantang_stagnasi += 1
-                    state.catat_debt_verifikasi(
-                        "stagnasi", state.permintaan_turn_ini
-                    )
+                    state.catat_debt_verifikasi("stagnasi", state.permintaan_turn_ini)
                     _kutip_kerja = guard_rules.kalimat_perintah_kerja(
                         state.permintaan_turn_ini
                     )
@@ -3675,7 +3775,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             f"without ONE successful mutation and "
                             f"{state.edit_gagal_beruntun} consecutive failed "
                             "writes, while the instruction orders mutating work "
-                            "- \"" + _kutip_kerja + "\". Repeating the same "
+                            '- "' + _kutip_kerja + '". Repeating the same '
                             "read-edit cycle is not progress. BEFORE this turn "
                             "may end, EITHER change strategy now (re-read the "
                             "WHOLE region, use a smaller exact search block, or "
@@ -3687,8 +3787,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             f"{state.nir_mutasi_beruntun} iterasi beruntun tanpa "
                             "SATU pun mutasi sukses dan "
                             f"{state.edit_gagal_beruntun} tulis gagal beruntun, "
-                            "padahal instruksi memerintahkan kerja bermutasi - \""
-                            + _kutip_kerja + "\". Mengulang siklus baca-edit yang "
+                            'padahal instruksi memerintahkan kerja bermutasi - "'
+                            + _kutip_kerja
+                            + '". Mengulang siklus baca-edit yang '
                             "sama bukan kemajuan. SEBELUM turn ini boleh "
                             "berakhir, GANTI strategi sekarang (baca ULANG "
                             "seluruh regio, pakai blok search kecil yang persis, "
@@ -3701,10 +3802,10 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     yield deps.kirim_status(
                         _L(
                             state,
-                            '🐌 Stagnation detected - change strategy or name '
-                            'the blocker plainly...',
-                            '🐌 Stagnasi terdeteksi - ganti strategi atau sebut '
-                            'blocker terang-terangan...',
+                            "🐌 Stagnation detected - change strategy or name "
+                            "the blocker plainly...",
+                            "🐌 Stagnasi terdeteksi - ganti strategi atau sebut "
+                            "blocker terang-terangan...",
                         )
                     )
                     continue
@@ -3729,8 +3830,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
 
                         state.current_iter = _ + 1
                         pause_msg = f"\n\n[SYSTEM PAUSE]: I have reached the iteration limit ({max_iter}) for this session for token safety. However, I still remember every step I have taken. Please type **'lanjutkan'** or **'continue'** so I can finish this task."
-                        yield sse.ev('token', text=pause_msg)
-                        yield sse.ev('done')
+                        yield sse.ev("token", text=pause_msg)
+                        yield sse.ev("done")
                         print(
                             f"[ORION PAUSE] Reached iteration limit {max_iter}. Waiting for user instructions to continue."
                         )
@@ -3745,7 +3846,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
 
                         # save this turn's progress so it is not lost from the context
                         deps.context_manager.add_message(
-                            "assistant", content,
+                            "assistant",
+                            content,
                             reasoning_content=reasoning_content,
                         )
                         # >>> UPDATE-025 hotfix (todo-hijack incident):
@@ -3778,12 +3880,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "work on old todo items.",
                             )
                             yield deps.kirim_status(
-                                f'🧭 Re-anchoring to your request (older todo [{_next_id}] deferred)...'
+                                f"🧭 Re-anchoring to your request (older todo [{_next_id}] deferred)..."
                             )
                             deps.logger.info(
                                 "[ORION RE-ANCHOR %d/%d] next todo [%s] predates this turn; "
                                 "re-anchoring to the current request instead of forcing it.",
-                                state.nudge_count, MAX_TODO_NUDGE, _next_id,
+                                state.nudge_count,
+                                MAX_TODO_NUDGE,
+                                _next_id,
                             )
                         else:
                             deps.context_manager.add_message(
@@ -3796,10 +3900,21 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "done, call the `update_todos` tool to mark it 'completed', "
                                 "then continue to the next item.",
                             )
-                            yield deps.kirim_status(f'Continuing with todo [{_next_id}]...')
-                            deps.logger.info("[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
-                                        state.nudge_count, MAX_TODO_NUDGE, _sisa, _next_id)
-                        yield sse.ev('todo_update', markdown=deps.todo_manager.render_markdown(), todos=deps.todo_manager.get_todos())
+                            yield deps.kirim_status(
+                                f"Continuing with todo [{_next_id}]..."
+                            )
+                            deps.logger.info(
+                                "[ORION NUDGE %d/%d] %d todos still pending. Continuing with [%s].",
+                                state.nudge_count,
+                                MAX_TODO_NUDGE,
+                                _sisa,
+                                _next_id,
+                            )
+                        yield sse.ev(
+                            "todo_update",
+                            markdown=deps.todo_manager.render_markdown(),
+                            todos=deps.todo_manager.get_todos(),
+                        )
                         continue
                     case loop_guards.Keputusan.TANTANG_SARAN:
                         # >>> UPDATE-025 commit 9 (owner: "Orion harus bisa
@@ -3813,7 +3928,8 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         deps.logger.warning(
                             "[OPEN FAILURE THREAD] closing answer without "
                             "root-cause/options wording; challenge %d/1: %s",
-                            state.saran_count, state.utas_gagal[:120],
+                            state.saran_count,
+                            state.utas_gagal[:120],
                         )
                         deps.context_manager.add_message(
                             "assistant", content, reasoning_content=reasoning_content
@@ -3823,23 +3939,23 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             _L(
                                 state,
                                 "[SYSTEM - PROACTIVE ADVISORY]: the user has an "
-                            "OPEN FAILURE THREAD from an earlier message: "
-                            f"\"{state.utas_gagal[:200]}\". Before closing this "
-                            "turn, answer the current question FIRST in the "
-                            "user's language, and inside that same answer add:\n"
-                            "- the most likely ROOT CAUSE of that reported "
-                            "failure, with the concrete evidence you actually "
-                            "read (file + line, tool output, or an explicit "
-                            "'I checked X and found Y');\n"
-                            "- TWO or THREE concrete OPTIONS the user can pick, "
-                            "smallest first, including the honest 'do nothing' "
-                            "option where it applies.\n"
-                            "This is not a ritual: weave both into the answer "
-                            "as a senior engineer would. Do not defer with "
-                            "'let me know if you want me to look'.",
+                                "OPEN FAILURE THREAD from an earlier message: "
+                                f'"{state.utas_gagal[:200]}". Before closing this '
+                                "turn, answer the current question FIRST in the "
+                                "user's language, and inside that same answer add:\n"
+                                "- the most likely ROOT CAUSE of that reported "
+                                "failure, with the concrete evidence you actually "
+                                "read (file + line, tool output, or an explicit "
+                                "'I checked X and found Y');\n"
+                                "- TWO or THREE concrete OPTIONS the user can pick, "
+                                "smallest first, including the honest 'do nothing' "
+                                "option where it applies.\n"
+                                "This is not a ritual: weave both into the answer "
+                                "as a senior engineer would. Do not defer with "
+                                "'let me know if you want me to look'.",
                                 "[SISTEM - PENASIHAT PROAKTIF]: user punya "
                                 "UTAS KEGAGALAN TERBUKA dari pesan sebelumnya: "
-                                f"\"{state.utas_gagal[:200]}\". Sebelum menutup "
+                                f'"{state.utas_gagal[:200]}". Sebelum menutup '
                                 "turn ini, jawab dulu pertanyaan saat ini DALAM "
                                 "bahasa user, dan di dalam jawaban yang sama "
                                 "tambahkan:\n"
@@ -3858,7 +3974,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             ),
                         )
                         yield deps.kirim_status(
-                            '💡 Open failure thread: root cause + options owed...'
+                            "💡 Open failure thread: root cause + options owed..."
                         )
                         continue
                     case loop_guards.Keputusan.CHECKPOINT:
@@ -3954,9 +4070,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # >>> UPDATE-025 commit 10: the checkpoint ending
                         # uses the same single merged block (claim=True by
                         # construction here) — no duplicate gap statement.
-                        checkpoint_report += _blok_delegasi_akhir(
-                            state, klaim=True
-                        )
+                        checkpoint_report += _blok_delegasi_akhir(state, klaim=True)
                         # >>> UPDATE-025 commit 11: UI work vs unread refs.
                         checkpoint_report += _blok_referensi_belum_dibaca(
                             state,
@@ -3965,9 +4079,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # >>> UPDATE-025 commit 17: rendered styles vs
                         # computed-style evidence (single emitter, both
                         # endings — the twin lives in the JAWAB_NORMAL arm).
-                        checkpoint_report += _blok_gaya_tanpa_verifikasi(
-                            state, deps
-                        )
+                        checkpoint_report += _blok_gaya_tanpa_verifikasi(state, deps)
                         # >>> UPDATE-025 commit 14: unrecovered failed edits.
                         checkpoint_report += _blok_edit_gagal_akhir(state)
                         # >>> UPDATE-025 commit 9: same persistence fact and
@@ -4000,7 +4112,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
                         stream_utils.rekam_respon_mentah(content, _teks_tutup)
                         yield sse.ev(
-                            'token',
+                            "token",
                             text=_teks_tutup + checkpoint_report,
                         )
 
@@ -4012,12 +4124,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
 
                         # PAUSE: wait for the user's response
-                        yield sse.ev('ask_user', question=_L(
-                            state,
-                            'Task complete. Is there anything to adjust, or shall I continue to the next task?',
-                            'Tugas selesai. Ada yang perlu disesuaikan, atau saya lanjut ke tugas berikutnya?',
-                        ))
-                        yield sse.ev('done')
+                        yield sse.ev(
+                            "ask_user",
+                            question=_L(
+                                state,
+                                "Task complete. Is there anything to adjust, or shall I continue to the next task?",
+                                "Tugas selesai. Ada yang perlu disesuaikan, atau saya lanjut ke tugas berikutnya?",
+                            ),
+                        )
+                        yield sse.ev("done")
                         print(
                             "[ORION TASK COMPLETE] Task finished. Waiting for user response to continue."
                         )
@@ -4081,11 +4196,13 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "— bukan simulasi, bukan tes, bukan konteks basi.",
                             ),
                         )
-                        yield deps.kirim_status(_L(
-                            state,
-                            '🔍 Verifying completion claim (0 files changed)...',
-                            '🔍 Memverifikasi klaim selesai (0 file berubah)...',
-                        ))
+                        yield deps.kirim_status(
+                            _L(
+                                state,
+                                "🔍 Verifying completion claim (0 files changed)...",
+                                "🔍 Memverifikasi klaim selesai (0 file berubah)...",
+                            )
+                        )
                         continue
                     case loop_guards.Keputusan.TANTANG_EDIT_GAGAL:
                         # >>> UPDATE-022 (InvoiceFlow M1 §2C): the claim names
@@ -4104,7 +4221,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                             "[CLAIM WITH FAILED EDITS] Orion claims completion but %d "
                             "file edit(s) FAILED and never succeeded afterwards "
                             "(verification %d/%d). Challenging the claim: %s",
-                            len(_edit_gagal), state.verifikasi_count, MAX_VERIFIKASI,
+                            len(_edit_gagal),
+                            state.verifikasi_count,
+                            MAX_VERIFIKASI,
                             ", ".join(g["path"] for g in _edit_gagal),
                         )
                         deps.context_manager.add_message(
@@ -4144,7 +4263,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "Klaim selesai yang bertentangan dengan ledger edit tidak "
                                 "diterima. File lain yang BERHASIL Anda ubah tidak menebus "
                                 "kegagalan di atas.\n\n"
-                                "Permintaan asli user turn ini: \""
+                                'Permintaan asli user turn ini: "'
                                 f"{(state.permintaan_turn_ini or '')[:300]}\" — kirimkan PERSIS "
                                 "itu, dalam bahasa user; jawab langsung lebih dulu. Kemudian "
                                 "lakukan berurutan:\n"
@@ -4162,14 +4281,18 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 "SENDIRI turn ini — bukan simulasi, bukan tes, bukan konteks basi.",
                             ),
                         )
-                        _nama_gagal = ", ".join(f"`{g['path']}`" for g in _edit_gagal[:5])
+                        _nama_gagal = ", ".join(
+                            f"`{g['path']}`" for g in _edit_gagal[:5]
+                        )
                         if len(_edit_gagal) > 5:
                             _nama_gagal += f" +{len(_edit_gagal) - 5} more"
-                        yield deps.kirim_status(_L(
-                            state,
-                            f'🔍 Verifying completion claim (failed edits: {_nama_gagal})...',
-                            f'🔍 Memverifikasi klaim selesai (edit gagal: {_nama_gagal})...',
-                        ))
+                        yield deps.kirim_status(
+                            _L(
+                                state,
+                                f"🔍 Verifying completion claim (failed edits: {_nama_gagal})...",
+                                f"🔍 Memverifikasi klaim selesai (edit gagal: {_nama_gagal})...",
+                            )
+                        )
                         continue
                     case loop_guards.Keputusan.JAWAB_NORMAL:
                         # Not a task completion, just a normal response
@@ -4231,13 +4354,13 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         # named at the normal ending too (single emitter,
                         # both endings — no duplicate voice).
                         _teks_jawab += _blok_edit_gagal_akhir(state)
-                        yield sse.ev('token', text=_teks_jawab)
+                        yield sse.ev("token", text=_teks_jawab)
                         deps.context_manager.add_message(
                             "assistant",
                             _teks_jawab,
                             reasoning_content=reasoning_content,
                         )
-                        yield sse.ev('done')
+                        yield sse.ev("done")
                         break
                     # >>> END OF TASK COMPLETION DETECTED <<<
 
@@ -4245,10 +4368,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         error_msg = str(e)
         # >>> PATCH ORION-2: use the logger, not print (stdout = pipe to the extension)
         deps.logger.exception("[ORION EXCEPTION] agent loop failed")
-        yield sse.ev('error', text=error_msg)
+        yield sse.ev("error", text=error_msg)
         # >>> PATCH ORION-2 (CRITICAL): MUST send 'done' after 'error'.
         # Previously only 'error' was sent, so the webview never got a
         # completion signal -> the UI hung and the user saw the assistant
         # "stop silently".
-        yield sse.ev('done')
-
+        yield sse.ev("done")

@@ -26,8 +26,7 @@ def _resolve_stdout_log() -> Path:
         return Path(env).expanduser()
     try:
         target = (
-            Path(__file__).resolve().parents[2]
-            / ".orion" / "logs" / "orion_stdout.log"
+            Path(__file__).resolve().parents[2] / ".orion" / "logs" / "orion_stdout.log"
         )
         target.parent.mkdir(parents=True, exist_ok=True)
         return target
@@ -95,7 +94,6 @@ load_dotenv()
 
 import json
 import re
-
 
 # >>> UPDATE-019: the structure checker below walks the project at every
 # /set-project. Before 019 it skipped NOTHING except roots whose path
@@ -279,6 +277,7 @@ except ImportError:  # pragma: no cover
 setup_logging()
 logger = get_logger("orion.main")
 
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Startup hook via lifespan (UPDATE-008: replaces the deprecated
@@ -370,6 +369,8 @@ async def shared_secret_guard(request, call_next):
         {"error": "unauthorized: missing or wrong Orion shared token (X-Orion-Token)"},
         status_code=401,
     )
+
+
 # >>> END OF SHARED-SECRET TOKEN =========================================
 context_manager = ContextManager()
 tool_executor = None
@@ -495,16 +496,20 @@ def periksa_konsistensi_tools() -> None:
             "[TOOLS] %d tools DECLARED but have NO dispatch branch in /chat: %s. "
             "The model will always receive 'tool is NOT AVAILABLE'. "
             "Add an `elif func_name == ...` branch in generate_stream().",
-            len(mati), sorted(mati),
+            len(mati),
+            sorted(mati),
         )
     if berlebih:
         logger.warning(
             "[TOOLS] %d tools have dispatch but are NOT declared in the TOOLS schema: %s. "
             "The model will never call them.",
-            len(berlebih), sorted(berlebih),
+            len(berlebih),
+            sorted(berlebih),
         )
     if not mati and not berlebih:
-        logger.info("[TOOLS] Consistent: %d tools declared & dispatched.", len(dideklarasikan))
+        logger.info(
+            "[TOOLS] Consistent: %d tools declared & dispatched.", len(dideklarasikan)
+        )
 
 
 periksa_konsistensi_tools()
@@ -527,7 +532,10 @@ class ChatRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "Orion Backend is running!", "version": runtime_id.BACKEND_VERSION}
+    return {
+        "status": "Orion Backend is running!",
+        "version": runtime_id.BACKEND_VERSION,
+    }
 
 
 # >>> UPDATE-013: identity check for the extension. Unlike the bare GET /
@@ -545,6 +553,8 @@ async def health():
     if mcp_manager is not None:
         payload.update(mcp_manager.health_fields())
     return payload
+
+
 # >>> END OF UPDATE-013 /health
 
 
@@ -558,6 +568,8 @@ async def health():
 @app.get("/runtime/forensics")
 async def runtime_forensics():
     return runtime_id.forensics_payload(context_manager.project_path)
+
+
 # >>> END OF UPDATE-019 forensics ==========================================
 
 
@@ -609,6 +621,8 @@ async def mcp_config(request: McpConfigRequest):
     if not result["success"]:
         return JSONResponse(result, status_code=400)
     return result
+
+
 # >>> END OF UPDATE-015 MCP management ====================================
 
 
@@ -692,7 +706,9 @@ async def models_options_route():
         try:
             with open(cfg_path, "r", encoding="utf-8-sig") as f:
                 loaded = json.load(f)
-            candidate = loaded.get("subagent_models") if isinstance(loaded, dict) else None
+            candidate = (
+                loaded.get("subagent_models") if isinstance(loaded, dict) else None
+            )
             if isinstance(candidate, dict):
                 saved = candidate
         except (OSError, json.JSONDecodeError) as e:
@@ -739,9 +755,7 @@ async def models_test_route(request: ModelsTestRequest):
             "success": False,
             "profile": profile,
             "resolved_model": queue[0]["model"],
-            "error": _sanitize_profile_error(
-                f"{type(exc).__name__}: {exc}", queue
-            ),
+            "error": _sanitize_profile_error(f"{type(exc).__name__}: {exc}", queue),
         }
 
 
@@ -797,6 +811,8 @@ async def models_config_route(request: ModelsConfigRequest):
     orion_config["subagent_models"] = payload
     print(f"[ORION MODELS] subagent_models saved: {payload}")
     return {"success": True, "subagent_models": payload}
+
+
 # >>> END OF UPDATE-018 model profiles ====================================
 
 
@@ -881,9 +897,13 @@ async def set_project(request: ProjectPathRequest):
             print(f"[ORION MCP WARNING] {_w}")
         for _srv in mcp_summary.get("servers", []):
             if _srv.get("status") == "ok":
-                print(f"[ORION MCP] server '{_srv['name']}' ready with {_srv['tools']} tool(s)")
+                print(
+                    f"[ORION MCP] server '{_srv['name']}' ready with {_srv['tools']} tool(s)"
+                )
             elif _srv.get("status") == "error":
-                print(f"[ORION MCP] server '{_srv['name']}' FAILED to start: {_srv.get('error')}")
+                print(
+                    f"[ORION MCP] server '{_srv['name']}' FAILED to start: {_srv.get('error')}"
+                )
 
     return {
         "success": True,
@@ -923,9 +943,7 @@ async def auto_restore_project():
                 print(f"[ORION MCP WARNING] MCP startup skipped: {e}")
         print("[ORION STARTUP] ✅ Project restored successfully. Tool executor ready.")
     else:
-        print(
-            "[ORION STARTUP] No previous project found. Waiting for /set-project..."
-        )
+        print("[ORION STARTUP] No previous project found. Waiting for /set-project...")
 
 
 @app.post("/chat")
@@ -940,7 +958,7 @@ async def chat_with_orion(request: ChatRequest):
         # harness (scenario h recorded 1 frame instead of 2). The wrapper
         # guarantees the terminal done, exactly like every other path.
         async def error_gen():
-            yield sse.ev('error', text='Please set a project first.')
+            yield sse.ev("error", text="Please set a project first.")
 
         return StreamingResponse(
             stream_utils.jamin_done(error_gen(), logger=logger),
@@ -958,7 +976,8 @@ async def chat_with_orion(request: ChatRequest):
 
     _lamp_desc = describe_attachments(request.attachments)
     _content_parts, _riwayat_text = build_user_content(
-        request.message, request.attachments,
+        request.message,
+        request.attachments,
         project_path=context_manager.project_path,
     )
     # >>> PHASE C STEP 2: per-turn mutable state now lives in one SessionState
@@ -1011,14 +1030,13 @@ async def chat_with_orion(request: ChatRequest):
             logger.warning("[INBOX] %s", _w)
 
     if _inbox.get("images"):
+        # FIX P1.1: Paksa list dan pastikan elemen pertama adalah teks
         _bagian = (
-            list(state.pending_image)
-            if isinstance(state.pending_image, list)
-            else []
+            list(state.pending_image) if isinstance(state.pending_image, list) else []
         )
-        if not any(
-            isinstance(_p, dict) and _p.get("type") == "text" for _p in _bagian
-        ):
+        if not _bagian:
+            _bagian = [{"type": "text", "text": "(see attached images)"}]
+        if not any(isinstance(_p, dict) and _p.get("type") == "text" for _p in _bagian):
             _bagian.insert(
                 0,
                 {
@@ -1113,7 +1131,7 @@ async def chat_with_orion(request: ChatRequest):
         todo_manager=todo_manager,
         tool_executor=tool_executor,
         llm_call=get_ai_response,
-        kirim_status=lambda teks: sse.ev('status', text=teks),
+        kirim_status=lambda teks: sse.ev("status", text=teks),
         config=orion_config,
         logger=logger,
         context_message=context_message,
@@ -1138,7 +1156,9 @@ async def chat_with_orion(request: ChatRequest):
     async def generate_stream():
         # >>> PATCH ORION-36: the "guarantee a done" logic moved to stream_utils
         # so it can be unit-tested without running FastAPI (test_stream_utils).
-        async for potongan in stream_utils.jamin_done(aliran_agent(state, deps), logger=logger):
+        async for potongan in stream_utils.jamin_done(
+            aliran_agent(state, deps), logger=logger
+        ):
             yield potongan
 
     return StreamingResponse(generate_stream(), media_type="text/event-stream")
@@ -1236,12 +1256,8 @@ async def get_performance():
     return {
         "summary": {
             "total_requests": total_requests,
-            "total_input_tokens": sum(
-                l.get("input_tokens", 0) for l in logs
-            ),
-            "total_output_tokens": sum(
-                l.get("output_tokens", 0) for l in logs
-            ),
+            "total_input_tokens": sum(l.get("input_tokens", 0) for l in logs),
+            "total_output_tokens": sum(l.get("output_tokens", 0) for l in logs),
             "total_cost_usd": round(total_cost, 6),
             "avg_response_time_ms": round(avg_duration, 2),
             "success_count": success_count,

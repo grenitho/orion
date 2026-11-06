@@ -57,10 +57,10 @@ except Exception:  # pragma: no cover - depends on env
     _inbox = None
 
 # Limits from the Gemini documentation + a safe margin
-MAX_GAMBAR = 4                    # per message (3,000 is the API limit, but wasteful of quota)
+MAX_GAMBAR = 4  # per message (3,000 is the API limit, but wasteful of quota)
 MAX_BYTE_GAMBAR = 7 * 1024 * 1024  # 7 MB — Gemini inline limit
-MAX_BYTE_TEKS = 512 * 1024         # 512 KB for text files
-MAX_CHAR_TEKS = 60_000             # cap text content so it cannot blow up the context
+MAX_BYTE_TEKS = 512 * 1024  # 512 KB for text files
+MAX_CHAR_TEKS = 60_000  # cap text content so it cannot blow up the context
 # >>> UPDATE-021: document families (pdf/docx/xlsx) ride the inbox caps:
 # 20 MB per file; extraction caps (pages/tables/rows/chars) live in
 # inbox_manager and announce themselves inside the extracted text.
@@ -68,13 +68,40 @@ EKSTENSI_DOKUMEN = {".pdf", ".docx", ".xlsx"}
 MAX_BYTE_DOKUMEN = 20 * 1024 * 1024
 
 MIME_GAMBAR = {
-    "image/png", "image/jpeg", "image/jpg", "image/webp",
-    "image/heic", "image/heif",
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/webp",
+    "image/heic",
+    "image/heif",
 }
 EKSTENSI_TEKS = {
-    ".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".md", ".txt", ".yaml", ".yml",
-    ".toml", ".ini", ".cfg", ".html", ".css", ".scss", ".sql", ".sh", ".bat",
-    ".ps1", ".xml", ".csv", ".log", ".env", ".gitignore", ".dockerfile",
+    ".py",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".json",
+    ".md",
+    ".txt",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".html",
+    ".css",
+    ".scss",
+    ".sql",
+    ".sh",
+    ".bat",
+    ".ps1",
+    ".xml",
+    ".csv",
+    ".log",
+    ".env",
+    ".gitignore",
+    ".dockerfile",
 }
 
 PESAN_GAGAL = (
@@ -87,8 +114,8 @@ PESAN_GAGAL = (
 class HasilLampiran:
     """Processing result of the attachments for one user message."""
 
-    parts: list = field(default_factory=list)   # content parts for litellm
-    ringkasan: str = ""                          # text placeholder for the history
+    parts: list = field(default_factory=list)  # content parts for litellm
+    ringkasan: str = ""  # text placeholder for the history
     catatan_gagal: list = field(default_factory=list)
 
 
@@ -97,7 +124,9 @@ def _normalkan(lamp: dict) -> dict:
     if not isinstance(lamp, dict):
         return {}
     nama = str(lamp.get("name") or lamp.get("filename") or "attachment")
-    mime = str(lamp.get("mime") or lamp.get("mimeType") or lamp.get("type") or "").lower()
+    mime = str(
+        lamp.get("mime") or lamp.get("mimeType") or lamp.get("type") or ""
+    ).lower()
     data = lamp.get("data") or lamp.get("base64") or lamp.get("content") or ""
 
     # accept a full data URI ("data:image/png;base64,....") as well as plain base64
@@ -127,7 +156,7 @@ def _decode(data) -> bytes | None:
         hasil = base64.b64decode(data, validate=False)
     except (binascii.Error, ValueError):
         return None
-    return hasil or None      # empty bytes = broken base64, not an empty file
+    return hasil or None  # empty bytes = broken base64, not an empty file
 
 
 def _tebak_mime(nama: str) -> str:
@@ -195,8 +224,9 @@ def _simpan_referensi(project_path: str | None, nama: str, mentah: bytes):
         return None
 
 
-def build_user_content(message: str, attachments: list | None = None,
-                       project_path: str | None = None) -> tuple[list, str]:
+def build_user_content(
+    message: str, attachments: list | None = None, project_path: str | None = None
+) -> tuple[list, str]:
     """
     Turn the user message + attachments into (content_parts, history_summary).
 
@@ -215,8 +245,9 @@ def build_user_content(message: str, attachments: list | None = None,
     return hasil.parts, hasil.ringkasan
 
 
-def proses(message: str, attachments: list | None = None,
-           project_path: str | None = None) -> HasilLampiran:
+def proses(
+    message: str, attachments: list | None = None, project_path: str | None = None
+) -> HasilLampiran:
     """The processing core. Split out so it is easy to unit-test."""
     out = HasilLampiran()
     pesan = (message or "").strip()
@@ -245,24 +276,45 @@ def proses(message: str, attachments: list | None = None,
         # ---------------- IMAGE ----------------
         if mime in MIME_GAMBAR:
             if jumlah_gambar >= MAX_GAMBAR:
-                out.catatan_gagal.append(f"{nama}: exceeds the limit of {MAX_GAMBAR} images/message")
-                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — too many images]")
+                out.catatan_gagal.append(
+                    f"{nama}: exceeds the limit of {MAX_GAMBAR} images/message"
+                )
+                baris_ringkasan.append(
+                    f"[ATTACHMENT REJECTED: {nama} — too many images]"
+                )
                 continue
             if len(mentah) > MAX_BYTE_GAMBAR:
                 out.catatan_gagal.append(
                     f"{nama}: {len(mentah) / 1024 / 1024:.1f} MB > Gemini's 7 MB limit"
                 )
-                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — larger than 7 MB]")
+                baris_ringkasan.append(
+                    f"[ATTACHMENT REJECTED: {nama} — larger than 7 MB]"
+                )
                 continue
 
-            out.parts.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{base64.b64encode(mentah).decode()}"},
-            })
+            out.parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime};base64,{base64.b64encode(mentah).decode()}"
+                    },
+                }
+            )
             jumlah_gambar += 1
+
+            # FIX E3: Simpan gambar ke disk agar bisa dibaca ulang via read_file
+            _rel_gambar = _simpan_referensi(project_path, nama, mentah)
+            _pesan_simpan = (
+                f"; a durable copy lives at {_rel_gambar} — read_file it on any "
+                "later turn, it survives context summarization"
+                if _rel_gambar
+                else ""
+            )
+
             baris_ringkasan.append(
-                f"[IMAGE ATTACHMENT: {nama} ({mime}, {len(mentah) // 1024} KB) "
-                f"— this image is ONLY visible on this turn]"
+                f"[IMAGE ATTACHMENT: {nama} ({mime}, {len(mentah) // 1024} KB)"
+                + _pesan_simpan
+                + "]"
             )
             continue
 
@@ -273,7 +325,9 @@ def proses(message: str, attachments: list | None = None,
                 out.catatan_gagal.append(
                     f"{nama}: document too large ({len(mentah) / 1024 / 1024:.1f} MB > 20 MB)"
                 )
-                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — larger than 20 MB]")
+                baris_ringkasan.append(
+                    f"[ATTACHMENT REJECTED: {nama} — larger than 20 MB]"
+                )
                 continue
             teks_dok, alasan = _ekstrak_dokumen(nama, ekstensi, mentah)
             if teks_dok is None:
@@ -291,7 +345,8 @@ def proses(message: str, attachments: list | None = None,
                 + (
                     f"; a durable copy lives at {_rel_doc} — read_file it on any "
                     "later turn, it survives context summarization"
-                    if _rel_doc else ""
+                    if _rel_doc
+                    else ""
                 )
                 + "]"
             )
@@ -300,8 +355,12 @@ def proses(message: str, attachments: list | None = None,
         # ---------------- TEXT FILE ----------------
         if ekstensi in EKSTENSI_TEKS or mime.startswith("text/"):
             if len(mentah) > MAX_BYTE_TEKS:
-                out.catatan_gagal.append(f"{nama}: text file too large ({len(mentah)} bytes)")
-                baris_ringkasan.append(f"[ATTACHMENT REJECTED: {nama} — file too large]")
+                out.catatan_gagal.append(
+                    f"{nama}: text file too large ({len(mentah)} bytes)"
+                )
+                baris_ringkasan.append(
+                    f"[ATTACHMENT REJECTED: {nama} — file too large]"
+                )
                 continue
             try:
                 isi = mentah.decode("utf-8", errors="replace")
@@ -314,7 +373,11 @@ def proses(message: str, attachments: list | None = None,
                 isi = isi[:MAX_CHAR_TEKS]
             bagian_teks.append(
                 f"\n\n----- ATTACHED FILE CONTENTS: {nama} -----\n{isi}"
-                + ("\n----- [TRUNCATED, the file is longer than this] -----" if terpotong else "")
+                + (
+                    "\n----- [TRUNCATED, the file is longer than this] -----"
+                    if terpotong
+                    else ""
+                )
                 + f"\n----- END OF {nama} -----"
             )
             _rel_teks = _simpan_referensi(project_path, nama, mentah)
@@ -325,14 +388,17 @@ def proses(message: str, attachments: list | None = None,
                 + (
                     f"; a durable copy lives at {_rel_teks} — read_file it on "
                     "any later turn, it survives context summarization"
-                    if _rel_teks else ""
+                    if _rel_teks
+                    else ""
                 )
                 + "]"
             )
             continue
 
         # ---------------- UNSUPPORTED ----------------
-        out.catatan_gagal.append(f"{nama}: type '{mime or ekstensi or 'unknown'}' is not supported")
+        out.catatan_gagal.append(
+            f"{nama}: type '{mime or ekstensi or 'unknown'}' is not supported"
+        )
         baris_ringkasan.append(
             f"[ATTACHMENT REJECTED: {nama} — unsupported type. "
             f"Supported: images (png/jpg/webp/heic) or text/code files]"
@@ -342,11 +408,17 @@ def proses(message: str, attachments: list | None = None,
         bagian_teks.append(PESAN_GAGAL + "\n".join(f"- {c}" for c in out.catatan_gagal))
 
     teks_gabung = "".join(bagian_teks).strip()
-    out.ringkasan = "\n".join([teks_gabung] + baris_ringkasan).strip() if baris_ringkasan else teks_gabung
+    out.ringkasan = (
+        "\n".join([teks_gabung] + baris_ringkasan).strip()
+        if baris_ringkasan
+        else teks_gabung
+    )
 
     # When there are images, the text must be the first part in the content list
     if jumlah_gambar:
-        out.parts.insert(0, {"type": "text", "text": teks_gabung or "(see the attached image)"})
+        out.parts.insert(
+            0, {"type": "text", "text": teks_gabung or "(see the attached image)"}
+        )
 
     return out
 
