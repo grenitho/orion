@@ -33,8 +33,21 @@ from __future__ import annotations
 # Deliberately coarse on purpose: a false positive only adds a notice
 # line, a false negative is the status quo (no screening at all yet).
 MCP_MUTATING_HINTS = (
-    "write", "delete", "remove", "exec", "run", "shell", "create",
-    "update", "put", "post", "save", "move", "rename", "mkdir", "kill",
+    "write",
+    "delete",
+    "remove",
+    "exec",
+    "run",
+    "shell",
+    "create",
+    "update",
+    "put",
+    "post",
+    "save",
+    "move",
+    "rename",
+    "mkdir",
+    "kill",
 )
 
 
@@ -47,24 +60,20 @@ def nama_terlihat_mutating(nama: str) -> bool:
 def pre_call_check(nama: str, args, *, mcp: bool) -> str:
     """The shared pre-call screening gate for EVERY tool dispatch.
 
-    Returns a notice string that must be surfaced (logged + prepended
-    to the tool result), or '' when there is nothing to say. Never
-    raises: a malformed args object or a weird name degrades to ''.
+    Returns an error string to BLOCK the call, or '' to allow it.
     """
     try:
         if not mcp:
-            # Built-in tools: screening already lives inside
-            # tool_executor's methods. This call is the parity point —
-            # future shared teeth land HERE, in one place, for both
-            # branches.
             return ""
+
+        # >>> UPDATE-P1.5: HARD BLOCK untuk MCP Tool yang memodifikasi sistem.
         if nama_terlihat_mutating(nama):
             return (
-                f"[ORION PRE-CALL NOTICE] MCP tool '{nama}' looks "
-                "state-mutating. Orion's built-in guards (path containment, "
-                "dangerous-command rejection, SSRF rejection) do NOT screen "
-                "MCP calls yet; this result is unscreened. Judge it by its "
-                "tool result only."
+                f"[MCP HARD BLOCK] Penolakan Sistem: MCP tool '{nama}' terdeteksi berpotensi "
+                "mengubah state, menghapus, atau mengeksekusi perintah. "
+                "Orion TIDAK DIIZINKAN menjalankannya secara otomatis. "
+                "Tugas Anda sekarang: laporkan kepada user bahwa tool ini diblokir demi keamanan, "
+                "dan minta instruksi manual jika mereka benar-benar ingin melanjutkannya."
             )
         return ""
     except Exception:

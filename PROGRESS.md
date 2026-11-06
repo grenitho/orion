@@ -106,6 +106,15 @@
 
 **Berikutnya:** P3 — Refactor agent_loop.py (Opsional) atau P1.5 — Guard MCP.
 
+### Sesi 7 — 2026-11-06 — P1.5 Perbaiki Guard MCP (Selesai)
+**Tujuan:** Menutup celah bypass guard pada MCP tool.
+**Hasil:**
+- ✅ `tool_guards.py`: Mengubah `pre_call_check` dari sekadar *notice* menjadi *[MCP HARD BLOCK]* untuk nama tool yang memodifikasi state (write/delete/exec).
+- ✅ `agent_loop.py`: Menambahkan pengecekan agar tool yang diblokir tidak dieksekusi.
+- ✅ Terverifikasi: Orion menolak memanggil tool fiktif berbahaya.
+
+**Berikutnya:** P4 — Sandbox Eksekusi.
+
 ## Catatan Penting
 - DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
 - Model utama: Gemini Flash Lite ×4 key + fallback OpenRouter/Cloudflare

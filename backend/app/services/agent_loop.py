@@ -2348,9 +2348,19 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                     # future shared teeth cannot drift apart again. <<<
                     _pre_notice = tool_guards.pre_call_check(
                         func_name,
-                        func_args,
+                        args,
                         mcp=deps.mcp is not None and deps.mcp.has_tool(func_name),
                     )
+                    if _pre_notice:
+                        logger.warning(_pre_notice)
+                        if _pre_notice.startswith("[MCP HARD BLOCK]"):
+                            result = _pre_notice
+                            # (Opsional) kita bisa langsung lompati eksekusi tool
+                            # di bawahnya dengan `continue`, tapi karena struktur
+                            # agent_loop cukup kompleks, cara aman adalah membiarkan
+                            # blok `try-except` di bawahnya membaca `result`.
+                        else:
+                            result = f"{_pre_notice}\n\n[TOOL RESULT]\n{result}"
 
                     # >>> CRITICAL FIX #2: ask_user MUST FLUSH the tool_results
                     # collected so far BEFORE returning, otherwise the earlier
