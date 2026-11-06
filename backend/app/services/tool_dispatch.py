@@ -54,26 +54,67 @@ TABLE: dict[str, tuple[Label, Optional[Label]]] = {
     "list_backups": (lambda a: "🗄️ Listing available backups...", None),
     "restore_backup": (lambda a: f"♻️ Restoring: {a.get('file_path', '')}", None),
     "delete_file": (
-        lambda a: f"🗑️ Deleting (with backup first): {a.get('file_path', '')}", None),
+        lambda a: f"🗑️ Deleting (with backup first): {a.get('file_path', '')}",
+        None,
+    ),
     "move_file": (
-        lambda a: f"📦 Moving: {a.get('from_path', '')} -> {a.get('to_path', '')}", None),
+        lambda a: f"📦 Moving: {a.get('from_path', '')} -> {a.get('to_path', '')}",
+        None,
+    ),
+    "github_list_issues": (
+        lambda a: "🐙 Membaca daftar Issue GitHub...",
+        lambda a: "✅ Daftar Issue berhasil dibaca",
+    ),
+    "github_repo_info": (
+        lambda a: "🐙 Membaca informasi Repository GitHub...",
+        lambda a: "✅ Informasi Repository berhasil dibaca",
+    ),
+    "github_create_pr": (
+        lambda a: "🐙 Membuat Pull Request GitHub...",
+        lambda a: "✅ Pull Request berhasil dibuat",
+    ),
 }
 
 # For these 14 entries, tool name == method name on ToolExecutor.
 # If that ever diverges, just change this dict.
 METHOD: dict[str, str] = {nama: nama for nama in TABLE}
 
+# >>> P5: GitHub Tools (Routing ke github_manager)
+from app.services import github_manager
+
+
+def jalankan(nama: str, executor, args: dict):
+    if nama.startswith("github_"):
+        if nama == "github_repo_info":
+            return github_manager.get_repo_info(executor.project_path)
+        elif nama == "github_list_issues":
+            return github_manager.list_issues(
+                executor.project_path, args.get("limit", 5)
+            )
+        elif nama == "github_create_pr":
+            return github_manager.create_pr(
+                executor.project_path,
+                args.get("title", ""),
+                args.get("body", ""),
+                args.get("base_branch", "main"),
+            )
+
+    # Fallback ke tool bawaan (bukan GitHub)
+    method = getattr(executor, METHOD[nama])
+    return method(**(args or {}))
+
+
 # Tools that MUST stay handled by main.py because they have guards/interaction.
 # Listed explicitly so this decision is readable, not implicit.
 WAJIB_DI_MAIN = {
-    "ask_user",        # stops the stream, waits for the user's answer
-    "update_todos",    # touches todo_manager + the todo_update event
-    "read_file",       # analyzed_files redundancy guard
-    "read_file_range", # analyzed_files redundancy guard
-    "write_file",      # permission_manager + post_edit_verifier
-    "edit_file",       # permission_manager + post_edit_verifier
-    "run_terminal",    # confirmation modal + heartbeat + kill tree
-    "git_diff",        # special handling of large output
+    "ask_user",  # stops the stream, waits for the user's answer
+    "update_todos",  # touches todo_manager + the todo_update event
+    "read_file",  # analyzed_files redundancy guard
+    "read_file_range",  # analyzed_files redundancy guard
+    "write_file",  # permission_manager + post_edit_verifier
+    "edit_file",  # permission_manager + post_edit_verifier
+    "run_terminal",  # confirmation modal + heartbeat + kill tree
+    "git_diff",  # special handling of large output
 }
 
 
@@ -81,15 +122,33 @@ WAJIB_DI_MAIN = {
 # (agent_loop.py). Lives here since Phase C step 4; main.py's startup
 # consistency checker and the loop's unknown-tool message both use it.
 NAMA_TOOL_AKTIF = {
-    "ask_user", "update_todos", "list_files", "read_file", "read_file_range",
-    "write_file", "edit_file", "search_code", "read_json_path", "run_terminal",
-    "web_search", "web_fetch", "git_status", "git_diff", "verify_html",
+    "ask_user",
+    "update_todos",
+    "list_files",
+    "read_file",
+    "read_file_range",
+    "write_file",
+    "edit_file",
+    "search_code",
+    "read_json_path",
+    "run_terminal",
+    "web_search",
+    "web_fetch",
+    "git_status",
+    "git_diff",
+    "verify_html",
     "verify_code",
-    "restore_backup", "list_backups", "delete_file", "move_file", "git_commit",
+    "restore_backup",
+    "list_backups",
+    "delete_file",
+    "move_file",
+    "git_commit",
     "run_tests",
     # >>> UPDATE-016: sub-agent delegation branches live in agent_loop.py
     # (one shared branch via subagent_manager.is_subagent_tool).
-    "delegate_explorer", "delegate_verifier", "delegate_workers",
+    "delegate_explorer",
+    "delegate_verifier",
+    "delegate_workers",
 }
 
 

@@ -1610,3 +1610,19 @@ class ToolExecutor:
                 except Exception:
                     pass
             return f"❌ [SYSTEM ERROR]: Failed to run the terminal command. {e!s}"
+
+    # >>> P5: GitHub Integration
+    def github_repo_info(self) -> str:
+        from app.services import github_manager
+
+        return github_manager.get_repo_info(self.project_path)
+
+    def github_list_issues(self, limit: int = 5) -> str:
+        from app.services import github_manager
+
+        return github_manager.list_issues(self.project_path, limit)
+
+    def github_create_pr(self, title: str, body: str, base_branch: str = "main") -> str:
+        from app.services import github_manager
+
+        return github_manager.create_pr(self.project_path, title, body, base_branch)

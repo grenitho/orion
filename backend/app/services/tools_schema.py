@@ -110,7 +110,16 @@ TOOLS = [
         "function": {
             "name": "restore_backup",
             "description": "Restore a file from its latest backup in .orion/backups. Reversible: the current version is saved first as .pre-restore.bak. Use this when edit_file/write_file turned out to break something.",
-            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Relative path of the file to restore."}}, "required": ["file_path"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Relative path of the file to restore.",
+                    }
+                },
+                "required": ["file_path"],
+            },
         },
     },
     {
@@ -118,7 +127,16 @@ TOOLS = [
         "function": {
             "name": "list_backups",
             "description": "List the backups available for restoration. Use before restore_backup when unsure whether a backup exists.",
-            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Optional: filter by path."}}, "required": []},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Optional: filter by path.",
+                    }
+                },
+                "required": [],
+            },
         },
     },
     {
@@ -126,7 +144,16 @@ TOOLS = [
         "function": {
             "name": "delete_file",
             "description": "Delete a file SAFELY: its last copy is backed up to .orion/backups first so it can be restored. Do NOT delete files through run_terminal.",
-            "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Relative path of the file to delete."}}, "required": ["file_path"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Relative path of the file to delete.",
+                    }
+                },
+                "required": ["file_path"],
+            },
         },
     },
     {
@@ -134,7 +161,14 @@ TOOLS = [
         "function": {
             "name": "move_file",
             "description": "Move or rename a file inside the project, backing up the source first. Refuses to overwrite an existing file at the destination.",
-            "parameters": {"type": "object", "properties": {"from_path": {"type": "string"}, "to_path": {"type": "string"}}, "required": ["from_path", "to_path"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from_path": {"type": "string"},
+                    "to_path": {"type": "string"},
+                },
+                "required": ["from_path", "to_path"],
+            },
         },
     },
     {
@@ -142,7 +176,16 @@ TOOLS = [
         "function": {
             "name": "git_commit",
             "description": "Create a safe point (checkpoint) with git add -A + git commit. Use AFTER a batch of changes passes verify_code, so there is a clean point to return to. Rejects with an explanation when the folder is not a git repo. Do NOT commit through run_terminal.",
-            "parameters": {"type": "object", "properties": {"message": {"type": "string", "description": "Commit message describing the changes."}}, "required": ["message"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "Commit message describing the changes.",
+                    }
+                },
+                "required": ["message"],
+            },
         },
     },
     {
@@ -159,8 +202,15 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "Optional: manual test command. Leave empty for automatic detection."},
-                    "timeout": {"type": "integer", "description": "Timeout in seconds (default 180, max 600).", "default": 180},
+                    "command": {
+                        "type": "string",
+                        "description": "Optional: manual test command. Leave empty for automatic detection.",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds (default 180, max 600).",
+                        "default": 180,
+                    },
                 },
                 "required": [],
             },
@@ -311,7 +361,10 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "The terminal command."}
+                    "command": {
+                        "type": "string",
+                        "description": "The terminal command.",
+                    }
                 },
                 "required": ["command"],
             },
@@ -477,7 +530,10 @@ TOOLS = [
                         "items": {
                             "type": "object",
                             "properties": {
-                                "task": {"type": "string", "description": "What this worker must implement."},
+                                "task": {
+                                    "type": "string",
+                                    "description": "What this worker must implement.",
+                                },
                                 "files": {
                                     "type": "array",
                                     "items": {"type": "string"},
@@ -490,6 +546,50 @@ TOOLS = [
                 },
                 "required": ["tasks"],
             },
+        },
+    },
+    # >>> P5: GitHub Integration (via gh CLI)
+    {
+        "type": "function",
+        "function": {
+            "name": "github_list_issues",
+            "description": "Melihat daftar issue (masalah/tugas) yang terbuka di repository GitHub proyek ini. Berguna untuk mencari tahu apa yang harus dikerjakan.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Jumlah issue maksimal yang ditampilkan (default 5).",
+                    }
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_create_pr",
+            "description": "Membuat Pull Request (PR) baru di GitHub. Gunakan ini jika user meminta untuk mengajukan perubahan ke repo. JANGAN gunakan jika belum melakukan git push.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Judul PR."},
+                    "body": {"type": "string", "description": "Deskripsi perubahan."},
+                    "base_branch": {
+                        "type": "string",
+                        "description": "Branch tujuan (default 'main').",
+                    },
+                },
+                "required": ["title", "body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_repo_info",
+            "description": "Melihat informasi repository GitHub saat ini (nama, pemilik, URL).",
+            "parameters": {"type": "object", "properties": {}},
         },
     },
 ]

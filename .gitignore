@@ -159,3 +159,5 @@ backend/.playwright-mcp/
 .playwright-mcp/
 .mcp-runtime/
 **/.mcp-runtime/
+# Added by Orion's git_commit hygiene (UPDATE-025 hotfix-2).
+*.pyc

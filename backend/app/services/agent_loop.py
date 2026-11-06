@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Callable
 
 import tiktoken
+_THINKING_BLOCK_RE = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
 
 from app import logging_setup
 from app.services import guard_rules, loop_guards, project_facts, research_rules
@@ -56,8 +57,6 @@ from app.services.perf_log import log_performance
 from app.services.prompts import SYSTEM_PROMPT
 from app.services.session_state import SessionState
 from app.services.tools_schema import TOOLS
-
-_THINKING_BLOCK_RE = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
 
 _token_encoder = tiktoken.get_encoding("cl100k_base")
 
@@ -1088,6 +1087,9 @@ NAMA_TOOL_AKTIF = {
     "move_file",
     "git_commit",
     "run_tests",
+    "github_list_issues",
+    "github_create_pr",
+    "github_repo_info",
 }
 
 
