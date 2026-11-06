@@ -115,6 +115,15 @@
 
 **Berikutnya:** P4 — Sandbox Eksekusi.
 
+### Sesi 8 — 2026-11-06 — P4 Sandbox Eksekusi Tahap 1 (Selesai)
+**Tujuan:** Mencegah eksekusi perintah destruktif dan RCE via prompt injection.
+**Hasil:**
+- ✅ Menambahkan fungsi `_validasi_sandbox` di `tool_executor.py`.
+- ✅ Mencegat perintah pemformatan disk (format, rd /s), RCE (curl | bash), dan bypass directory (cd ..).
+- ✅ Terverifikasi: Orion menolak menjalankan `curl | bash` dan melaporkan blokir keamanan ke user.
+
+**Berikutnya:** P3 — Refactor agent_loop.py atau P5 — Akses GitHub.
+
 ## Catatan Penting
 - DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
 - Model utama: Gemini Flash Lite ×4 key + fallback OpenRouter/Cloudflare

@@ -8,10 +8,18 @@ import subprocess
 from datetime import datetime
 import sys
 
-
 _ARTEFAK_PREFIX = (
-    "dist/", "build/", "out/", ".next/", "node_modules/", "coverage/",
-    "__pycache__/", ".venv/", "venv/", "target/", ".parcel-cache/",
+    "dist/",
+    "build/",
+    "out/",
+    ".next/",
+    "node_modules/",
+    "coverage/",
+    "__pycache__/",
+    ".venv/",
+    "venv/",
+    "target/",
+    ".parcel-cache/",
 )
 _ARTEFAK_SUFFIX = (".map", ".pyc")
 
@@ -24,7 +32,9 @@ def _jalur_artefak_build(path: str) -> bool:
     p = path.replace("\\", "/")
     if p.startswith(_ARTEFAK_PREFIX) or p.endswith(_ARTEFAK_SUFFIX):
         return True
-    return any(f"/{d}" in p for d in ("dist/", "build/", ".next/", "node_modules/", "out/"))
+    return any(
+        f"/{d}" in p for d in ("dist/", "build/", ".next/", "node_modules/", "out/")
+    )
 
 
 class ToolExecutor:
@@ -42,22 +52,39 @@ class ToolExecutor:
     # the rejection message then tells the agent to leave the action to the
     # user, which is always the safe direction.
     GIT_DIBLOKIR = [
-        (r"git\s+init\b", "restructures folders and is proven to hang",
-         "No git repo is needed to work. Safe points are available via .orion/backups "
-         "and the git_commit tool (when a repo already exists)."),
-        (r"git\s+push\b", "sends code to an external server without review first",
-         "Ask the user to run push themselves after reviewing the changes."),
-        (r"git\s+(pull|fetch)\b", "pulls remote changes that may auto-merge",
-         "Ask the user to run pull/fetch themselves."),
-        (r"git\s+clone\b", "downloads large repos and can hang past the timeout",
-         "Ask the user to clone it themselves, then point the project at the resulting folder."),
-        (r"git\s+reset\s+--hard|git\s+clean\s+-f|git\s+checkout\s+\.\s*$|"
-         r"git\s+restore\s+\.\s*$|git\s+branch\s+-[dD]\b",
-         "DISCARDS work permanently and cannot be undone",
-         "To revert a single file use restore_backup; to inspect differences "
-         "use git_diff. Never discard the user's work."),
-        (r"git\s+(rebase|merge)\b", "rewrites commit history with a risk of conflicts",
-         "Leave rebase/merge to the user."),
+        (
+            r"git\s+init\b",
+            "restructures folders and is proven to hang",
+            "No git repo is needed to work. Safe points are available via .orion/backups "
+            "and the git_commit tool (when a repo already exists).",
+        ),
+        (
+            r"git\s+push\b",
+            "sends code to an external server without review first",
+            "Ask the user to run push themselves after reviewing the changes.",
+        ),
+        (
+            r"git\s+(pull|fetch)\b",
+            "pulls remote changes that may auto-merge",
+            "Ask the user to run pull/fetch themselves.",
+        ),
+        (
+            r"git\s+clone\b",
+            "downloads large repos and can hang past the timeout",
+            "Ask the user to clone it themselves, then point the project at the resulting folder.",
+        ),
+        (
+            r"git\s+reset\s+--hard|git\s+clean\s+-f|git\s+checkout\s+\.\s*$|"
+            r"git\s+restore\s+\.\s*$|git\s+branch\s+-[dD]\b",
+            "DISCARDS work permanently and cannot be undone",
+            "To revert a single file use restore_backup; to inspect differences "
+            "use git_diff. Never discard the user's work.",
+        ),
+        (
+            r"git\s+(rebase|merge)\b",
+            "rewrites commit history with a risk of conflicts",
+            "Leave rebase/merge to the user.",
+        ),
     ]
 
     def __init__(self, project_path: str = "."):
@@ -281,8 +308,9 @@ class ToolExecutor:
         except OSError:
             return None
 
-    def _putusan_bukti(self, file_path: str, full_path: str,
-                       content_baru: str, sebelum, sesudah):
+    def _putusan_bukti(
+        self, file_path: str, full_path: str, content_baru: str, sebelum, sesudah
+    ):
         """Classify a reported-successful write against the disk.
 
         Returns None when the evidence is healthy (mtime moved), otherwise
@@ -324,6 +352,7 @@ class ToolExecutor:
             return ""
         try:
             from app.services import code_verifier
+
             temuan = code_verifier.cek_sintaks_py(full_path, content)
         except Exception as e:  # noqa: BLE001 - advisory layer, never fatal
             return f"\nAUTO SYNTAX CHECK could not run: {e!s}"
@@ -404,7 +433,9 @@ class ToolExecutor:
             return err
 
         if not os.path.exists(abs_path):
-            return f"Error: File '{file_path}' not found. Make sure the path is correct."
+            return (
+                f"Error: File '{file_path}' not found. Make sure the path is correct."
+            )
 
         try:
             with open(abs_path, "r", encoding="utf-8") as f:
@@ -490,9 +521,7 @@ class ToolExecutor:
             sebelum = self._stat_bukti(abs_path)
             self._tulis_ke_disk(
                 abs_path,
-                new_content
-                if gaya == "\n"
-                else new_content.replace("\n", "\r\n"),
+                new_content if gaya == "\n" else new_content.replace("\n", "\r\n"),
             )
             sesudah = self._stat_bukti(abs_path)
         except Exception as e:
@@ -650,23 +679,35 @@ class ToolExecutor:
             host = parsed.hostname.lower()
             if host in ("localhost", "metadata.google.internal"):
                 return "Error: local/metadata URL rejected (SSRF protection)."
-            infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+            infos = socket.getaddrinfo(
+                host, parsed.port or (443 if parsed.scheme == "https" else 80)
+            )
             for info in infos:
                 ip = ipaddress.ip_address(info[4][0])
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                if (
+                    ip.is_private
+                    or ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_reserved
+                ):
                     return f"Error: {host} resolves to a private/loopback address ({ip}). Rejected (SSRF protection)."
         except (socket.gaierror, ValueError, OSError) as e:
             return f"Error: DNS resolution failed for {parsed.hostname}: {e}"
 
         try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (compatible; OrionBot/1.0; code-assistant)",
-                "Accept": "text/html,application/xhtml+xml,text/plain,application/json,*/*;q=0.8",
-            })
-            with urllib.request.urlopen(req, timeout=20) as resp:  # nosec - URL already validated
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; OrionBot/1.0; code-assistant)",
+                    "Accept": "text/html,application/xhtml+xml,text/plain,application/json,*/*;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(
+                req, timeout=20
+            ) as resp:  # nosec - URL already validated
                 status = resp.status
                 ctype = resp.headers.get("Content-Type", "")
-                mentah = resp.read(3_000_000)   # 3 MB cap
+                mentah = resp.read(3_000_000)  # 3 MB cap
         except urllib.error.HTTPError as e:
             return f"HTTP error {e.code} while fetching {url}: {e.reason}"
         except urllib.error.URLError as e:
@@ -677,24 +718,37 @@ class ToolExecutor:
         try:
             teks = mentah.decode("utf-8", errors="replace")
         except Exception:  # noqa: BLE001
-            return f"Error: failed to decode response from {url} (Content-Type: {ctype})."
+            return (
+                f"Error: failed to decode response from {url} (Content-Type: {ctype})."
+            )
 
         # ---- clean HTML into text ----
         if "html" in ctype.lower() or teks.lstrip()[:1].startswith("<"):
             import re as _re
+
             # >>> PATCH ORION-35c: modern documentation pages put the navigation
             # MENU at the start of the document, so a naive extraction returns the
             # menu list instead of the content. Strip boilerplate first, then
             # prioritize <main>/<article>.
-            teks = _re.sub(r"(?is)<(nav|header|footer|aside|menu)[^>]*>.*?</\1>", " ", teks)
+            teks = _re.sub(
+                r"(?is)<(nav|header|footer|aside|menu)[^>]*>.*?</\1>", " ", teks
+            )
             _inti = _re.search(r"(?is)<(main|article)[^>]*>(.*?)</\1>", teks)
             if _inti and len(_inti.group(2)) > 800:
                 teks = _inti.group(2)
-            teks = _re.sub(r"(?is)<(script|style|noscript|svg|head)[^>]*>.*?</\1>", " ", teks)
+            teks = _re.sub(
+                r"(?is)<(script|style|noscript|svg|head)[^>]*>.*?</\1>", " ", teks
+            )
             teks = _re.sub(r"(?s)<!--.*?-->", " ", teks)
             teks = _re.sub(r"(?s)<[^>]+>", " ", teks)
-            for ent, gnt in (("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
-                             ("&quot;", '"'), ("&#39;", "'"), ("&nbsp;", " ")):
+            for ent, gnt in (
+                ("&amp;", "&"),
+                ("&lt;", "<"),
+                ("&gt;", ">"),
+                ("&quot;", '"'),
+                ("&#39;", "'"),
+                ("&nbsp;", " "),
+            ):
                 teks = teks.replace(ent, gnt)
             teks = _re.sub(r"[ \t]+", " ", teks)
             teks = _re.sub(r"\n\s*\n+", "\n\n", teks)
@@ -714,8 +768,11 @@ class ToolExecutor:
         return (
             f"=== CONTENT OF {url} (HTTP {status}, {ctype.split(';')[0]}) ===\n"
             f"{teks}\n"
-            + (f"\n=== [TRUNCATED at {batas} characters; the original page is longer] ==="
-               if terpotong else "\n=== [END] ===")
+            + (
+                f"\n=== [TRUNCATED at {batas} characters; the original page is longer] ==="
+                if terpotong
+                else "\n=== [END] ==="
+            )
         )
 
     # >>> PATCH ORION-23a ================================================
@@ -731,22 +788,29 @@ class ToolExecutor:
 
         node = shutil.which("node")
         if not node:
-            return (0, "node is not installed; JS syntax check skipped. "
-                       "Install Node.js so verify_html works fully.")
+            return (
+                0,
+                "node is not installed; JS syntax check skipped. "
+                "Install Node.js so verify_html works fully.",
+            )
         tmp = None
         try:
-            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
-                                              encoding="utf-8") as f:
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".js", delete=False, encoding="utf-8"
+            ) as f:
                 f.write(kode)
                 tmp = f.name
-            r = subprocess.run([node, "--check", tmp], capture_output=True,
-                               text=True, timeout=30)
+            r = subprocess.run(
+                [node, "--check", tmp], capture_output=True, text=True, timeout=30
+            )
             if r.returncode == 0:
                 return None
             m = re.search(r"\.js:(\d+)", r.stderr)
             baris = int(m.group(1)) if m else 0
-            pesan = next((x.strip() for x in r.stderr.splitlines()
-                          if "Error" in x), r.stderr.strip()[:200])
+            pesan = next(
+                (x.strip() for x in r.stderr.splitlines() if "Error" in x),
+                r.stderr.strip()[:200],
+            )
             return (baris, pesan)
         except (OSError, subprocess.SubprocessError) as e:
             return (0, f"syntax check failed to run: {e}")
@@ -803,18 +867,25 @@ class ToolExecutor:
                 if not nama.endswith(".bak"):
                     continue
                 full = os.path.join(akar, nama)
-                rel = os.path.relpath(full, root)[:-4]   # strip .bak
-                if file_path and not rel.replace("\\", "/").endswith(file_path.replace("\\", "/")):
+                rel = os.path.relpath(full, root)[:-4]  # strip .bak
+                if file_path and not rel.replace("\\", "/").endswith(
+                    file_path.replace("\\", "/")
+                ):
                     continue
                 try:
                     uk = os.path.getsize(full)
-                    wt = datetime.fromtimestamp(os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M")
+                    wt = datetime.fromtimestamp(os.path.getmtime(full)).strftime(
+                        "%Y-%m-%d %H:%M"
+                    )
                 except OSError:
                     uk, wt = 0, "?"
                 entri.append(f"  {rel}  ({uk} bytes, {wt})")
         if not entri:
-            return ("No backups" + (f" for '{file_path}'" if file_path else "")
-                    + " in .orion/backups/.")
+            return (
+                "No backups"
+                + (f" for '{file_path}'" if file_path else "")
+                + " in .orion/backups/."
+            )
         return f"Available backups ({len(entri)}):\n" + "\n".join(entri[:40])
 
     def restore_backup(self, file_path: str) -> str:
@@ -829,17 +900,21 @@ class ToolExecutor:
             return err
         bak = self._path_backup(file_path)
         if not os.path.isfile(bak):
-            return (f"Error: no backup for '{file_path}'. "
-                    f"Run list_backups to see what is available.")
+            return (
+                f"Error: no backup for '{file_path}'. "
+                f"Run list_backups to see what is available."
+            )
         try:
             if os.path.isfile(full):
                 shutil.copy2(full, bak + ".pre-restore.bak")
             os.makedirs(os.path.dirname(full), exist_ok=True)
             shutil.copy2(bak, full)
-            return (f"Success: '{file_path}' restored from backup. "
-                    f"The pre-restore version is kept in .orion/backups/"
-                    f"{file_path}.pre-restore.bak in case you need to roll back again. "
-                    f"Now run verify_code on that file to make sure its contents are healthy.")
+            return (
+                f"Success: '{file_path}' restored from backup. "
+                f"The pre-restore version is kept in .orion/backups/"
+                f"{file_path}.pre-restore.bak in case you need to roll back again. "
+                f"Now run verify_code on that file to make sure its contents are healthy."
+            )
         except OSError as e:
             return f"Error: failed to restore '{file_path}': {e}"
 
@@ -857,9 +932,11 @@ class ToolExecutor:
         try:
             peringatan = self._backup_before_overwrite(full, file_path)
             os.remove(full)
-            return (f"Success: '{file_path}' deleted. Its last copy is in "
-                    f".orion/backups/{file_path}.bak — restore it with restore_backup "
-                    f"if it turns out to be needed.{peringatan}")
+            return (
+                f"Success: '{file_path}' deleted. Its last copy is in "
+                f".orion/backups/{file_path}.bak — restore it with restore_backup "
+                f"if it turns out to be needed.{peringatan}"
+            )
         except OSError as e:
             return f"Error: failed to delete '{file_path}': {e}"
 
@@ -874,15 +951,19 @@ class ToolExecutor:
         if not os.path.isfile(src):
             return f"Error: source not found: {from_path}"
         if os.path.exists(dst):
-            return (f"Error: destination already exists: {to_path}. Delete it first with delete_file "
-                    f"if you really intend to overwrite, so the intent is explicit.")
+            return (
+                f"Error: destination already exists: {to_path}. Delete it first with delete_file "
+                f"if you really intend to overwrite, so the intent is explicit."
+            )
         try:
             self._backup_before_overwrite(src, from_path)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.move(src, dst)
-            return (f"Success: '{from_path}' moved to '{to_path}'. "
-                    f"The source backup remains in .orion/backups/{from_path}.bak. "
-                    f"Remember: update imports/references that point to the old path.")
+            return (
+                f"Success: '{from_path}' moved to '{to_path}'. "
+                f"The source backup remains in .orion/backups/{from_path}.bak. "
+                f"Remember: update imports/references that point to the old path."
+            )
         except OSError as e:
             return f"Error: failed to move: {e}"
 
@@ -914,7 +995,13 @@ class ToolExecutor:
     # "node_modules/". .gitignore patterns are unanchored (they match
     # at any depth); the untrack matcher must be equally unanchored.
     GENERATED_DIRS = (
-        "node_modules", "dist", "build", "__pycache__", ".venv", "venv", ".orion",
+        "node_modules",
+        "dist",
+        "build",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".orion",
     )
 
     def _generated_top(self, jalur_rel: str):
@@ -934,9 +1021,13 @@ class ToolExecutor:
 
     def _git(self, args: list, timeout: int = 120):
         return subprocess.run(
-            ["git", *args], cwd=self.project_path,
-            capture_output=True, text=True, timeout=timeout,
-            encoding="utf-8", errors="replace",
+            ["git", *args],
+            cwd=self.project_path,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
         )
 
     def _hygiene_gitignore(self) -> str:
@@ -959,8 +1050,7 @@ class ToolExecutor:
                 with open(path, "a", encoding="utf-8") as f:
                     f.write(
                         "\n# Added by Orion's git_commit hygiene "
-                        "(UPDATE-025 hotfix-2).\n"
-                        + "".join(f"{p}\n" for p in hilang)
+                        "(UPDATE-025 hotfix-2).\n" + "".join(f"{p}\n" for p in hilang)
                     )
                 return f".gitignore topped up (+{len(hilang)} pattern)"
             return ""
@@ -979,14 +1069,15 @@ class ToolExecutor:
         if r.returncode != 0:
             return ""
         pasangan = [
-            (baris, self._generated_top(baris))
-            for baris in r.stdout.splitlines()
+            (baris, self._generated_top(baris)) for baris in r.stdout.splitlines()
         ]
         pasangan = [(b, t) for b, t in pasangan if t]
         if not pasangan:
             return ""
         top = sorted({t for _, t in pasangan})
-        r2 = self._git(["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", *top])
+        r2 = self._git(
+            ["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", *top]
+        )
         if r2.returncode != 0:
             return f"untrack failed ({(r2.stderr or '').strip()[:200]})"
         return f"{len(pasangan)} generated file(s) untracked (kept on disk)"
@@ -1003,17 +1094,24 @@ class ToolExecutor:
         """
         pesan = (message or "").strip() or "Orion checkpoint"
         if not os.path.isdir(os.path.join(self.project_path, ".git")):
-            return ("Error: this project folder is NOT a git repo, so there is nothing to "
-                    "commit. If you want a safe point without git, use the backups: "
-                    "every write_file/edit_file already saves .orion/backups automatically.")
+            return (
+                "Error: this project folder is NOT a git repo, so there is nothing to "
+                "commit. If you want a safe point without git, use the backups: "
+                "every write_file/edit_file already saves .orion/backups automatically."
+            )
         try:
-            laporan = [s for s in (self._hygiene_gitignore(), self._hygiene_untrack()) if s]
+            laporan = [
+                s for s in (self._hygiene_gitignore(), self._hygiene_untrack()) if s
+            ]
             r = self._git(["add", "-A"])
             if r.returncode != 0:
                 return f"Error git add: {r.stderr.strip()[:300]}"
             hitung = self._git(["diff", "--cached", "--name-only"], timeout=60)
-            n_staged = len([b for b in hitung.stdout.splitlines() if b.strip()]) \
-                if hitung.returncode == 0 else -1
+            n_staged = (
+                len([b for b in hitung.stdout.splitlines() if b.strip()])
+                if hitung.returncode == 0
+                else -1
+            )
             # >>> UPDATE-025 commit 24: RITUAL-COMMIT GUARD (InvoiceFlow
             # transcript 2026-11-01). Every edit_file in the turn FAILED,
             # `npm run build` then rewrote generated output, and the
@@ -1027,8 +1125,11 @@ class ToolExecutor:
             am = self._git(
                 ["diff", "--cached", "--name-only", "--diff-filter=AM"], timeout=60
             )
-            nama_am = [b.strip() for b in am.stdout.splitlines() if b.strip()] \
-                if am.returncode == 0 else []
+            nama_am = (
+                [b.strip() for b in am.stdout.splitlines() if b.strip()]
+                if am.returncode == 0
+                else []
+            )
             if nama_am and all(_jalur_artefak_build(p) for p in nama_am):
                 contoh = ", ".join(nama_am[:5]) + ("…" if len(nama_am) > 5 else "")
                 return (
@@ -1042,9 +1143,8 @@ class ToolExecutor:
             keluar = (r2.stdout or r2.stderr).strip()
             if r2.returncode != 0:
                 if "nothing to commit" in keluar.lower():
-                    return (
-                        "Nothing to commit (working tree clean)."
-                        + (" Hygiene: " + "; ".join(laporan) + "." if laporan else "")
+                    return "Nothing to commit (working tree clean)." + (
+                        " Hygiene: " + "; ".join(laporan) + "." if laporan else ""
                     )
                 return f"Error git commit: {keluar[:300]}"
             ringkas = f"Success: git checkpoint created. {keluar.splitlines()[0] if keluar else ''}"
@@ -1061,6 +1161,7 @@ class ToolExecutor:
             return ringkas
         except (OSError, subprocess.SubprocessError) as e:
             return f"Error running git: {e}"
+
     # >>> END OF PATCH ORION-26a ========================================
 
     # >>> PATCH ORION-30a ================================================
@@ -1085,9 +1186,14 @@ class ToolExecutor:
 
     def _pytest_terpasang(self, interpreter: str) -> bool:
         try:
-            r = subprocess.run([interpreter, "-c", "import pytest"],
-                               capture_output=True, text=True, timeout=30,
-                               cwd=self.project_path, stdin=subprocess.DEVNULL)
+            r = subprocess.run(
+                [interpreter, "-c", "import pytest"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=self.project_path,
+                stdin=subprocess.DEVNULL,
+            )
             return r.returncode == 0
         except (OSError, subprocess.SubprocessError):
             return False
@@ -1104,8 +1210,11 @@ class ToolExecutor:
         if punya_pytest_cfg or self._ada_file_test_python(root):
             interp = self._pilih_interpreter_python()
             if not self._pytest_terpasang(interp):
-                return ("pytest-hilang", [interp])   # flagged; handled by run_tests
-            return ("pytest", [interp, "-m", "pytest", "-q", "--tb=line", "-p", "no:cacheprovider"])
+                return ("pytest-hilang", [interp])  # flagged; handled by run_tests
+            return (
+                "pytest",
+                [interp, "-m", "pytest", "-q", "--tb=line", "-p", "no:cacheprovider"],
+            )
 
         # Node: package.json with a test script that is not a placeholder
         pkg = os.path.join(root, "package.json")
@@ -1128,8 +1237,21 @@ class ToolExecutor:
     @staticmethod
     def _ada_file_test_python(root: str) -> bool:
         for _akar, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in (
-                ".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".orion")]
+            dirs[:] = [
+                d
+                for d in dirs
+                if d
+                not in (
+                    ".git",
+                    "node_modules",
+                    ".venv",
+                    "venv",
+                    "__pycache__",
+                    "dist",
+                    "build",
+                    ".orion",
+                )
+            ]
             for nama in files:
                 if nama.startswith("test_") or nama.endswith("_test.py"):
                     return True
@@ -1177,13 +1299,22 @@ class ToolExecutor:
             batas = 180
 
         try:
-            r = subprocess.run(argv, cwd=self.project_path, capture_output=True,
-                               text=True, timeout=batas, encoding="utf-8",
-                               errors="replace", stdin=subprocess.DEVNULL)
+            r = subprocess.run(
+                argv,
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                timeout=batas,
+                encoding="utf-8",
+                errors="replace",
+                stdin=subprocess.DEVNULL,
+            )
         except subprocess.TimeoutExpired:
-            return (f"Tests ({nama}) DID NOT FINISH within {batas} seconds. "
-                    "A test is likely hanging (waiting for input/network). "
-                    "Run it manually with a longer timeout to see which one.")
+            return (
+                f"Tests ({nama}) DID NOT FINISH within {batas} seconds. "
+                "A test is likely hanging (waiting for input/network). "
+                "Run it manually with a longer timeout to see which one."
+            )
         except (OSError, subprocess.SubprocessError) as e:
             return f"Failed to run tests ({nama}): {e}"
 
@@ -1197,34 +1328,54 @@ class ToolExecutor:
         if nama == "pytest":
             gagal = [b.strip() for b in baris if b.strip().startswith("FAILED ")]
             error = [b.strip() for b in baris if b.strip().startswith("ERROR ")]
-            ringkasan = next((b.strip() for b in reversed(baris)
-                              if re.search(r"\d+ (passed|failed|error)", b)), "")
+            ringkasan = next(
+                (
+                    b.strip()
+                    for b in reversed(baris)
+                    if re.search(r"\d+ (passed|failed|error)", b)
+                ),
+                "",
+            )
             if kode_keluar == 0 and not gagal and not error:
-                return (f"ALL TESTS PASSED ({nama}). {ringkasan or 'see output'}. "
-                        "The code changes are safe with respect to the existing tests.")
+                return (
+                    f"ALL TESTS PASSED ({nama}). {ringkasan or 'see output'}. "
+                    "The code changes are safe with respect to the existing tests."
+                )
             bagian = [f"TESTS FAILED ({nama}). {ringkasan}"]
             bagian.extend(f"  {g[:160]}" for g in gagal[:15])
             bagian.extend(f"  {e[:160]}" for e in error[:10])
-            sebab = [b.strip() for b in baris if re.match(r"^.{0,120}Error|assert", b.strip())]
+            sebab = [
+                b.strip()
+                for b in baris
+                if re.match(r"^.{0,120}Error|assert", b.strip())
+            ]
             if sebab:
                 bagian.append("  causes (related lines):")
                 bagian.extend(f"    {x[:150]}" for x in sebab[:8])
-            bagian.append("Fix the failures above first; do NOT report the task as complete "
-                          "while tests are still red.")
+            bagian.append(
+                "Fix the failures above first; do NOT report the task as complete "
+                "while tests are still red."
+            )
             return "\n".join(bagian)
 
         # other runners (npm/go/manual): condense generically
         pola_gagal = re.search(r"(\d+)\s+(?:failed|failing)", keluar, re.I)
         pola_lulus = re.search(r"(\d+)\s+(?:passed|ok\b)", keluar, re.I)
         if kode_keluar == 0:
-            return (f"TESTS PASSED ({nama}). "
-                    f"passed={pola_lulus.group(1) if pola_lulus else '?'} "
-                    f"failed={pola_gagal.group(1) if pola_gagal else '0'}.")
+            return (
+                f"TESTS PASSED ({nama}). "
+                f"passed={pola_lulus.group(1) if pola_lulus else '?'} "
+                f"failed={pola_gagal.group(1) if pola_gagal else '0'}."
+            )
         penting = [b.strip() for b in baris if b.strip()][-25:]
-        return (f"TESTS FAILED ({nama}, exit {kode_keluar}). "
-                f"failed={pola_gagal.group(1) if pola_gagal else '?'}.\n"
-                "  last 25 lines of output:\n" + "\n".join(f"    {b[:160]}" for b in penting)
-                + "\nFix these before claiming completion.")
+        return (
+            f"TESTS FAILED ({nama}, exit {kode_keluar}). "
+            f"failed={pola_gagal.group(1) if pola_gagal else '?'}.\n"
+            "  last 25 lines of output:\n"
+            + "\n".join(f"    {b[:160]}" for b in penting)
+            + "\nFix these before claiming completion."
+        )
+
     # >>> END OF PATCH ORION-30a ========================================
 
     def git_status(self) -> str:
@@ -1283,7 +1434,59 @@ class ToolExecutor:
         except Exception as e:
             return f"Failed to run git diff: {e!s}"
 
+    def _validasi_sandbox(self, command: str) -> tuple[bool, str]:
+        """P4: Soft Sandbox — mencegah perintah destruktif dan bypass directory."""
+        cmd_lower = command.lower()
+
+        # 1. Blokir perintah destruktif sistem
+        pola_bahaya = [
+            r"\b(del|erase)\b.*?(\/s|\/q|\/f).*?\b[a-z]:\\",  # del /s /q C:\
+            r"\b(rd|rmdir)\b.*?\/s.*?\b[a-z]:\\",  # rd /s C:\
+            r"\bformat\b\s+[a-z]:",  # format C:
+            r"\bdiskpart\b",
+            r"\breg\s+delete\b",
+            r"\bshutdown\b",
+            r"\btaskkill\b.*?\/f.*?\/im\s+explorer",  # Matikan explorer
+        ]
+        for pola in pola_bahaya:
+            if re.search(pola, cmd_lower):
+                return (
+                    False,
+                    f"[SANDBOX BLOCK] Perintah diblokir karena berpotensi merusak sistem: {pola}",
+                )
+
+        # 2. Blokir perintah jaringan yang menjalankan script eksternal (Prompt Injection)
+        pola_injeksi = [
+            r"curl\s+.*?\|\s*(bash|sh|powershell|cmd)",
+            r"wget\s+.*?\|\s*(bash|sh|powershell|cmd)",
+            r"invoke-webrequest\s+.*?\|\s*invoke-expression",
+            r"iwr\s+.*?\|\s*iex",
+        ]
+        for pola in pola_injeksi:
+            if re.search(pola, cmd_lower):
+                return (
+                    False,
+                    f"[SANDBOX BLOCK] Perintah diblokir karena mencoba mengunduh dan mengeksekusi script asing (Remote Code Execution): {pola}",
+                )
+
+        # 3. Blokir upaya keluar dari folder proyek (cd .. atau path absolut sistem)
+        if re.search(r"\bcd\s+\.\.", cmd_lower) or re.search(
+            r"\bcd\s+[a-z]:\\", cmd_lower
+        ):
+            # Pengecualian: jika cd ke dalam folder proyek itu sendiri (meski jarang dipakai)
+            if str(self.project_path).lower() not in command.lower().replace("\\", "/"):
+                return (
+                    False,
+                    "[SANDBOX BLOCK] Perintah diblokir: Orion tidak diizinkan keluar dari folder proyek (cd .. / cd C:\\).",
+                )
+
+        return True, ""
+
     def run_terminal(self, command: str, timeout: int = 120) -> str:
+        # >>> P4: Sandbox Guard
+        aman, alasan = self._validasi_sandbox(command)
+        if not aman:
+            return alasan
         """
         Run a terminal command with a timeout and aggressive process-tree kill.
         Prevents zombie processes (like rustc.exe) from blocking the system.
