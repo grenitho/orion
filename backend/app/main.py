@@ -386,6 +386,31 @@ orion_config = {"max_iterations": 20}  # Default config
 # File for storing the last project
 LAST_PROJECT_FILE = os.path.join(os.path.expanduser("~"), ".orion_last_project.json")
 
+# >>> P9.0: Multi-session state registry & per-project concurrency locks
+_project_states: dict[str, SessionState] = {}
+_project_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_project_lock(project_path: str) -> asyncio.Lock:
+    key = os.path.realpath(project_path)
+    lock = _project_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _project_locks[key] = lock
+    return lock
+
+
+def _get_or_restore_state(project_path: str, pending_image=None) -> SessionState:
+    key = os.path.realpath(project_path)
+    state = _project_states.get(key)
+    if state is None:
+        state = SessionState.muat_checkpoint(project_path)
+        _project_states[key] = state
+    else:
+        state.reset_per_turn()
+    state.pending_image = pending_image
+    return state
+
 
 def save_last_project(path: str):
     """Save the last project path to disk."""
@@ -1099,6 +1124,9 @@ async def set_project(request: ProjectPathRequest):
 
     # 2. Set the path and initialize the tool executor
     context_manager.set_project_path(request.path)
+    _project_states[os.path.realpath(request.path)] = SessionState.muat_checkpoint(
+        request.path
+    )
     tool_executor = ToolExecutor(request.path)
     # >>> P6.3: reset semantic engine setiap ganti proyek.
     # Diletakkan di luar `if todo_manager:` agar SELALU berjalan, dan
@@ -1278,8 +1306,9 @@ async def chat_with_orion(request: ChatRequest):
     # back to None. The old 1-element-list holder (a workaround for ruff
     # F823) is no longer needed — assigning through `state.` cannot create a
     # generator-local.
-    state = SessionState(
-        pending_image=_content_parts if isinstance(_content_parts, list) else None
+    state = _get_or_restore_state(
+        context_manager.project_path,
+        pending_image=_content_parts if isinstance(_content_parts, list) else None,
     )
     if _lamp_desc:
         logger.info("[ATTACHMENT] %s", _lamp_desc)
@@ -1385,30 +1414,35 @@ async def chat_with_orion(request: ChatRequest):
             "do not silently ignore it."
         )
 
+    _prev_changed = getattr(state, "_checkpoint_file_terakhir", []) or []
+    _resume_block = ""
+    if _prev_changed or state.analyzed_files:
+        _parts_cp = ["\n\n[SESSION CHECKPOINT — PRESERVED ACROSS PAUSE]"]
+        if _prev_changed:
+            _parts_cp.append(
+                "Files already written/edited in the previous turn (do NOT redo unless fixing an error): "
+                + ", ".join(_prev_changed[-15:])
+            )
+        if state.analyzed_files:
+            _parts_cp.append(
+                f"Files already read in this session ({len(state.analyzed_files)} total, e.g. "
+                + ", ".join(sorted(state.analyzed_files)[:10])
+                + ") — skip re-reading unchanged files."
+            )
+        _resume_block = "\n".join(_parts_cp)
+
     context_message = {
         "role": "user",
         "content": f"Current project structure:\n{context_manager.get_project_map()}"
         + _editor_block
-        # >>> UPDATE-018: the labelled inbox block rides on the per-turn
-        # context message: present on EVERY iteration of this turn (the
-        # loop rebuilds api_messages from deps.context_message), absent
-        # from the persisted history — "visible THIS TURN ONLY". Empty
-        # string when the inbox brought nothing (byte-identical stream).
         + _inbox_block
-        # >>> UPDATE-024 Commit 6: the findings ledger rides the per-turn
-        # context message exactly like the inbox block — present every
-        # iteration, never summarized away, empty string when unused.
         + findings_ledger.blok_konteks(context_manager.project_path)
-        # >>> UPDATE-025 commit 24: the TASK ANCHOR rides here too — open
-        # todos and prior user orders verbatim, plus the stale-summary-ban
-        # override note. Built from the LIVE history (which already holds
-        # this turn's request; the helper skips it) so compression can no
-        # longer leave the model answering from a single turn.
         + blok_jangkar_tugas(
             context_manager.get_history(),
             todo_manager,
             state.utang_verifikasi_terbuka(),
-        ),
+        )
+        + _resume_block,
     }
 
     # >>> END OF CACHE OPTIMIZATION <<<
@@ -1445,12 +1479,20 @@ async def chat_with_orion(request: ChatRequest):
     # can still tell a real disconnect from a normal ending.
     # ==================================================================
     async def generate_stream():
-        # >>> PATCH ORION-36: the "guarantee a done" logic moved to stream_utils
-        # so it can be unit-tested without running FastAPI (test_stream_utils).
-        async for potongan in stream_utils.jamin_done(
-            aliran_agent(state, deps), logger=logger
-        ):
-            yield potongan
+        proj_path = context_manager.project_path
+
+        lock = _get_project_lock(proj_path)
+        async with lock:
+            try:
+                async for potongan in stream_utils.jamin_done(
+                    aliran_agent(state, deps), logger=logger
+                ):
+                    yield potongan
+            finally:
+                state._checkpoint_file_terakhir = list(state.files_changed_this_turn)[
+                    -30:
+                ]
+                state.simpan_checkpoint(proj_path)
 
     return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
@@ -1458,6 +1500,10 @@ async def chat_with_orion(request: ChatRequest):
 @app.post("/clear-chat")
 async def clear_chat():
     context_manager.clear_history(persist=True)
+    if context_manager.project_path:
+        key = os.path.realpath(context_manager.project_path)
+        _project_states.pop(key, None)
+        SessionState.hapus_checkpoint(context_manager.project_path)
     return {"success": True, "message": "Chat history cleared."}
 
 

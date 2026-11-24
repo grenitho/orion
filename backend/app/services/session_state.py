@@ -30,7 +30,10 @@ tambah_notice, reset_per_turn, sisa_todo).
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass
@@ -351,11 +354,12 @@ class SessionState:
         baris = []
         for entri in sorted(self.edit_gagal, key=lambda e: e["urutan"]):
             pulih = sukses_terakhir.get(entri["path"], -1) > entri["urutan"]
-            tanda = "RECOVERED (a later attempt succeeded)" if pulih else "NEVER SUCCEEDED"
+            tanda = (
+                "RECOVERED (a later attempt succeeded)" if pulih else "NEVER SUCCEEDED"
+            )
             baris.append(f"- `{entri['path']}` — {entri['alasan']} [{tanda}]")
-        return (
-            "\n\n**⚠️ EDIT LEDGER — failed edit attempts this turn:**\n"
-            + "\n".join(baris)
+        return "\n\n**⚠️ EDIT LEDGER — failed edit attempts this turn:**\n" + "\n".join(
+            baris
         )
 
     def tambah_notice(self, notice: str) -> None:
@@ -404,6 +408,69 @@ class SessionState:
         if todo_manager is None:
             return []
         return [
-            t for t in todo_manager.get_todos()
+            t
+            for t in todo_manager.get_todos()
             if t.get("status") in ("pending", "in_progress")
         ]
+
+    # >>> P9.0: Multi-Session Hardening & Pause-Resume Persistence ===========
+    def simpan_checkpoint(self, project_path: str, catatan_terakhir: str = "") -> None:
+        """Simpan state lintas-giliran ke .orion/session_checkpoint.json secara atomik."""
+        if not project_path:
+            return
+        try:
+            orion_dir = os.path.join(project_path, ".orion")
+            os.makedirs(orion_dir, exist_ok=True)
+            target = os.path.join(orion_dir, "session_checkpoint.json")
+            tmp = target + ".tmp"
+            payload = {
+                "analyzed_files": sorted(self.analyzed_files)[-200:],
+                "debt_verifikasi": list(self.debt_verifikasi),
+                "utas_gagal": self.utas_gagal,
+                "turn_ke": self.turn_ke,
+                "file_terakhir_diubah": list(self.files_changed_this_turn)[-30:],
+                "catatan_terakhir": (catatan_terakhir or self.last_tool_note)[:400],
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+            }
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, target)
+        except Exception:  # noqa: BLE001 - persistensi tidak boleh mematikan stream
+            pass
+
+    @classmethod
+    def muat_checkpoint(cls, project_path: str) -> "SessionState":
+        """Muat SessionState dari .orion/session_checkpoint.json jika ada."""
+        state = cls()
+        if not project_path:
+            return state
+        target = os.path.join(project_path, ".orion", "session_checkpoint.json")
+        if not os.path.isfile(target):
+            return state
+        try:
+            with open(target, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                state.analyzed_files = set(data.get("analyzed_files") or [])
+                state.debt_verifikasi = list(data.get("debt_verifikasi") or [])
+                state.utas_gagal = str(data.get("utas_gagal") or "")
+                state.turn_ke = int(data.get("turn_ke") or 0)
+                state.last_tool_note = str(data.get("catatan_terakhir") or "")
+                state._checkpoint_file_terakhir = list(
+                    data.get("file_terakhir_diubah") or []
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return state
+
+    @staticmethod
+    def hapus_checkpoint(project_path: str) -> None:
+        """Hapus file checkpoint saat /clear-chat."""
+        if not project_path:
+            return
+        target = os.path.join(project_path, ".orion", "session_checkpoint.json")
+        try:
+            if os.path.exists(target):
+                os.remove(target)
+        except OSError:
+            pass
