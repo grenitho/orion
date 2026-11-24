@@ -13,19 +13,19 @@
 - venv: `backend\venv` (aktif saat perintah dijalankan)
 - Backend version: 0.10.44 (dari GET /health via GET /)
 - Extension version: 0.4.5 (dari package.json — akan diverifikasi)
-- Test baseline: **663 passed, 1 skipped** (135 detik)
+- Test baseline: **663 passed, 1 skipped** (142 detik)
 - Branch: main, up-to-date dengan origin
 
 ## Status Fase
 - [x] P0 — Verifikasi Baseline ✅ (2026-11-05)
-- [ ] P1 — Audit Fitur Inti (attach, delegasi, MCP)
-- [ ] P1.5 — Perbaiki guard MCP
-- [ ] P2 — Bug Cepat & UX
-- [ ] P3 — Refactor agent_loop.py
-- [ ] P4 — Sandbox Eksekusi
-- [ ] P5 — Akses GitHub Terbatas
-- [ ] P6 — Pencarian Semantik
-- [ ] P7 — Pusat Konfigurasi
+- [x] P1 — Audit Fitur Inti (attach, delegasi, MCP)
+- [x] P1.5 — Perbaiki guard MCP
+- [x] P2 — Bug Cepat & UX
+- [x] P3 — Refactor agent_loop.py
+- [x] P4 — Sandbox Eksekusi
+- [x] P5 — Akses GitHub Terbatas
+- [x] P6 — Pencarian Semantik
+- [x] P7 — Pusat Konfigurasi ✅ (P7.1, P7.2, P7.3, P7.4 selesai)
 - [ ] P8 — Non-Coding Tasks (eksperimental)
 - [ ] P9 — UI di Luar VS Code (vision)
 - [ ] P9.0 — Hardening Multi-Sesi (prasyarat P9)
@@ -141,6 +141,97 @@
 - ✅ Tool didaftarkan di schema, dispatch, dan executor.
 - ✅ Terverifikasi: Orion berhasil membaca info repo (grenitho/orion) langsung dari GitHub.
 - ✅ Perbaikan bug: `gh.exe` di Windows kini dicari secara eksplisit jika VS Code menyembunyikan PATH.
+
+### Sesi 11 — 2026-11-07 — P6.1 Prototipe Semantic Search (Selesai)
+**Tujuan:** Buktikan konsep pencarian berbasis makna (embedding) sebelum integrasi.
+**Hasil:**
+- ✅ Dependency baru terpasang di venv: `sentence-transformers`, `sqlite-vec`, `torch 2.15.0+cpu`.
+- ✅ Prototipe di `scripts/semantic_search_proto.py` + `scripts/query_semantic_search.py`.
+- ✅ Model `BAAI/bge-small-en-v1.5` (384 dim) — jauh lebih akurat untuk kode daripada `all-MiniLM-L6-v2`.
+- ✅ Indexing 52 file → 770 chunk ke `.orion/semantic_index.db`.
+- ✅ Uji kualitas: query "backup file sebelum menimpa" → `tool_executor.py` (3/5 hasil, #1 skor tertinggi); "UI panel chat" → `ChatPanel.ts` (3/5).
+- ⚠️ **Pelajaran iterasi:**
+  - Indexing seluruh file (bukan chunk) → noise dari file besar (`BLUEPRINT.md`, `agent_loop.py`).
+  - Hybrid search saja tidak cukup jika model embedding lemah.
+  - Chunking per-fungsi + model BGE + hanya file kode = kombinasi yang bekerja.
+**Berikutnya:** P6.3-A — modul backend.
+
+### Sesi 12 — 2026-11-07 — P6.3-A Modul Semantic Search (Selesai)
+**Tujuan:** Bungkus prototipe menjadi modul Python yang bisa diimpor backend.
+**Hasil:**
+- ✅ `backend/app/services/semantic_search.py` dibuat: class `SemanticSearchEngine` dengan `index_project()` + `search()`.
+- ✅ Failure contract: semua error → string `[SEMANTIC_SEARCH ...]`, tidak pernah crash.
+- ✅ Soft-import: library hilang = fitur mati sopan, backend tetap boot.
+- ✅ Index tersimpan di `<project>/.orion/semantic_index.db` (bukan di `scripts/`).
+- ✅ Dependensi ditambahkan ke `backend/requirements.txt`.
+- ✅ Verifikasi: test modul mandiri menghasilkan output identik dengan prototipe.
+**Berikutnya:** P6.3-B — daftarkan tool ke Orion.
+
+### Sesi 13 — 2026-11-07 — P6.3-B Integrasi Tool (Selesai)
+**Tujuan:** Daftarkan `semantic_search` + `index_semantic_search` sebagai tool agent.
+**Hasil:**
+- ✅ `tools_schema.py`: 2 schema tool baru (deskripsi jujur tentang kapan dipakai).
+- ✅ `tool_executor.py`: 2 method wrapper + lazy-init `_semantic_engine` di `__init__`.
+- ✅ `tool_dispatch.py`: 2 entry di `TABLE` + `NAMA_TOOL_AKTIF`.
+- ✅ `main.py`: reset engine di `/set-project` (dipindah ke luar `if todo_manager:` — safety).
+- ✅ `prompts.py`: instruksi kapan pakai `semantic_search` vs `search_code`.
+- ⚠️ **Bug arsitektural P5 ditemukan & diperbaiki:** 3 tool GitHub terdaftar di `TABLE` DAN `WAJIB_DI_MAIN` sekaligus — kontradiksi. Solusi: hapus dari `WAJIB_DI_MAIN` (mereka sudah berjalan via jalur sederhana sejak P5).
+- ✅ Test suite: **663 passed, 1 skipped**.
+**Berikutnya:** P6.3-C — uji end-to-end.
+
+### Sesi 14 — 2026-11-07 — P6.3-C Uji End-to-End (Selesai)
+**Tujuan:** Buktikan Orion benar-benar memanggil tool semantik dalam percakapan.
+**Hasil:**
+- ✅ Chat "sebutkan tool" → `semantic_search` + `index_semantic_search` muncul.
+- ✅ Chat "lakukan indexing semantik" → `[SEMANTIC_INDEX OK] 52 file, 774 chunk`.
+- ✅ Chat "cari backup file sebelum ditimpa" → `tool_executor.py` fungsi `_backup_before_overwrite` (baris 235).
+- ✅ Chat "di mana verifikasi sintaks Python" → `code_verifier.py` + `tool_executor.py`.
+- ⚠️ **Bug UX ditemukan di guard:** pertanyaan informasi ("di file mana itu diimplementasikan?") memicu debt `[implementasi]` palsu karena kata kerja mutasi ("diimplementasikan") ada di pertanyaan.
+- ✅ **Perbaikan:** `guard_rules.adalah_pertanyaan()` + early-return di `_perlu_tantang_klaim_implementasi` dan `_perlu_tantang_nihil_mutasi`. Regex diiterasi 2× (butuh `\b` dan `di\s*mana` tanpa batas) sampai false-negative `"di file mana..."` hilang.
+- ✅ Verifikasi akhir: 663 passed; chat ulang bersih dari debt.
+**Berikutnya:** P6.4 — indexing incremental (file berubah saja).
+
+## Catatan Penting (diperbarui 2026-11-07)
+- **SELALU aktifkan venv** sebelum `python`/`pip`/`pytest`: `venv\Scripts\activate`. Tanpa `(venv)` di prompt, hasil test menyesatkan (kejadian Sesi 14: `mcp` "hilang" padahal hanya salah interpreter).
+- **P6 semantic search:** model `BAAI/bge-small-en-v1.5` (384-dim), index di `.orion/semantic_index.db`. Indexing pertama ~5-10 menit di CPU; query <1 detik.
+- **Pelajari pola kegagalan:** test suite 663 test menangkap 1 `NameError` → 40 test gagal berantai. Root cause tunggal: dead code setelah `return` di `guard_rules.py`. Selalu baca error pertama di traceback, bukan yang terakhir.
+
+### Sesi 15 — 2026-11-07 — P6.4 Indexing Incremental (Selesai)
+**Tujuan:** Hindari re-indexing seluruh proyek setiap kali; hanya file berubah.
+**Hasil:**
+- ✅ `SemanticSearchEngine.index_project(force=False)` sekarang inkremental.
+- ✅ Tabel baru `indexed_files(path, mtime, size)` menyimpan sidik per file.
+- ✅ File tidak berubah (mtime+size sama) dilewati; file berubah → chunk lama dihapus lalu re-index; file hilang → metadata + chunk dihapus.
+- ✅ Uji: run-1 `new:54`, run-2 `unchanged:54`; touch file → `updated:1`; revert → `updated:1` (mtime berubah).
+- ✅ Test suite: **663 passed, 1 skipped**.
+- Catatan: index pertama dari prototype lama memakai 52 file (saat `scripts/` belum di-ignore) — kini 54 karena folder `scripts/` di-ignore.
+**Berikutnya:** P7 — Pusat Konfigurasi (opsional), atau P6.5 — Integrasi auto-indexing di `/set-project` dan pasca-edit (jika diinginkan).
+
+### Sesi 16 — 2026-11-07 — P7.1 Config Endpoint (Selesai)
+**Tujuan:** Endpoint tunggal `GET/POST /config` untuk `.orion/orion_config.json`.
+**Hasil:**
+- ✅ `GET /config`: mengembalikan snapshot konfigurasi, default, range, dan `env_summary` (jumlah key, tanpa nilai rahasia).
+- ✅ `POST /config`: validasi ketat (range, tipe data, key asing), atomic write, dan live sync ke `orion_config` global tanpa restart backend.
+- ✅ 9 test baru di `test_config_endpoint.py`; test suite: 672 passed.
+
+### Sesi 17 — 2026-11-07 — P7.2 Config Center Panel & Rilis 0.5.0 (Selesai)
+**Tujuan:** Panel UI baru `ConfigCenterPanel.ts` dengan tab Project.
+**Hasil:**
+- ✅ Panel tab-based dengan form Project (max_iterations, token_budget, subagents, inbox, mcp_enabled).
+- ✅ Tombol Save (atomic + live sync), Reset to defaults, dan Refresh.
+- ✅ Rilis **Extension 0.5.0** (VSIX) dan Release Note GitHub disesuaikan dengan pola rilis sebelumnya. Menambahkan catatan disiplin rilis (VSIX + Marketplace) di dokumen ini.
+
+### Sesi 18 — 2026-11-07 — P7.3 Config Center: Model, MCP, Sub-agent Tabs (Selesai)
+**Tujuan:** Memoles tab Model, MCP, dan Sub-agent agar ramah pengguna awam.
+**Hasil:**
+- ✅ Tab Model: status card menampilkan jumlah key Gemini, status tier (ACTIVE/DISABLED), default model, dan provider group.
+- ✅ Tab MCP: status card menampilkan master switch (ON/OFF) dan jumlah server terhubung, dengan tombol Refresh Status.
+- ✅ Tab Sub-agent: menampilkan profil model per-role (Explorer/Verifier/Workers) atau "Main Router (default)".
+- ✅ Tab Data: menampilkan path file lokal (.orion, session_history, semantic_index, logs).
+- ✅ Verifikasi visual: semua tab tampil rapi, data akurat (4 Gemini keys, 2 MCP servers connected).
+
+**Status P7:** ✅ SELESAI.
+**Berikutnya:** P8 — Non-Coding Tasks (eksperimental, TBD) atau P9 — UI di Luar VS Code (vision, post-1.0).
 
 **Berikutnya:** Panduan GitHub untuk Pengguna Lain (Dokumentasi) & P6 Pencarian Semantik.
 

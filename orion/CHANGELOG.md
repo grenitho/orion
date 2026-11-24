@@ -3,6 +3,13 @@
 All notable changes to the Orion extension are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-11-08
+
+### Changed
+- Polished the Configuration Center's **Model**, **MCP**, and **Sub-agent** tabs into visual status cards for better at-a-glance monitoring.
+- Added a **Refresh Status** button to the MCP tab to manually poll server health without leaving the panel.
+- The Data tab now clearly lists all local file paths (config, MCP, semantic index, history, logs) for easy navigation.
+
 ## [0.4.5] - 2026-10-31
 
 Companion backend: **0.10.22** (UPDATE-025 commits 16–18).

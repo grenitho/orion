@@ -35,6 +35,12 @@ export class ActivityProvider implements vscode.TreeDataProvider<ActivityItem> {
                 new vscode.ThemeIcon('plug'),
                 { command: 'orion.openMcpPanel', title: 'MCP Servers' }
             ),
+            new ActivityItem(
+                'Configuration Center',
+                'edit settings',
+                new vscode.ThemeIcon('settings-gear'),
+                { command: 'orion.openConfigCenter', title: 'Configuration Center' }
+            ),
             new ActivityItem('Waiting for commands...', 'Ready', new vscode.ThemeIcon('circle-outline'))
         ];
     }

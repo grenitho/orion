@@ -420,6 +420,34 @@ dan bertanya *lanjut / continue* — itu rem pengaman hemat token; ketik
 (wizard membuat `.venv`; instalasi manual lama sering `venv`) — keduanya
 dikenali, yang penting prompt berawalan `(venv)` saat menjalankan pip/pytest.
 
+
+## Fitur Tambahan: Menghubungkan Orion ke GitHub
+
+Jika Anda ingin Orion bisa membaca *Issues* atau membuat *Pull Request* langsung dari chat, Anda perlu menginstal **GitHub CLI**.
+
+### Langkah 1: Instal GitHub CLI
+- **Windows:** Buka PowerShell, ketik `winget install --id GitHub.cli`
+- **macOS:** Buka Terminal, ketik `brew install gh`
+- **Linux:** Ikuti panduan di https://cli.github.com/
+
+### Langkah 2: Login ke Akun GitHub
+1. Tutup dan buka kembali terminal/PowerShell Anda.
+2. Ketik: `gh auth login` lalu tekan Enter.
+3. Gunakan tombol panah keyboard untuk memilih:
+   - `GitHub.com` (Enter)
+   - `HTTPS` (Enter)
+   - `Login with a web browser` (Enter)
+4. Layar akan menampilkan kode unik (misal: `ABCD-1234`). **Salin kode tersebut.**
+5. Tekan Enter. Browser akan terbuka. Tempel kode tadi, lalu klik **Authorize**.
+6. Ikuti instruksi di terminal sampai muncul tulisan `Logged in as <username>`.
+
+### Langkah 3: Uji di Orion
+Buka proyek Anda di VS Code, lalu katakan pada Orion:
+> "Tolong gunakan tool github_repo_info untuk melihat info repository ini."
+
+Jika Orion membalas dengan nama dan URL repo Anda, berarti integrasi GitHub sudah siap!
+
+---
 Masih ada masalah? Baca tabel *Troubleshooting* di
 [README extension](../orion/README.md) atau buka issue di
 <https://github.com/grenitho/orion/issues>.

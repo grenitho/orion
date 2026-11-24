@@ -6,6 +6,7 @@ import { ActivityProvider } from './panels/ActivityProvider';
 import { SetupWizardPanel } from './panels/SetupWizardPanel';
 import { McpPanel } from './panels/McpPanel';
 import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl, startStaleWatchdog, restartBackend, detectEnvironment } from './services/backendManager';
+import { ConfigCenterPanel } from './panels/ConfigCenterPanel';
 
 
 const backend = new BackendService();
@@ -98,6 +99,14 @@ export async function activate(context: vscode.ExtensionContext) {
 		McpPanel.createOrShow();
 	});
 	context.subscriptions.push(openMcpPanel);
+
+	// >>> P7.2: the Configuration Center — one panel for every setting that
+	// is NOT a secret. .env stays the Setup Wizard's territory; this panel
+	// owns .orion/orion_config.json and offers jump-to-wizard buttons.
+	const openConfigCenter = vscode.commands.registerCommand('orion.openConfigCenter', () => {
+		ConfigCenterPanel.createOrShow();
+	});
+	context.subscriptions.push(openConfigCenter);
 
 	// WAIT for the backend to be ready before continuing
 	await ensureBackendRunning();
