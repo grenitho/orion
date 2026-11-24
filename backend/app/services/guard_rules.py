@@ -267,6 +267,34 @@ def adalah_pertanyaan(teks: str) -> bool:
     return bool(_POLA_PERTANYAAN.search(teks) or _POLA_MANA_KAPAN.search(teks))
 
 
+_POLA_NON_CODING = re.compile(
+    r"\b(?:resume|cv|curriculum\s+vitae|lamaran|lowongan|loker|job\s+posting|"
+    r"affiliate|afiliasi|produk\s+trend\w*|trending\s+product\w*|ide\s+konten|"
+    r"jadwal\s+konten|content\s+plan|content\s+calendar|copywriting|caption|"
+    r"riset\s+pasar|market\s+research|ringkasan|rangkuman|summary|artikel|"
+    r"proposal|draf\s+email|terjemahkan|translate)\b",
+    re.IGNORECASE,
+)
+
+_INDIKATOR_KODE = re.compile(
+    r"(?:\.(?:py|js|jsx|ts|tsx|go|rs|java|cpp|c|cs|php|rb|sql|html|css|scss|vue|svelte)\b|"
+    r"\b(?:kode|code|bug|error|refactor|endpoint|api|database|komponen|component|"
+    r"fungsi|function|class|test|pytest|build|server|deploy)\b)",
+    re.IGNORECASE,
+)
+
+
+def adalah_tugas_non_coding(teks: str) -> bool:
+    """True when the request is clearly a non-coding assistant task
+    (job/resume, affiliate/market research, content planning, writing)
+    without code-mutation targets."""
+    if not teks:
+        return False
+    return bool(_POLA_NON_CODING.search(teks)) and not bool(
+        _INDIKATOR_KODE.search(teks)
+    )
+
+
 def perintah_verifikasi_gaya(teks: str) -> tuple:
     """UPDATE-025 commit 29: (named-tool order sentence, does the
     instruction order getComputedStyle evidence). The 0.10.32 pure-verify

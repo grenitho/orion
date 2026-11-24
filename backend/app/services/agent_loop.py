@@ -583,7 +583,12 @@ def _perlu_tantang_perintah_tool(state) -> bool:
 
 def _perlu_tantang_nihil_mutasi(state, konten) -> bool:
     # >>> P6.3 follow-up: same interrogative exemption as above.
-    if guard_rules.adalah_pertanyaan(getattr(state, "permintaan_turn_ini", "")):
+    permintaan = getattr(state, "permintaan_turn_ini", "")
+    if guard_rules.adalah_pertanyaan(permintaan):
+        return False
+    # >>> P8.1: pure non-coding assistant tasks may be answered inline in chat
+    # without mutating files on disk.
+    if guard_rules.adalah_tugas_non_coding(permintaan):
         return False
     return (
         state.tantang_nihil_mutasi < 1

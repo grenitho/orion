@@ -78,6 +78,7 @@ def test_daftar_kata_klaim_tidak_menyusut():
 # Verification gate (ORION-17/24)
 # ---------------------------------------------------------------------------
 
+
 def test_klaim_tanpa_file_berubah_ditantang():
     assert klaim_perlu_ditantang(True, False, 0, 2) is True
 
@@ -111,6 +112,7 @@ def test_lubang_iterasi_pertama_tetap_tertutup():
 # done wrapper (ORION-28)
 # ---------------------------------------------------------------------------
 
+
 def test_done_disusulkan_hanya_ketika_belum_dikirim():
     assert stream_perlu_done_susulan(False) is True
     assert stream_perlu_done_susulan(True) is False
@@ -126,15 +128,19 @@ from app.services import guard_rules  # noqa: E402 (appended section)
 
 
 def test_kalimat_klaim_implementasi_unit():
-    assert guard_rules.kalimat_klaim_implementasi(
-        "UI telah diimplementasikan sepenuhnya."
-    ) == "UI telah diimplementasikan sepenuhnya."
+    assert (
+        guard_rules.kalimat_klaim_implementasi("UI telah diimplementasikan sepenuhnya.")
+        == "UI telah diimplementasikan sepenuhnya."
+    )
     # negated forms are the honest OR branch and must stay silent
-    assert guard_rules.kalimat_klaim_implementasi("belum diimplementasikan apa pun.") == ""
+    assert (
+        guard_rules.kalimat_klaim_implementasi("belum diimplementasikan apa pun.") == ""
+    )
     assert guard_rules.kalimat_klaim_implementasi("warna tidak diterapkan ulang.") == ""
-    assert guard_rules.kalimat_klaim_implementasi(
-        "I added a total row below the items."
-    ) == "I added a total row below the items."
+    assert (
+        guard_rules.kalimat_klaim_implementasi("I added a total row below the items.")
+        == "I added a total row below the items."
+    )
     assert guard_rules.kalimat_klaim_implementasi("") == ""
     # first claiming sentence only, capped at 200 chars
     # sentence split is on [.!?] - a dot inside a token (App.jsx) would cut
@@ -143,14 +149,53 @@ def test_kalimat_klaim_implementasi_unit():
     assert guard_rules.kalimat_klaim_implementasi(teks) == (
         "Kotak sudah saya tambah kemarin."
     )
-    assert len(guard_rules.kalimat_klaim_implementasi("x diimplementasikan " * 60)) <= 200
+    assert (
+        len(guard_rules.kalimat_klaim_implementasi("x diimplementasikan " * 60)) <= 200
+    )
 
 
 def test_kalimat_perintah_tool_unit():
-    assert guard_rules.kalimat_perintah_tool(
-        "ubah warna dan gunakan mcp playwright untuk mengamati."
-    ) == "ubah warna dan gunakan mcp playwright untuk mengamati."
+    assert (
+        guard_rules.kalimat_perintah_tool(
+            "ubah warna dan gunakan mcp playwright untuk mengamati."
+        )
+        == "ubah warna dan gunakan mcp playwright untuk mengamati."
+    )
     assert guard_rules.kalimat_perintah_tool("ubah warna subtab.") == ""
-    assert guard_rules.kalimat_perintah_tool(
-        "cek dulu. lalu browser_click pada tab aktif."
-    ) == "lalu browser_click pada tab aktif."
+    assert (
+        guard_rules.kalimat_perintah_tool(
+            "cek dulu. lalu browser_click pada tab aktif."
+        )
+        == "lalu browser_click pada tab aktif."
+    )
+
+
+# ---------------------------------------------------------------- UPDATE-P8.1
+
+
+def test_adalah_tugas_non_coding_positif():
+    """Permintaan asisten kerja non-coding (loker, resume, affiliate, konten) terdeteksi."""
+    kasus_non_coding = [
+        "Pelajari link lowongan pekerjaan ini dan susun resume yang sesuai.",
+        "Cari produk affiliate yang sedang trend lalu buat jadwal konten 7 hari.",
+        "Buatkan ringkasan hasil riset pasar dan draf email penawaran.",
+        "Tolong terjemahkan proposal ini ke bahasa Inggris.",
+    ]
+    for teks in kasus_non_coding:
+        assert guard_rules.adalah_tugas_non_coding(teks) is True, f"Gagal pada: {teks}"
+
+
+def test_adalah_tugas_non_coding_negatif_untuk_kode():
+    """Permintaan yang menyentuh file/istilah kode tetap dianggap tugas coding."""
+    kasus_coding = [
+        "Perbaiki bug pada endpoint API artikel di app/main.py.",
+        "Tambahkan komponen form resume di frontend/src/App.jsx.",
+        "Buat fungsi Python untuk menghitung komisi affiliate dan jalankan pytest.",
+        "Refactor database schema untuk tabel lowongan.",
+        "",
+        "Halo Orion, apa kabar?",
+    ]
+    for teks in kasus_coding:
+        assert (
+            guard_rules.adalah_tugas_non_coding(teks) is False
+        ), f"Salah deteksi pada: {teks}"
