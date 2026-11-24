@@ -7,6 +7,7 @@ import signal
 import subprocess
 from datetime import datetime
 import sys
+from app.services.semantic_search import SemanticSearchEngine
 
 _ARTEFAK_PREFIX = (
     "dist/",
@@ -89,6 +90,8 @@ class ToolExecutor:
 
     def __init__(self, project_path: str = "."):
         self.project_path = os.path.abspath(project_path)
+        # >>> P6.3: engine semantic search di-lazy-init saat dipakai
+        self._semantic_engine = None
 
     def _resolve_safe_path(self, relative_path: str):
         """
@@ -1435,50 +1438,40 @@ class ToolExecutor:
             return f"Failed to run git diff: {e!s}"
 
     def _validasi_sandbox(self, command: str) -> tuple[bool, str]:
-        """P4: Soft Sandbox — mencegah perintah destruktif dan bypass directory."""
-        cmd_lower = command.lower()
+        """
+        Memblokir perintah terminal yang berupaya keluar dari folder proyek
+        atau menyentuh jalur sensitif di luar sandbox.
+        """
+        cmd_norm = command.strip().replace("\\", "/")
+        cmd_lower = cmd_norm.lower()
+        proj_norm = os.path.realpath(str(self.project_path)).replace("\\", "/").lower()
 
-        # 1. Blokir perintah destruktif sistem
-        pola_bahaya = [
-            r"\b(del|erase)\b.*?(\/s|\/q|\/f).*?\b[a-z]:\\",  # del /s /q C:\
-            r"\b(rd|rmdir)\b.*?\/s.*?\b[a-z]:\\",  # rd /s C:\
-            r"\bformat\b\s+[a-z]:",  # format C:
-            r"\bdiskpart\b",
-            r"\breg\s+delete\b",
-            r"\bshutdown\b",
-            r"\btaskkill\b.*?\/f.*?\/im\s+explorer",  # Matikan explorer
-        ]
-        for pola in pola_bahaya:
-            if re.search(pola, cmd_lower):
-                return (
-                    False,
-                    f"[SANDBOX BLOCK] Perintah diblokir karena berpotensi merusak sistem: {pola}",
-                )
+        # 1. Blokir perpindahan direktori eksplisit ke induk (..), root (/), home (~), atau drive lain
+        cd_matches = re.finditer(
+            r"(?:^|[;&|]\s*)(?:cd|pushd)\s+(?:/d\s+)?[\"']?([^\"';&|\n]+)",
+            cmd_lower,
+        )
+        for match in cd_matches:
+            target = match.group(1).strip()
+            if (
+                target.startswith("..")
+                or "/.." in target
+                or target.startswith("/")
+                or target.startswith("~")
+                or re.match(r"^[a-z]:/", target)
+            ):
+                if not target.startswith(proj_norm):
+                    return (
+                        False,
+                        "[SANDBOX BLOCK] Perintah diblokir: Orion tidak diizinkan keluar dari folder proyek.",
+                    )
 
-        # 2. Blokir perintah jaringan yang menjalankan script eksternal (Prompt Injection)
-        pola_injeksi = [
-            r"curl\s+.*?\|\s*(bash|sh|powershell|cmd)",
-            r"wget\s+.*?\|\s*(bash|sh|powershell|cmd)",
-            r"invoke-webrequest\s+.*?\|\s*invoke-expression",
-            r"iwr\s+.*?\|\s*iex",
-        ]
-        for pola in pola_injeksi:
-            if re.search(pola, cmd_lower):
-                return (
-                    False,
-                    f"[SANDBOX BLOCK] Perintah diblokir karena mencoba mengunduh dan mengeksekusi script asing (Remote Code Execution): {pola}",
-                )
-
-        # 3. Blokir upaya keluar dari folder proyek (cd .. atau path absolut sistem)
-        if re.search(r"\bcd\s+\.\.", cmd_lower) or re.search(
-            r"\bcd\s+[a-z]:\\", cmd_lower
-        ):
-            # Pengecualian: jika cd ke dalam folder proyek itu sendiri (meski jarang dipakai)
-            if str(self.project_path).lower() not in command.lower().replace("\\", "/"):
-                return (
-                    False,
-                    "[SANDBOX BLOCK] Perintah diblokir: Orion tidak diizinkan keluar dari folder proyek (cd .. / cd C:\\).",
-                )
+        # 2. Blokir upaya baca/tulis/hapus menggunakan traversal relatif bertingkat (../../)
+        if re.search(r"(?:^|[\s\"'=])\.\./\.\.", cmd_lower):
+            return (
+                False,
+                "[SANDBOX BLOCK] Perintah diblokir: Terdeteksi traversal direktori keluar proyek (../..).",
+            )
 
         return True, ""
 
@@ -1642,3 +1635,31 @@ class ToolExecutor:
         from app.services import github_manager
 
         return github_manager.create_pr(self.project_path, title, body, base_branch)
+
+    # >>> P6.3: semantic search tools ====================================
+    def _get_semantic_engine(self) -> SemanticSearchEngine:
+        """Lazy-init semantic search engine untuk project ini."""
+        if self._semantic_engine is None:
+            self._semantic_engine = SemanticSearchEngine(
+                project_path=self.project_path,
+            )
+        return self._semantic_engine
+
+    def semantic_search(self, query: str, top_k: int = 5) -> str:
+        """Cari kode berdasarkan makna. Wrapper tipis ke SemanticSearchEngine."""
+        try:
+            engine = self._get_semantic_engine()
+            top_k = max(1, min(int(top_k or 5), 15))
+            return engine.search(query, top_k=top_k)
+        except Exception as e:  # noqa: BLE001 - failure contract
+            return f"[SEMANTIC_SEARCH ERROR] {type(e).__name__}: {e}"
+
+    def index_semantic_search(self) -> str:
+        """Bangun index semantik proyek. Wrapper tipis ke SemanticSearchEngine."""
+        try:
+            engine = self._get_semantic_engine()
+            return engine.index_project()
+        except Exception as e:  # noqa: BLE001 - failure contract
+            return f"[SEMANTIC_SEARCH ERROR] {type(e).__name__}: {e}"
+
+    # >>> END P6.3 semantic search tools ================================

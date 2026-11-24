@@ -815,6 +815,273 @@ async def models_config_route(request: ModelsConfigRequest):
 
 # >>> END OF UPDATE-018 model profiles ====================================
 
+# >>> P7.1: Configuration Center surface (backend side) ===================
+# One token-guarded endpoint that reads and writes the PROJECT-SCOPED
+# runtime config file .orion/orion_config.json (max_iterations, token
+# budget, subagents_*, inbox_*, subagent_models, mcp_enabled, ...).
+#
+# Deliberately NOT touching .env: API keys and routing credentials stay
+# the Setup Wizard's territory (single writer, single source of truth).
+# The panel's "Model" tab is read-only summary + jump-to-wizard buttons.
+#
+# Design mirrors /mcp/config and /models/config one-for-one:
+#   * GET  -> {"project_path", "orion_config", "defaults", "ranges",
+#              "env_summary"} — env_summary NEVER contains key VALUES.
+#   * POST -> validate -> atomic write -> live sync into the global
+#              orion_config dict that agent_loop.py reads via Deps.config.
+#             Unknown keys, wrong types, and out-of-range values are
+#             rejected BEFORE the file is touched (same contract as the
+#             other two config routes).
+CONFIG_RANGES = {
+    "max_iterations": (1, 200),
+    "token_budget_threshold": (1000, 200000),
+    "subagent_max_per_turn": (1, 10),
+    "subagent_max_iterations": (1, 30),
+    "subagent_workers_max": (1, 6),
+    "inbox_max_files": (1, 20),
+}
+CONFIG_BOOLEANS = (
+    "subagents_enabled",
+    "inbox_enabled",
+    "mcp_enabled",
+)
+CONFIG_OTHER = (
+    "subagent_models",  # dict, validated by validate_subagent_models()
+    "description",  # str, free text (not advertised in the panel)
+)
+
+
+def _config_defaults() -> dict:
+    """The same defaults load_orion_config() writes on first touch.
+
+    Kept here so the panel can offer a 'Reset to defaults' button without
+    guessing; a fresh project already gets this dict written to disk.
+    """
+    return {
+        "max_iterations": 20,
+        "token_budget_threshold": 12000,
+        "subagents_enabled": True,
+        "subagent_max_per_turn": 3,
+        "subagent_max_iterations": 6,
+        "subagent_workers_max": 3,
+        "mcp_enabled": True,
+        "inbox_enabled": True,
+        "inbox_max_files": 5,
+        "subagent_models": {},
+        "description": (
+            "Orion settings. Change max_iterations to limit the AI thinking "
+            "loop. token_budget_threshold controls when emergency context "
+            "pruning occurs. subagents_* control the internal sub-agents "
+            "(UPDATE-016). inbox_* control the .orion/inbox drop-zone; "
+            "subagent_models pins per-role models (UPDATE-018)."
+        ),
+    }
+
+
+def _env_summary() -> dict:
+    """Key-COUNT-only view of .env for the Model tab.
+
+    NEVER returns key VALUES. Same posture as /mcp/status and
+    /models/options: names and counts may surface, secrets may not.
+    Safe to call without a project set — it only reflects os.environ.
+    """
+    gemini_count = 0
+    for name, value in os.environ.items():
+        if name.startswith("GEMINI_API_KEY_") and value and value.strip():
+            gemini_count += 1
+
+    providers = []
+    pattern = re.compile(
+        r"^PROVIDER_([1-9][0-9]?)_(NAME|API_KEY|BASE_URL|MODELS|TEMPERATURE)$"
+    )
+    slots: dict = {}
+    for name, value in os.environ.items():
+        m = pattern.match(name)
+        if not m:
+            continue
+        idx = int(m.group(1))
+        field = m.group(2).lower()
+        val = (value or "").strip()
+        slots.setdefault(idx, {})[field] = val
+    for idx in sorted(slots):
+        slot = slots[idx]
+        if not slot.get("api_key"):
+            continue
+        models = [m.strip() for m in slot.get("models", "").split(",") if m.strip()]
+        providers.append(
+            {
+                "n": idx,
+                "name": slot.get("name") or f"Provider {idx}",
+                "base_url": slot.get("base_url", ""),
+                "models": models,
+            }
+        )
+
+    fallback_has = bool(os.environ.get("FALLBACK_API_KEY", "").strip())
+    fallback_models = [
+        m.strip() for m in os.environ.get("FALLBACK_MODELS", "").split(",") if m.strip()
+    ]
+    cf_has = bool(
+        os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+        and os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
+    )
+    cf_models = [
+        m.strip()
+        for m in os.environ.get("CLOUDFLARE_MODELS", "").split(",")
+        if m.strip()
+    ]
+
+    return {
+        "gemini_keys_count": gemini_count,
+        "default_model": os.environ.get("DEFAULT_MODEL", "").strip(),
+        "gemini_disabled": os.environ.get("GEMINI_DISABLED", "").strip().lower()
+        in ("1", "true", "yes", "on"),
+        "router_fallback": os.environ.get("ROUTER_FALLBACK", "").strip().lower()
+        or "none",
+        "providers": providers,
+        "fallback": {"has_key": fallback_has, "models": fallback_models},
+        "cloudflare": {"has_credentials": cf_has, "models": cf_models},
+    }
+
+
+def validate_orion_config_payload(payload) -> str | None:
+    """Return an error string when the incoming orion_config is malformed.
+
+    Deliberately strict: the panel is the ONLY editor, so any typo it emits
+    must be caught here before the file is touched. The user's manual edits
+    keep working through the file itself (GET reads whatever is on disk).
+    """
+    if not isinstance(payload, dict):
+        return "orion_config must be an object."
+
+    # ints with ranges
+    for key, (lo, hi) in CONFIG_RANGES.items():
+        if key not in payload:
+            continue
+        value = payload[key]
+        if isinstance(value, bool) or not isinstance(value, int):
+            return f"'{key}' must be an integer."
+        if not (lo <= value <= hi):
+            return f"'{key}' must be between {lo} and {hi} (got {value})."
+
+    # booleans
+    for key in CONFIG_BOOLEANS:
+        if key not in payload:
+            continue
+        if not isinstance(payload[key], bool):
+            return f"'{key}' must be true or false."
+
+    # subagent_models goes through the existing validator
+    if "subagent_models" in payload:
+        err = validate_subagent_models(payload["subagent_models"])
+        if err:
+            return err
+
+    if "description" in payload and not isinstance(payload["description"], str):
+        return "'description' must be a string."
+
+    # Reject unknown keys. A typo silently living in the file would
+    # contradict the "panel is the single editor" promise; unknown keys
+    # added by hand are still readable via GET.
+    allowed = set(CONFIG_RANGES) | set(CONFIG_BOOLEANS) | set(CONFIG_OTHER)
+    unknown = sorted(set(payload) - allowed)
+    if unknown:
+        return f"unknown key(s) {unknown}; allowed: {sorted(allowed)}."
+    return None
+
+
+@app.get("/config")
+async def get_config():
+    """Current orion_config + defaults + ranges + safe env summary."""
+    project_path = context_manager.project_path
+    cfg_path = (
+        os.path.join(project_path, ".orion", "orion_config.json")
+        if project_path
+        else None
+    )
+    data: dict = {}
+    if cfg_path and os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[ORION CONFIG WARNING] GET /config could not read file: {e}")
+
+    return {
+        "project_path": project_path,
+        "config_path": cfg_path,
+        "orion_config": data,
+        "defaults": _config_defaults(),
+        "ranges": {k: list(v) for k, v in CONFIG_RANGES.items()},
+        "env_summary": _env_summary(),
+    }
+
+
+@app.post("/config")
+async def post_config(request: dict):
+    """Validate -> atomic write -> live sync of orion_config."""
+    global orion_config
+
+    project_path = context_manager.project_path
+    if not project_path:
+        return JSONResponse(
+            {"success": False, "error": "No project is set; open a folder first."},
+            status_code=400,
+        )
+
+    payload = request.get("orion_config") if isinstance(request, dict) else None
+    error = validate_orion_config_payload(payload)
+    if error:
+        return JSONResponse({"success": False, "error": error}, status_code=400)
+
+    cfg_path = os.path.join(project_path, ".orion", "orion_config.json")
+    on_disk: dict = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                on_disk = loaded
+        except (OSError, json.JSONDecodeError) as e:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"orion_config.json is unreadable/corrupt: {e}",
+                },
+                status_code=400,
+            )
+
+    # Merge, not replace: keys the panel did not send survive untouched
+    # (e.g. a future 'description' or a hand-added experiment).
+    merged = {**on_disk, **payload}
+
+    try:
+        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+        tmp = cfg_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, cfg_path)
+    except OSError as e:
+        return JSONResponse(
+            {"success": False, "error": f"could not write orion_config.json: {e}"},
+            status_code=500,
+        )
+
+    # Live sync: Deps.config in agent_loop reads THIS very dict object, so
+    # a Save takes effect on the next /chat turn without a restart.
+    orion_config.update(merged)
+    print(f"[ORION CONFIG] saved via /config: {sorted(payload)}")
+    return {
+        "success": True,
+        "orion_config": dict(orion_config),
+    }
+
+
+# >>> END OF P7.1 Configuration Center surface =============================
+
 
 @app.post("/set-project")
 async def set_project(request: ProjectPathRequest):
@@ -829,6 +1096,15 @@ async def set_project(request: ProjectPathRequest):
     # 2. Set the path and initialize the tool executor
     context_manager.set_project_path(request.path)
     tool_executor = ToolExecutor(request.path)
+    # >>> P6.3: reset semantic engine setiap ganti proyek.
+    # Diletakkan di luar `if todo_manager:` agar SELALU berjalan, dan
+    # tepat setelah ToolExecutor dibuat agar engine terikat ke proyek baru.
+    try:
+        if hasattr(tool_executor, "_semantic_engine"):
+            tool_executor._semantic_engine = None
+    except Exception:
+        pass  # Jangan pernah gagalkan set-project karena ini
+
     if todo_manager:
         todo_manager.set_project_path(request.path)  # >>> FIX: None-safe guard
 

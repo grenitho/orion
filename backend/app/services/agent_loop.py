@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Callable
 
 import tiktoken
+
 _THINKING_BLOCK_RE = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
 
 from app import logging_setup
@@ -443,22 +444,13 @@ def _perlu_nudge_gaya(state, deps) -> bool:
 
 
 def _perlu_tantang_klaim_implementasi(state, konten) -> bool:
-    """UPDATE-025 commit 21 (InvoiceFlow exam, 2026-10-31): TWO turns
-    closed with "telah diimplementasikan … lolos pemeriksaan sintaks"
-    while the ledger held zero mutated files, and the browser review
-    showed nothing had changed. One challenge per turn quotes the claim
-    sentence verbatim and forces the choice: edit now, or withdraw.
-
-    >>> UPDATE-026 commit 39 (owner uji-1 2026-11-02): anchor gate. An
-    inspection turn ("jelaskan implementasi ...") closes with DESCRIPTIVE
-    passive ("kelas tab-active diterapkan pada elemen <a>") — the catalog
-    word "diterapkan" minted an [implementasi] debt although nobody claimed
-    work. The commit-23 lesson applies here too: the anchor rides the
-    USER's words. With no mutating order in the instruction, a zero-write
-    ledger is exactly what was ordered, so descriptive prose is not a
-    claim. First-person perfective claims ("saya implementasikan ...")
-    keep the tooth alive even on inspection turns. <<<
-    """
+    # >>> P6.3 follow-up (owner uji-1 2026-11-02): an INTERROGATIVE request
+    # is not a work order — "di file mana itu diimplementasikan?" contains
+    # a mutation verb but asks a QUESTION. Challenging it minted a phantom
+    # [implementasi] debt on a pure information turn. The question check
+    # runs FIRST and skips the whole challenge.
+    if guard_rules.adalah_pertanyaan(getattr(state, "permintaan_turn_ini", "")):
+        return False
     if not (
         state.tantang_klaim_implementasi < 1
         and not state.files_changed_this_turn
@@ -590,13 +582,9 @@ def _perlu_tantang_perintah_tool(state) -> bool:
 
 
 def _perlu_tantang_nihil_mutasi(state, konten) -> bool:
-    """UPDATE-025 commit 23 (InvoiceFlow transcript 2026-11-01): the
-    keyword-based teeth bred a keyword-dodging closing ("telah diperiksa
-    ... diverifikasi dengan verify_code ... build sukses") over a ledger
-    holding ZERO mutated files, while the user's instruction had ordered
-    work. The instruction anchor cannot be dodged: work ordered + empty
-    ledger + a closing that is NOT a plain decline = intercept, quote the
-    user's own sentence, demand edits or an explicit decline."""
+    # >>> P6.3 follow-up: same interrogative exemption as above.
+    if guard_rules.adalah_pertanyaan(getattr(state, "permintaan_turn_ini", "")):
+        return False
     return (
         state.tantang_nihil_mutasi < 1
         and not state.files_changed_this_turn
@@ -1058,39 +1046,6 @@ except Exception as e:
 
     def is_sensitive_file(file_path):
         return False
-
-
-# The 22 tool names that REALLY have a dispatch branch in the agent loop.
-# Lives here (next to the dispatch table) since Phase C step 4; main.py's
-# startup consistency checker and the loop's unknown-tool message both use
-# it via tool_dispatch.NAMA_TOOL_AKTIF.
-NAMA_TOOL_AKTIF = {
-    "ask_user",
-    "update_todos",
-    "list_files",
-    "read_file",
-    "read_file_range",
-    "write_file",
-    "edit_file",
-    "search_code",
-    "read_json_path",
-    "run_terminal",
-    "web_search",
-    "web_fetch",
-    "git_status",
-    "git_diff",
-    "verify_html",
-    "verify_code",
-    "restore_backup",
-    "list_backups",
-    "delete_file",
-    "move_file",
-    "git_commit",
-    "run_tests",
-    "github_repo_info",
-    "github_list_issues",
-    "github_create_pr",
-}
 
 
 # >>> UPDATE-025 hotfix (InvoiceFlow todo-hijack incident, 2026-10-28) <<<
@@ -2313,15 +2268,18 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         mcp=deps.mcp is not None and deps.mcp.has_tool(func_name),
                     )
                     if _pre_notice:
-                        logger.warning(_pre_notice)
+                        if deps.logger is not None:
+                            deps.logger.warning(_pre_notice)
                         if _pre_notice.startswith("[MCP HARD BLOCK]"):
-                            result = _pre_notice
-                            # (Opsional) kita bisa langsung lompati eksekusi tool
-                            # di bawahnya dengan `continue`, tapi karena struktur
-                            # agent_loop cukup kompleks, cara aman adalah membiarkan
-                            # blok `try-except` di bawahnya membaca `result`.
-                        else:
-                            result = f"{_pre_notice}\n\n[TOOL RESULT]\n{result}"
+                            tool_results.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc_id,
+                                    "name": func_name,
+                                    "content": _pre_notice,
+                                }
+                            )
+                            continue
 
                     # >>> CRITICAL FIX #2: ask_user MUST FLUSH the tool_results
                     # collected so far BEFORE returning, otherwise the earlier

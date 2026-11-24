@@ -54,10 +54,22 @@ EXPLORER = "explorer"
 VERIFIER = "verifier"
 WORKER = "worker"
 
-READ_TOOLS = frozenset({
-    "list_files", "read_file", "read_file_range", "search_code", "read_json_path",
-})
-VERIFY_TOOLS = READ_TOOLS | {"verify_code", "verify_html", "run_tests", "git_diff", "git_status"}
+READ_TOOLS = frozenset(
+    {
+        "list_files",
+        "read_file",
+        "read_file_range",
+        "search_code",
+        "read_json_path",
+    }
+)
+VERIFY_TOOLS = READ_TOOLS | {
+    "verify_code",
+    "verify_html",
+    "run_tests",
+    "git_diff",
+    "git_status",
+}
 WORKER_TOOLS = READ_TOOLS | {"write_file", "edit_file"}
 
 ROLE_TOOLSETS = {EXPLORER: READ_TOOLS, VERIFIER: VERIFY_TOOLS, WORKER: WORKER_TOOLS}
@@ -89,8 +101,7 @@ ROLE_PROMPTS = {
         "reads). Do not modify anything, do not ask the user anything. Finish "
         "with a verdict line (PASS / PASS WITH NOTES / FAIL) followed by a "
         "concrete defect list (file, problem, suggested fix) or 'no defects "
-        "found'. Quote tool output where it matters."
-        + _CLAIM_DISCIPLINE
+        "found'. Quote tool output where it matters." + _CLAIM_DISCIPLINE
     ),
     WORKER: (
         "You are an Orion Worker sub-agent. Implement ONLY the assigned task and "
@@ -148,6 +159,7 @@ PREFIX_ERROR = "[SUBAGENT ERROR]"
 # so it continues FROM them instead of re-investigating from zero.
 PREFIX_PARTIAL = "[SUBAGENT PARTIAL]"
 
+
 # >>> UPDATE-025 commit 6 (owner directive: "pasang retry-1 untuk setiap
 # sub agent — kejadian ini sudah berulang"): the router ALREADY retries
 # per model (LLM_MAX_RETRIES_PER_MODEL) and fails over across the whole
@@ -178,8 +190,13 @@ def _baca_backoffs() -> list[float]:
 
 SUBRUN_RETRY_BACKOFFS = _baca_backoffs()
 _SUBRUN_RETRY_MARKERS = (
-    "all ai models", "timeout", "timed out", "connection", "disconnect",
-    "incomplete", "busy",
+    "all ai models",
+    "timeout",
+    "timed out",
+    "connection",
+    "disconnect",
+    "incomplete",
+    "busy",
 )
 
 
@@ -195,6 +212,7 @@ def _retryable(exc: BaseException) -> bool:
     teks = str(exc).lower()
     return any(m in teks for m in _SUBRUN_RETRY_MARKERS)
 
+
 MIN_SUMMARY_LEN = 40  # a shorter 'report' is treated as not-yet-finished
 
 
@@ -203,7 +221,9 @@ def is_subagent_tool(name: str) -> bool:
 
 
 def role_of_tool(name: str) -> str:
-    return {TOOL_EXPLORER: EXPLORER, TOOL_VERIFIER: VERIFIER, TOOL_WORKERS: WORKER}[name]
+    return {TOOL_EXPLORER: EXPLORER, TOOL_VERIFIER: VERIFIER, TOOL_WORKERS: WORKER}[
+        name
+    ]
 
 
 # >>> UPDATE-025 commit 1 (delegation-compliance disclosure): which
@@ -367,38 +387,40 @@ def check_scopes_disjoint(scopes: list) -> str | None:
 
 
 class MiniContext:
-    """In-memory message list for ONE sub-run.
-
-    Deliberately NOT the project ContextManager: sub-agent chatter must
-    never reach session_history.json (quota + privacy + 'the main memory
-    stays the main agent's').
-    """
+    """In-memory isolated message history for a sub-agent run."""
 
     def __init__(self) -> None:
-        self.history: list[dict] = []
+        self._messages: list[dict] = []
 
-    def add(self, role: str, content: str) -> None:
-        # >>> UPDATE-025 commit 25: drop a consecutive duplicate (same
-        # role, same content) — the 2026-11-01 transcript showed identical
-        # message pairs riding into one provider call, which is exactly
-        # the shape some providers reject as "Missing corresponding tool
-        # call for tool response message". Dedup at the door, not at the
-        # wire. <<<
+    def add(self, role: str, content: str, **extra: Any) -> None:
         if (
-            self.history
-            and self.history[-1].get("role") == role
-            and self.history[-1].get("content") == content
+            self._messages
+            and not extra
+            and not self._messages[-1].get("tool_calls")
+            and self._messages[-1].get("role") == role
+            and self._messages[-1].get("content") == content
         ):
             return
-        self.history.append({"role": role, "content": content})
+        msg: dict[str, Any] = {"role": role, "content": content}
+        msg.update(extra)
+        self._messages.append(msg)
 
     def messages(self) -> list[dict]:
-        return list(self.history)
+        return list(self._messages)
+
+    def __len__(self) -> int:
+        return len(self._messages)
 
 
-def _catat_perf_subrun(tool_executor: Any, response: Any, role: str,
-                       mulai: float, *, status: str | None = None,
-                       extra: dict | None = None) -> None:
+def _catat_perf_subrun(
+    tool_executor: Any,
+    response: Any,
+    role: str,
+    mulai: float,
+    *,
+    status: str | None = None,
+    extra: dict | None = None,
+) -> None:
     """Record ONE sub-run LLM call into .orion/performance_log.jsonl
     (UPDATE-024 Commit 1, owner directive: sub-run token usage is user data).
 
@@ -417,7 +439,12 @@ def _catat_perf_subrun(tool_executor: Any, response: Any, role: str,
             log_performance(
                 proj,
                 "sub-run-retry" if status == "retry" else "sub-run-failed",
-                0, 0, 0.0, status or "error", role=role, extra=extra,
+                0,
+                0,
+                0.0,
+                status or "error",
+                role=role,
+                extra=extra,
             )
             return
         usage = getattr(response, "usage", None)
@@ -456,9 +483,7 @@ def _catat_edit_ke_ledger(state: Any, tool: str, path: str, result: str) -> None
         if isinstance(result, str) and result.lower().startswith("success"):
             state.catat_edit_sukses(path)
         else:
-            first_line = (
-                str(result).splitlines()[0][:200] if result else "no result"
-            )
+            first_line = str(result).splitlines()[0][:200] if result else "no result"
             state.catat_edit_gagal(path, f"[{tool} via sub-agent] {first_line}")
     except Exception:  # noqa: BLE001 - bookkeeping must never break a run
         pass
@@ -534,13 +559,6 @@ async def run_subagent(
             SUBRUN_RETRY_BACKOFFS if retry_backoffs is None else list(retry_backoffs)
         )
         for i in range(max_iter):
-            # >>> Commit 38 (owner 2026-11-02: "kenapa explorer mati lebih
-            # dulu?"): status "capped" = the sub-run exhausted max_iter
-            # WHILE HOLDING tool_calls — the 3-part exploration task was
-            # bigger than the 10-iteration budget, and retries stay 0
-            # because they only fire on cascade exceptions, never on
-            # budget exhaustion. The main loop has a soft limit; sub-runs
-            # did not. One wrap-up notice at 80% budget mirrors it. <<<
             if i == max(1, int(max_iter * 0.8)) - 1 and max_iter >= 3:
                 ctx.add(
                     "user",
@@ -552,16 +570,6 @@ async def run_subagent(
             _mulai_panggilan = time.perf_counter()
             response = None
             _percobaan = 0
-            # >>> UPDATE-025 commit 6+8: escalating paused retries at the
-            # SUB-RUN layer. The router's own retries (per model + fleet
-            # failover) already ran and lost inside this call; what was
-            # missing is a fleet-wide pause. Commit 6 shipped ONE retry;
-            # the owner's 15:42 perf log proved minute-scale outages kill
-            # the 8 s retry too (death 3:31:49, retry death 3:34:33), so
-            # the budget is now [8 s, 45 s] by default — the second
-            # cascade lands minutes into the outage, where the blips
-            # seen so far tend to have healed. Non-transient deaths raise
-            # immediately; exhausting the budget falls to 0.10.9 salvage.
             for _percobaan in range(len(_backoffs) + 1):
                 try:
                     response = await llm_call(messages=ctx.messages(), tools=tools)
@@ -575,7 +583,10 @@ async def run_subagent(
                             "router cascade already exhausted"
                         )
                         _catat_perf_subrun(
-                            tool_executor, None, role, _mulai_panggilan,
+                            tool_executor,
+                            None,
+                            role,
+                            _mulai_panggilan,
                             status="retry",
                         )
                         await asyncio.sleep(_backoffs[_percobaan])
@@ -583,10 +594,11 @@ async def run_subagent(
                         continue
                     raise
             iter_done = i + 1
-            # >>> UPDATE-024 Commit 1: record the call BEFORE interpreting it
-            # — tokens were spent whether or not the answer is usable.
             _catat_perf_subrun(
-                tool_executor, response, role, _mulai_panggilan,
+                tool_executor,
+                response,
+                role,
+                _mulai_panggilan,
                 extra={"retried": True} if _percobaan else None,
             )
             choices = getattr(response, "choices", None)
@@ -596,8 +608,20 @@ async def run_subagent(
             msg = choices[0].message
             calls = getattr(msg, "tool_calls", None)
             if calls:
-                ctx.add("assistant", msg.content or "")
-                for call in calls:
+                serialized_calls = [
+                    {
+                        "id": getattr(c, "id", None) or f"call_{i}_{idx}",
+                        "type": "function",
+                        "function": {
+                            "name": getattr(c.function, "name", ""),
+                            "arguments": getattr(c.function, "arguments", None) or "{}",
+                        },
+                    }
+                    for idx, c in enumerate(calls)
+                ]
+                ctx.add("assistant", msg.content or "", tool_calls=serialized_calls)
+                for idx, call in enumerate(calls):
+                    call_id = serialized_calls[idx]["id"]
                     name = getattr(call.function, "name", "")
                     try:
                         args = json.loads(call.function.arguments or "{}")
@@ -618,32 +642,28 @@ async def run_subagent(
                             )
                         else:
                             result = str(getattr(tool_executor, name)(**args))
-                        # >>> UPDATE-022: the main turn's ledger sees every
-                        # worker edit outcome — scope rejections included.
                         _catat_edit_ke_ledger(state, name, target, result)
                     else:
                         method = getattr(tool_executor, name, None)
                         if method is None:
-                            result = f"{PREFIX_GUARD} tool '{name}' does not exist here."
+                            result = (
+                                f"{PREFIX_GUARD} tool '{name}' does not exist here."
+                            )
                         else:
                             result = str(method(**args))
                             if name in ("write_file", "edit_file"):
-                                # Defensive: only workers hold write tools
-                                # today; if a toolset ever widens, the ledger
-                                # must not miss the edit.
                                 _catat_edit_ke_ledger(
-                                    state, name,
+                                    state,
+                                    name,
                                     os.path.normpath(str(args.get("file_path", ""))),
                                     result,
                                 )
                     jejak.append(
                         f"- {name}("
-                        + ", ".join(
-                            f"{k}={str(v)[:80]}" for k, v in args.items()
-                        )
+                        + ", ".join(f"{k}={str(v)[:80]}" for k, v in args.items())
                         + f") -> {result[:300]}"
                     )
-                    ctx.add("tool", result)
+                    ctx.add("tool", result, tool_call_id=call_id)
                 continue
             last_content = (msg.content or "").strip()
             if len(last_content) >= MIN_SUMMARY_LEN:
@@ -656,10 +676,6 @@ async def run_subagent(
                 }
         status = "capped" if tool_calls else "error"
         return {
-            # >>> UPDATE-025 commit 25: a dead sub-run still owes the
-            # caller whatever it learned — the tool trace and the last
-            # report fragment ARE a partial summary; "(no report)" erases
-            # work the caller could have used. <<<
             "summary": last_content
             or _salvage()
             or "(the sub-agent produced no report)",
@@ -802,8 +818,10 @@ async def dispatch(
             # >>> UPDATE-025 commit 8: per-worker fate into the turn ledger
             # (best status wins inside _catat_nasib when several workers run).
             _catat_nasib(
-                state, WORKER,
-                outcome.get("status", "error"), outcome.get("retries", 0),
+                state,
+                WORKER,
+                outcome.get("status", "error"),
+                outcome.get("retries", 0),
             )
             return f"--- worker {index + 1} ---\n{_format_report(WORKER, outcome)}"
 
@@ -823,7 +841,9 @@ async def dispatch(
             for _idx, _rep in enumerate(outcomes):
                 findings_ledger.simpan_temuan(
                     getattr(tool_executor, "project_path", "."),
-                    f"workers#{_idx + 1}", _rep)
+                    f"workers#{_idx + 1}",
+                    _rep,
+                )
         return "\n\n".join(outcomes)
 
     # explorer / verifier: single sequential sub-run
@@ -848,9 +868,7 @@ async def dispatch(
     # failures included — the success-only delegation ledger must stay
     # blind to crashed sub-runs (commit 1 semantics), but the pipeline-
     # broke disclosure needs exactly the deaths.
-    _catat_nasib(
-        state, role, outcome.get("status", "error"), outcome.get("retries", 0)
-    )
+    _catat_nasib(state, role, outcome.get("status", "error"), outcome.get("retries", 0))
     if outcome.get("status") == "error":
         state.subagent_calls = max(0, state.subagent_calls - 1)
         # >>> UPDATE-025 commit 5: a dead sub-run still found things. The
@@ -860,7 +878,9 @@ async def dispatch(
         if str(outcome.get("salvage") or ""):
             findings_ledger.simpan_temuan(
                 getattr(tool_executor, "project_path", "."),
-                role, _format_report(role, outcome))
+                role,
+                _format_report(role, outcome),
+            )
     else:
         # >>> UPDATE-025 commit 1: the sub-run succeeded — record the role
         # on the turn's delegation ledger (a crashed sub-run refunds the
@@ -872,5 +892,7 @@ async def dispatch(
         # the fix for "Orion forgot its own explorer findings next turn".
         findings_ledger.simpan_temuan(
             getattr(tool_executor, "project_path", "."),
-            role, _format_report(role, outcome))
+            role,
+            _format_report(role, outcome),
+        )
     return _format_report(role, outcome)

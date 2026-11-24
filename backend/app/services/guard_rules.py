@@ -239,6 +239,34 @@ def kalimat_perintah_kerja(teks: str) -> str:
     return _kalimat_pertama_berkata(teks, KATA_KERJA_MUTASI)
 
 
+# >>> P6.3 follow-up: an INTERROGATIVE request is not a work order.
+# "Di file mana itu diimplementasikan?" contains a mutation verb, but it
+# asks a QUESTION — treating it as a work order minted a phantom
+# [implementasi] debt on a pure information request (owner uji-1 2026-11-02).
+# Detection is deliberately conservative: Indonesian and English question
+# markers at the START of any sentence, plus "di mana / where" anywhere —
+# a genuine work order ("implementasikan fitur X di file Y") never contains
+# these patterns.
+_POLA_PERTANYAAN = re.compile(
+    r"(?:^|[.!?\n])\s*"
+    r"(?:apa|apakah|bagaimana|mengapa|kenapa|kapan|di\s*mana|ke\s*mana|"
+    r"berapa|siapa|bisakah|dapatkah|maukah|bolehkah|"
+    r"what|where|when|why|how|which|who|is|are|can|could|would|should|"
+    r"do|does|did|tell me|jelaskan|sebutkan|tunjukkan|beritahu)\b",
+    re.IGNORECASE,
+)
+_POLA_MANA_KAPAN = re.compile(
+    r"\b(?:mana|where|when)\b",
+    re.IGNORECASE,
+)
+
+
+def adalah_pertanyaan(teks: str) -> bool:
+    if not teks:
+        return False
+    return bool(_POLA_PERTANYAAN.search(teks) or _POLA_MANA_KAPAN.search(teks))
+
+
 def perintah_verifikasi_gaya(teks: str) -> tuple:
     """UPDATE-025 commit 29: (named-tool order sentence, does the
     instruction order getComputedStyle evidence). The 0.10.32 pure-verify
@@ -268,9 +296,7 @@ def zero_mutasi_diperintah(teks: str) -> tuple:
     hard, code-side block on mutating tools."""
     low = (teks or "").lower()
     if not (
-        "dilarang" in low
-        and "file" in low
-        and ("mengubah" in low or "membuat" in low)
+        "dilarang" in low and "file" in low and ("mengubah" in low or "membuat" in low)
     ):
         return False, ""
     for kal in (teks or "").splitlines():
@@ -376,12 +402,8 @@ def stagnasi_perlu_ditantang(
     not a loop.
     """
     return (
-        (
-            (nir_mutasi_beruntun >= 6 and percobaan_edit > 0)
-            or edit_gagal_beruntun >= 3
-        )
-        and sudah_ditantang < maks_tantangan
-    )
+        (nir_mutasi_beruntun >= 6 and percobaan_edit > 0) or edit_gagal_beruntun >= 3
+    ) and sudah_ditantang < maks_tantangan
 
 
 def ada_penolakan_jujur(teks: str) -> bool:
@@ -442,7 +464,8 @@ def tool_dinamai_tak_tersedia(permintaan: str, tersedia) -> list:
         return []
     punya = {str(t).lower() for t in (tersedia or set())}
     hilang = [
-        n for n in sorted(nama)
+        n
+        for n in sorted(nama)
         if n not in punya and not any(p.endswith("__" + n) for p in punya)
     ]
     return hilang
@@ -561,7 +584,7 @@ def utas_gagal_dari(teks: str) -> str:
     m = POLA_UTAS_GAGAL.search(teks)
     if not m:
         return ""
-    return teks[max(0, m.start() - 40): m.end() + 40].strip() or teks[:80]
+    return teks[max(0, m.start() - 40) : m.end() + 40].strip() or teks[:80]
 
 
 def utas_tentang_data(teks: str) -> bool:
@@ -579,36 +602,116 @@ def utas_tentang_data(teks: str) -> bool:
 # voice. Detection lets those blocks speak the USER's language; lexical,
 # cheap, and testable, like every other guard here.
 KATA_ID = (
-    "yang", "dan", "untuk", "dengan", "tidak", "sudah", "belum", "saya",
-    "kita", "anda", "kamu", "tolong", "apakah", "kenapa", "mengapa",
-    "berapa", "ini", "itu", "ada", "bisa", "mau", "jadi", "karena",
-    "saat", "akan", "atau", "juga", "masih", "sekali", "mohon", "pakai",
-    "buat", "kalau", "jika", "terima", "kasih", "sekalian", "dong",
+    "yang",
+    "dan",
+    "untuk",
+    "dengan",
+    "tidak",
+    "sudah",
+    "belum",
+    "saya",
+    "kita",
+    "anda",
+    "kamu",
+    "tolong",
+    "apakah",
+    "kenapa",
+    "mengapa",
+    "berapa",
+    "ini",
+    "itu",
+    "ada",
+    "bisa",
+    "mau",
+    "jadi",
+    "karena",
+    "saat",
+    "akan",
+    "atau",
+    "juga",
+    "masih",
+    "sekali",
+    "mohon",
+    "pakai",
+    "buat",
+    "kalau",
+    "jika",
+    "terima",
+    "kasih",
+    "sekalian",
+    "dong",
     # >>> UPDATE-026 commit 40 (owner B13, 2026-11-03): the regression-test
     # order "Kerjakan penambahan komentar header di frontend/src/App.jsx
     # sekarang." scored 0-0 (no catalog hit either way) and fell through
     # to 'en', so the disclosure blocks spoke English to an Indonesian
     # owner. Core prepositions and the common imperative forms now carry
     # the anchor; space-delimited, so English prose stays safe. <<<
-    "di", "ke", "pada", "dari", "oleh", "lalu", "agar", "supaya", "ketika",
-    "sambil", "namun", "tetapi", "sekitar", "sekarang", "seluruh", "semua",
-    "kerjakan", "tambahkan", "jelaskan", "buka", "periksa", "nyatakan",
-    "sebutkan", "perbaiki", "pasang", "kirimkan", "tampilkan", "gunakan",
-    "jalankan", "pastikan", "bandingkan", "ringkas", "ubah",
+    "di",
+    "ke",
+    "pada",
+    "dari",
+    "oleh",
+    "lalu",
+    "agar",
+    "supaya",
+    "ketika",
+    "sambil",
+    "namun",
+    "tetapi",
+    "sekitar",
+    "sekarang",
+    "seluruh",
+    "semua",
+    "kerjakan",
+    "tambahkan",
+    "jelaskan",
+    "buka",
+    "periksa",
+    "nyatakan",
+    "sebutkan",
+    "perbaiki",
+    "pasang",
+    "kirimkan",
+    "tampilkan",
+    "gunakan",
+    "jalankan",
+    "pastikan",
+    "bandingkan",
+    "ringkas",
+    "ubah",
 )
 KATA_EN = (
-    " the ", " and ", " for ", " with ", "please", " i ", " my ", " we ",
-    " you ", " is ", " are ", " want ", " need ", " because ", " when ",
-    " what ", " how ", "thanks", " should ", " would ", " could ",
-    " check ", " make ", " use ",
+    " the ",
+    " and ",
+    " for ",
+    " with ",
+    "please",
+    " i ",
+    " my ",
+    " we ",
+    " you ",
+    " is ",
+    " are ",
+    " want ",
+    " need ",
+    " because ",
+    " when ",
+    " what ",
+    " how ",
+    "thanks",
+    " should ",
+    " would ",
+    " could ",
+    " check ",
+    " make ",
+    " use ",
 )
 
 
 # >>> UPDATE-026 commit 40: Indonesian morphology tie-break for
 # deteksi_bahasa (prefix me-/ber-/ter-/di-/pe- with suffix -kan/-an). <<<
 _POLA_AFIKS_ID = re.compile(
-    r"\b(?:me|meng|mem|men|meny|ber|bel|ter|di|pe|pen|pem|per)"
-    r"[a-z]{2,}(?:kan|an)\b"
+    r"\b(?:me|meng|mem|men|meny|ber|bel|ter|di|pe|pen|pem|per)" r"[a-z]{2,}(?:kan|an)\b"
 )
 
 

@@ -64,6 +64,14 @@ TABLE: dict[str, tuple[Label, Optional[Label]]] = {
     "github_repo_info": (lambda a: "🐙 Membaca info repo GitHub...", None),
     "github_list_issues": (lambda a: "🐙 Membaca daftar issue GitHub...", None),
     "github_create_pr": (lambda a: "🐙 Membuat Pull Request GitHub...", None),
+    "semantic_search": (
+        lambda a: f"🔎 Semantic search: {str(a.get('query', ''))[:60]}",
+        None,
+    ),
+    "index_semantic_search": (
+        lambda a: "🧠 Building semantic index (may take several minutes)...",
+        None,
+    ),
 }
 
 # For these 14 entries, tool name == method name on ToolExecutor.
@@ -89,10 +97,7 @@ WAJIB_DI_MAIN = {
     "write_file",  # permission_manager + post_edit_verifier
     "edit_file",  # permission_manager + post_edit_verifier
     "run_terminal",  # confirmation modal + heartbeat + kill tree
-    "git_diff",  # special handling of large output
-    "github_repo_info",
-    "github_list_issues",
-    "github_create_pr",
+    "git_diff",  # special handling of large output 
 }
 
 
@@ -127,6 +132,9 @@ NAMA_TOOL_AKTIF = {
     "delegate_explorer",
     "delegate_verifier",
     "delegate_workers",
+    # >>> P6.3: semantic search — pencarian berbasis makna
+    "semantic_search",
+    "index_semantic_search",
 }
 
 

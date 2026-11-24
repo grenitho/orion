@@ -42,3 +42,8 @@ mcp>=1.2.0
 pypdf>=5.0.0
 python-docx>=1.1.0
 openpyxl>=3.1.0
+# >>> UPDATE-025: semantic search (P6) — pencarian berdasarkan makna.
+# sentence-transformers: model embedding BAAI/bge-small-en-v1.5.
+# sqlite-vec: ekstensi SQLite untuk pencarian vektor.
+sentence-transformers>=3.0.0
+sqlite-vec>=0.1.6

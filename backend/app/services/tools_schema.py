@@ -592,4 +592,50 @@ TOOLS = [
             },
         },
     },
+    # >>> P6.3: semantic search — pencarian berdasarkan MAKNA, bukan kata kunci.
+    {
+        "type": "function",
+        "function": {
+            "name": "semantic_search",
+            "description": (
+                "Search the codebase by MEANING, not exact keywords. Uses a local "
+                "embedding model (BAAI/bge-small-en-v1.5) + SQLite vector index. "
+                "Use this when: (a) you are looking for a concept but don't know "
+                "the exact function/variable name ('where is the backup logic?'), "
+                "(b) `search_code` returns too many irrelevant hits, or "
+                "(c) the project is large and you need to find relevant code fast. "
+                "Returns the top matching code chunks with file path and line context."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language description of what you are looking for, e.g. 'function that backs up files before overwriting them'.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of results to return (default 5, max 15).",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    # >>> P6.3: index tool — membangun/memperbarui index semantik.
+    {
+        "type": "function",
+        "function": {
+            "name": "index_semantic_search",
+            "description": (
+                "Build or rebuild the semantic search index for the current project. "
+                "Takes 1-10 minutes depending on project size (runs locally on CPU). "
+                "Call this ONCE per project (or after major refactors). The index "
+                "is stored in `.orion/semantic_index.db` and reused across sessions. "
+                "IMPORTANT: Tell the user this may take a while before calling."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
 ]
