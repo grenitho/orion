@@ -269,10 +269,10 @@ TOOLS = [
         "function": {
             "name": "web_fetch",
             "description": (
-                "Read the CONTENTS of a URL in full and return them as text. "
-                "Use AFTER web_search found a relevant URL, or to read official "
-                "documentation / issue pages / changelogs. web_search only gives "
-                "snippets; this tool gives the full content."
+                "Read the CONTENTS of a URL in full and return them as clean text "
+                "(including page title, meta description, and JSON-LD structured data). "
+                "Use whenever the user gives a link (job posting, product page, article) "
+                "or after web_search finds a relevant URL."
             ),
             "parameters": {
                 "type": "object",

@@ -729,7 +729,38 @@ class ToolExecutor:
 
         # ---- clean HTML into text ----
         if "html" in ctype.lower() or teks.lstrip()[:1].startswith("<"):
+            import html as _html
             import re as _re
+
+            # >>> P8.2: Tangkap metadata penting (<title>, og:description, JSON-LD)
+            # sebelum <head> dan <script> dihapus — sangat membantu untuk halaman
+            # lowongan kerja (JobPosting) & produk (Product) modern.
+            meta_bagian = []
+            _m_title = _re.search(r"(?is)<title[^>]*>(.*?)</title>", teks)
+            if _m_title:
+                _t = _html.unescape(_re.sub(r"<[^>]+>", "", _m_title.group(1))).strip()
+                if _t:
+                    meta_bagian.append(f"Page Title: {_t}")
+
+            for _m_meta in _re.finditer(
+                r'(?is)<meta[^>]+(?:name|property)=["\'](?:description|og:title|og:description)["\'][^>]*>',
+                teks,
+            ):
+                _m_cnt = _re.search(r'(?is)content=["\'](.*?)["\']', _m_meta.group(0))
+                if _m_cnt:
+                    _val = _html.unescape(_m_cnt.group(1)).strip()
+                    if _val and _val not in meta_bagian:
+                        meta_bagian.append(f"Meta: {_val}")
+
+            for _m_ld in _re.finditer(
+                r'(?is)<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+                teks,
+            ):
+                _ld_raw = _m_ld.group(1).strip()
+                if _ld_raw and any(
+                    k in _ld_raw for k in ("JobPosting", "Product", "Article", "Offer")
+                ):
+                    meta_bagian.append(f"Structured Data (JSON-LD): {_ld_raw[:4000]}")
 
             # >>> PATCH ORION-35c: modern documentation pages put the navigation
             # MENU at the start of the document, so a naive extraction returns the
@@ -746,17 +777,17 @@ class ToolExecutor:
             )
             teks = _re.sub(r"(?s)<!--.*?-->", " ", teks)
             teks = _re.sub(r"(?s)<[^>]+>", " ", teks)
-            for ent, gnt in (
-                ("&amp;", "&"),
-                ("&lt;", "<"),
-                ("&gt;", ">"),
-                ("&quot;", '"'),
-                ("&#39;", "'"),
-                ("&nbsp;", " "),
-            ):
-                teks = teks.replace(ent, gnt)
+            teks = _html.unescape(teks)
             teks = _re.sub(r"[ \t]+", " ", teks)
-            teks = _re.sub(r"\n\s*\n+", "\n\n", teks)
+            teks = _re.sub(r"\n\s*\n+", "\n\n", teks).strip()
+
+            if meta_bagian:
+                header_meta = "\n".join(meta_bagian)
+                teks = (
+                    f"{header_meta}\n\n--- Page Body ---\n{teks}"
+                    if teks
+                    else header_meta
+                )
 
         teks = teks.strip()
         if not teks:
@@ -1608,22 +1639,6 @@ class ToolExecutor:
                 except Exception:
                     pass
             return f"❌ [SYSTEM ERROR]: Failed to run the terminal command. {e!s}"
-
-    # >>> P5: GitHub Integration
-    def github_repo_info(self) -> str:
-        from app.services import github_manager
-
-        return github_manager.get_repo_info(self.project_path)
-
-    def github_list_issues(self, limit: int = 5) -> str:
-        from app.services import github_manager
-
-        return github_manager.list_issues(self.project_path, limit)
-
-    def github_create_pr(self, title: str, body: str, base_branch: str = "main") -> str:
-        from app.services import github_manager
-
-        return github_manager.create_pr(self.project_path, title, body, base_branch)
 
     # >>> P5: GitHub Integration
     def github_repo_info(self) -> str:
