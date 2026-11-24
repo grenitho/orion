@@ -381,6 +381,7 @@ class ToolExecutor:
             if vonis is not None:
                 return vonis
             sintaks = self._auto_syntax_py(file_path, full_path, content)
+            self._sync_semantic_index_file(file_path)
             return (
                 f"Success: File '{file_path}' written/updated.{backup_warning} "
                 f"{self._bukti_string(sebelum, sesudah)}{sintaks}"
@@ -539,6 +540,7 @@ class ToolExecutor:
         # verification ONLY for results starting with it. Before UPDATE-004
         # this message started with "Edited file", so pure-edit turns never
         # produced evidence and the post-edit verifier never ran at all.
+        self._sync_semantic_index_file(file_path)
         return (
             f"Success: edited file '{file_path}'. {success_count} block(s) replaced."
             f"{backup_warning} {self._bukti_string(sebelum, sesudah)}{sintaks}"
@@ -935,6 +937,7 @@ class ToolExecutor:
         try:
             peringatan = self._backup_before_overwrite(full, file_path)
             os.remove(full)
+            self._sync_semantic_index_file(file_path, deleted=True)
             return (
                 f"Success: '{file_path}' deleted. Its last copy is in "
                 f".orion/backups/{file_path}.bak — restore it with restore_backup "
@@ -962,6 +965,8 @@ class ToolExecutor:
             self._backup_before_overwrite(src, from_path)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.move(src, dst)
+            self._sync_semantic_index_file(from_path, deleted=True)
+            self._sync_semantic_index_file(to_path, deleted=False)
             return (
                 f"Success: '{from_path}' moved to '{to_path}'. "
                 f"The source backup remains in .orion/backups/{from_path}.bak. "
@@ -1644,6 +1649,19 @@ class ToolExecutor:
                 project_path=self.project_path,
             )
         return self._semantic_engine
+
+    def _sync_semantic_index_file(self, file_path: str, deleted: bool = False) -> None:
+        """Update atau hapus entri file di semantic index secara diam-diam."""
+        try:
+            engine = self._get_semantic_engine()
+            if not engine.index_path.exists():
+                return
+            if deleted and hasattr(engine, "remove_file"):
+                engine.remove_file(file_path)
+            elif hasattr(engine, "index_file"):
+                engine.index_file(file_path)
+        except Exception:
+            pass
 
     def semantic_search(self, query: str, top_k: int = 5) -> str:
         """Cari kode berdasarkan makna. Wrapper tipis ke SemanticSearchEngine."""

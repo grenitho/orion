@@ -92,6 +92,7 @@ from dotenv import load_dotenv
 load_dotenv()
 # >>> END OF CRITICAL FIX <<<
 
+import asyncio
 import json
 import re
 
@@ -459,6 +460,7 @@ def load_orion_config(project_path: str):
             # to the main router with a logged warning (never crashes).
             "subagent_models": {},
             "description": "Orion settings. Change max_iterations to limit the AI thinking loop. token_budget_threshold controls when emergency context pruning occurs. subagents_* control the internal sub-agents (UPDATE-016). inbox_* control the .orion/inbox drop-zone; subagent_models pins per-role models (UPDATE-018).",
+            "semantic_auto_index": True,
         }
         try:
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -844,6 +846,7 @@ CONFIG_BOOLEANS = (
     "subagents_enabled",
     "inbox_enabled",
     "mcp_enabled",
+    "semantic_auto_index",
 )
 CONFIG_OTHER = (
     "subagent_models",  # dict, validated by validate_subagent_models()
@@ -875,6 +878,7 @@ def _config_defaults() -> dict:
             "(UPDATE-016). inbox_* control the .orion/inbox drop-zone; "
             "subagent_models pins per-role models (UPDATE-018)."
         ),
+        "semantic_auto_index": True,
     }
 
 
@@ -1180,7 +1184,7 @@ async def set_project(request: ProjectPathRequest):
                 print(
                     f"[ORION MCP] server '{_srv['name']}' FAILED to start: {_srv.get('error')}"
                 )
-
+    asyncio.create_task(_trigger_semantic_auto_index("set-project"))
     return {
         "success": True,
         "message": "Project scanned successfully.",
@@ -1188,6 +1192,19 @@ async def set_project(request: ProjectPathRequest):
         "structure_warnings": structure_warnings,  # Send warnings to the frontend
         "mcp": mcp_summary,  # UPDATE-014 (additive; None when MCP is unavailable)
     }
+
+
+async def _trigger_semantic_auto_index(reason: str = "set-project"):
+    if not orion_config.get("semantic_auto_index", True):
+        return
+    if tool_executor is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(None, tool_executor.index_semantic_search)
+        logger.info("[SEMANTIC AUTO-INDEX] (%s) selesai: %s", reason, str(res)[:120])
+    except Exception as e:
+        logger.warning("[SEMANTIC AUTO-INDEX] (%s) gagal: %s", reason, e)
 
 
 async def auto_restore_project():
@@ -1207,9 +1224,6 @@ async def auto_restore_project():
         if todo_manager:
             todo_manager.set_project_path(last_path)  # >>> FIX: None-safe guard
         load_orion_config(last_path)
-        # >>> UPDATE-014: a restored project must come back with its MCP
-        # tools, exactly like a fresh /set-project would. Failures are
-        # warnings only — startup must never hang or die because of MCP.
         if mcp_manager is not None:
             try:
                 _ringkasan_mcp = await mcp_manager.start_all(last_path)
@@ -1217,6 +1231,7 @@ async def auto_restore_project():
                     print(f"[ORION MCP WARNING] {_w}")
             except Exception as e:
                 print(f"[ORION MCP WARNING] MCP startup skipped: {e}")
+        asyncio.create_task(_trigger_semantic_auto_index("auto-restore"))
         print("[ORION STARTUP] ✅ Project restored successfully. Tool executor ready.")
     else:
         print("[ORION STARTUP] No previous project found. Waiting for /set-project...")

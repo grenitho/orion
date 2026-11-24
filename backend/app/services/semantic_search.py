@@ -301,3 +301,81 @@ class SemanticSearchEngine:
                     yield full
                 except OSError:
                     continue
+
+    def _delete_rel_from_db(self, db, rel: str) -> None:
+        old_ids = [
+            r[0] for r in db.execute("SELECT rowid FROM chunks WHERE path = ?", (rel,))
+        ]
+        for rid in old_ids:
+            db.execute("DELETE FROM vec_items WHERE rowid = ?", (rid,))
+            db.execute("DELETE FROM chunks WHERE rowid = ?", (rid,))
+        db.execute("DELETE FROM indexed_files WHERE path = ?", (rel,))
+
+    def remove_file(self, file_path: str) -> None:
+        if not self._available or not self.index_path.exists():
+            return
+        rel = file_path.replace("\\", "/").lstrip("./")
+        with self._lock:
+            db = self._open_db()
+            try:
+                self._delete_rel_from_db(db, rel)
+                db.commit()
+            finally:
+                db.close()
+
+    def index_file(self, file_path: str) -> None:
+        if not self._available or not self.index_path.exists():
+            return
+        rel = file_path.replace("\\", "/").lstrip("./")
+        fpath = (self.project_path / rel).resolve()
+        if not fpath.is_file() or fpath.suffix.lower() not in CODE_EXTENSIONS:
+            return
+        if fpath.name.startswith("test_") or fpath.name.endswith("_test.py"):
+            return
+        try:
+            mtime, size = _file_stat(fpath)
+            if size > MAX_FILE_SIZE:
+                return
+            text = fpath.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return
+
+        model = self._load_model()
+        if model is None:
+            return
+        dim = model.get_embedding_dimension()
+        chunks = _chunk_code(text, fpath.suffix.lower())
+        encoded = [
+            (
+                idx,
+                chunk,
+                sqlite_vec.serialize_float32(
+                    model.encode(chunk, show_progress_bar=False)
+                ),
+            )
+            for idx, chunk in enumerate(chunks)
+            if chunk.strip()
+        ]
+
+        with self._lock:
+            db = self._open_db()
+            try:
+                self._ensure_schema(db, dim)
+                self._delete_rel_from_db(db, rel)
+                for idx, chunk, vec_blob in encoded:
+                    cur = db.cursor()
+                    cur.execute(
+                        "INSERT INTO chunks (path, chunk_index, content) VALUES (?, ?, ?)",
+                        (rel, idx, chunk),
+                    )
+                    cur.execute(
+                        "INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)",
+                        (cur.lastrowid, vec_blob),
+                    )
+                db.execute(
+                    "INSERT OR REPLACE INTO indexed_files (path, mtime, size) VALUES (?, ?, ?)",
+                    (rel, mtime, size),
+                )
+                db.commit()
+            finally:
+                db.close()
