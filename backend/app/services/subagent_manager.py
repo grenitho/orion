@@ -4,28 +4,28 @@ subagent_manager.py — Orion's sub-agent orchestration (UPDATE-016)
 Closes the MCP phase: the main agent loop can delegate bounded work to
 internal sub-agents. Three roles, one level deep, summaries only:
 
-  * ``explorer``  read-only investigation; returns ONE condensed findings
+- ``explorer``  read-only investigation; returns ONE condensed findings
     report instead of dragging dozens of file reads through the main
     context window;
-  * ``verifier``  post-edit critic; runs the real verification tools
+- ``verifier``  post-edit critic; runs the real verification tools
     (verify_code/verify_html/run_tests/git_diff/…) and returns a verdict
     plus a concrete defect list — the honesty philosophy of the claim gate
     applied by a second pair of eyes;
-  * ``worker``    parallel executors for independent multi-file tasks; each
+- ``worker``    parallel executors for independent multi-file tasks; each
     worker's WRITE scope is an explicit disjoint file list checked BEFORE
     any subprocess/LLM work starts, and re-checked on every write.
 
 Hard rules (v1, all unit-tested):
-  * depth 1 — a sub-agent has no delegation tools, so it cannot spawn;
-  * a sub-agent never talks to the user (no ask_user, no confirm_terminal,
+- depth 1 — a sub-agent has no delegation tools, so it cannot spawn;
+- a sub-agent never talks to the user (no ask_user, no confirm_terminal,
     no run_terminal: dangerous commands stay exclusively in the main loop
     where the approval modal lives);
-  * sub-agent history is an in-memory MiniContext — session_history.json is
+- sub-agent history is an in-memory MiniContext — session_history.json is
     never touched by a sub-run;
-  * budgets: ``subagent_max_per_turn`` delegations per /chat turn (counted
+- budgets: ``subagent_max_per_turn`` delegations per /chat turn (counted
     in SessionState), ``subagent_max_iterations`` LLM rounds per sub-run,
     ``subagent_workers_max`` parallel workers per delegation;
-  * NOTHING here raises into the agent loop: every failure (budget, scope
+- NOTHING here raises into the agent loop: every failure (budget, scope
     overlap, dead model, tool crash) becomes an informative
     ``[SUBAGENT ...]`` string, exactly like the MCP failure contract.
 
@@ -38,8 +38,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -125,6 +125,7 @@ CFG_ENABLED = "subagents_enabled"
 CFG_MAX_ITER = "subagent_max_iterations"
 CFG_MAX_PER_TURN = "subagent_max_per_turn"
 CFG_WORKERS_MAX = "subagent_workers_max"
+CFG_STRICT_WORKER_CODING = "strict_worker_coding"
 # >>> UPDATE-018: per-role model profiles (Feature B). Config shape:
 #   "subagent_models": {"explorer"|"verifier"|"workers":
 #       {"group": "gemini"|"provider_<N>"|"fallback", "model": name} | null}
@@ -161,22 +162,6 @@ PREFIX_ERROR = "[SUBAGENT ERROR]"
 PREFIX_PARTIAL = "[SUBAGENT PARTIAL]"
 
 
-# >>> UPDATE-025 commit 6 (owner directive: "pasang retry-1 untuk setiap
-# sub agent — kejadian ini sudah berulang"): the router ALREADY retries
-# per model (LLM_MAX_RETRIES_PER_MODEL) and fails over across the whole
-# fleet, so an exception that reaches a sub-run means the ENTIRE cascade
-# was down. The missing layer was a fleet-wide pause: ONE retry of the
-# whole call after a backoff, then the 0.10.9 salvage path if it dies
-# again. Retry-1, never more — a second sub-run-level retry would just
-# double worst-case cost against an outage minutes long.
-# >>> UPDATE-025 commit 8 (owner perf log 2026-10-29 15:42): the evidence
-# overruled "never more". The glm outage killed the first call at
-# 3:31:49 AND the 8 s retry at 3:34:33 — minute-scale outages outlive a
-# single short pause. The budget is now ESCALATING: retry-1 after 8 s,
-# retry-2 after 45 s (env ORION_SUBRUN_RETRY_BACKOFFS="8,45"), so the
-# second cascade lands minutes into the outage, where the blips seen so
-# far (±3-6 min) tend to have healed. Extra cost stays bounded: the
-# retries only exist while the fleet is down.
 def _baca_backoffs() -> list[float]:
     try:
         angka = [
@@ -227,22 +212,7 @@ def role_of_tool(name: str) -> str:
     ]
 
 
-# >>> UPDATE-025 commit 1 (delegation-compliance disclosure): which
-# sub-agent roles did the USER's own message ask for? Two deterministic
-# patterns, deliberately narrow (v1): the explicit tool names, and a role
-# word in a sub-agent/delegation context ("sub agent verifier:",
-# "delegasikan ke worker", "delegate the fix to the explorer"). A bare
-# "verify"/"verification" must NOT match — verify_html is a tool, not a
-# verifier, and over-matching would cry wolf on every build check.
 _POLA_TOOL_DELEGASI = re.compile(r"\bdelegate_(explorer|verifier|workers)\b", re.I)
-# >>> UPDATE-025 commit 8: the owner's OWN pipeline wording ("tugaskan
-# sekali lagi explorer … serahkan ke worker … berikan ke verifier")
-# carried no sub-agent/delegation context word, so commit 1's narrow
-# pattern saw NO requested roles — and the pipeline-broke disclosure
-# would have stayed silent on the very incident it exists for. Command
-# verbs now count as delegation context. The lookahead keeps programming
-# jargon ("worker thread", "explorer pool") from crying wolf; bare
-# "verify"/"verification" still never matches (commit 1 rule intact).
 _POLA_SUB_PERAN = re.compile(
     r"(?:sub[\s_-]?agent|delegasi\w*|delegation|delegate|tugas\w*|"
     r"serahkan|berikan|kirimkan?|pakai|gunakan|dispatch|call|run)\b"
@@ -282,9 +252,7 @@ def _catat_nasib(state: Any, role: str, status: str, retries: int) -> None:
     delegation ledger deliberately hides (a crashed sub-run must still
     count as "requested but never really ran" there). Best status wins
     when one role was dispatched repeatedly ("ok" > "capped" > "error"),
-    retries keep their maximum. The turn-end pipeline-broke disclosure
-    reads this ledger: a requested role that DIED makes the collapse
-    visible even on read-only turns whose reply claims nothing.
+    retries keep their maximum.
     """
     nasib = getattr(state, "nasib_role", None)
     if not isinstance(nasib, dict):
@@ -297,6 +265,22 @@ def _catat_nasib(state: Any, role: str, status: str, retries: int) -> None:
         nasib[role] = (lama[0], max(lama[1], retries))
 
 
+def is_strict_worker_coding(config: dict | None) -> bool:
+    """True when all code writes/edits must be delegated to worker sub-agents."""
+    cfg = config or {}
+    if not bool(cfg.get(CFG_ENABLED, True)):
+        return False
+    for key in (CFG_STRICT_WORKER_CODING, "delegate_coding_to_workers"):
+        if key in cfg and cfg[key] is not None:
+            return bool(cfg[key])
+    return os.getenv("ORION_STRICT_WORKER_CODING", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 def read_config(config: dict | None) -> dict:
     """Clamped sub-agent knobs from orion_config (missing keys = defaults)."""
     config = config or {}
@@ -307,10 +291,12 @@ def read_config(config: dict | None) -> dict:
             return default
         return max(lo, min(hi, raw))
 
+    default_per_turn = 8 if is_strict_worker_coding(config) else DEFAULT_MAX_PER_TURN
+
     return {
         "enabled": bool(config.get(CFG_ENABLED, True)),
         "max_iter": _int(CFG_MAX_ITER, DEFAULT_MAX_ITER, 1, 30),
-        "max_per_turn": _int(CFG_MAX_PER_TURN, DEFAULT_MAX_PER_TURN, 1, 10),
+        "max_per_turn": _int(CFG_MAX_PER_TURN, default_per_turn, 1, 10),
         "workers_max": _int(CFG_WORKERS_MAX, DEFAULT_WORKERS_MAX, 1, 6),
     }
 
@@ -345,19 +331,7 @@ def read_model_profiles(config: dict | None) -> dict:
 
 
 def _llm_with_profile(llm_call: Callable, profile: dict | None) -> Callable:
-    """Wrap llm_call so every sub-run call carries the role's profile.
-
-    Returns the ORIGINAL callable when there is no profile, so the default
-    path (no subagent_models configured) is bit-for-bit the pre-018
-    behaviour — existing fakes in tests keep working untouched.
-
-    >>> UPDATE-024 Commit 3: one quiet retry on failure. A pinned profile
-    is a SINGLE-TARGET queue by design, so a transient provider timeout
-    used to kill the whole sub-run (owner log 2026-10-27: glm TIMEOUT ->
-    'sub-run-failed' -> the explorer report never arrived). The main loop
-    retries across tiers; a pin has no tiers, so it gets one backoff retry
-    instead — pin fidelity preserved (same model), flakiness absorbed.
-    """
+    """Wrap llm_call so every sub-run call carries the role's profile."""
     if not profile:
         return llm_call
 
@@ -422,18 +396,7 @@ def _catat_perf_subrun(
     status: str | None = None,
     extra: dict | None = None,
 ) -> None:
-    """Record ONE sub-run LLM call into .orion/performance_log.jsonl
-    (UPDATE-024 Commit 1, owner directive: sub-run token usage is user data).
-
-    Entries carry the additive ``role`` field ("explorer"/"verifier"/
-    "worker") so per-role accounting is possible; the main loop's entries
-    keep their exact old shape. ``response=None`` records the failed-call
-    shape (status "error", zero tokens). ``status="retry"`` (UPDATE-025
-    commit 6) marks a first attempt that died and earned the sub-run's
-    single retry; ``extra`` rides additive fields like ``retried``.
-    Never raises: bookkeeping must not kill a sub-run — same rule as the
-    ledger hook.
-    """
+    """Record ONE sub-run LLM call into .orion/performance_log.jsonl."""
     try:
         proj = getattr(tool_executor, "project_path", None) or "."
         if response is None:
@@ -470,20 +433,14 @@ def _schemas_for(role: str) -> list:
 
 
 def _catat_edit_ke_ledger(state: Any, tool: str, path: str, result: str) -> None:
-    """UPDATE-022: worker edits land in the MAIN turn's edit ledger.
-
-    A worker's failed write/edit (including a scope rejection) used to be
-    visible only inside the sub-agent report text — the main loop's claim
-    gate never saw it, the exact defect class of the InvoiceFlow M1
-    incident one layer down. Successes are recorded too, so a later retry
-    marks the path recovered. Never raises: the ledger must not be able to
-    kill a sub-run. ``state=None`` keeps every old call site valid.
-    """
+    """UPDATE-022: worker edits land in the MAIN turn's edit ledger."""
     if state is None or not hasattr(state, "catat_edit_gagal"):
         return
     try:
         if isinstance(result, str) and result.lower().startswith("success"):
             state.catat_edit_sukses(path)
+            if hasattr(state, "catat_file_berubah"):
+                state.catat_file_berubah(f"- `{path}` ({tool} via worker)")
         else:
             first_line = str(result).splitlines()[0][:200] if result else "no result"
             state.catat_edit_gagal(path, f"[{tool} via sub-agent] {first_line}")
@@ -528,12 +485,6 @@ async def run_subagent(
     tool_calls = 0
     iter_done = 0
     retries = 0
-    # >>> UPDATE-025 commit 5 (owner transcript: explorer timeout -> main
-    # re-investigated from zero): a dead or capped sub-run used to take
-    # everything it learned to the grave. This trail digests what it
-    # actually did (tool + key args + first slice of each result) so the
-    # dispatch layer can hand the findings to the main agent instead of
-    # a bare error string.
     jejak: list[str] = []
 
     def _salvage() -> str:
@@ -689,13 +640,9 @@ async def run_subagent(
         }
     except Exception as exc:  # the loop must never die because of a sub-run
         _log(f"sub-run failed: {type(exc).__name__}: {exc}")
-        # >>> UPDATE-024 Commit 1: a failed sub-call still belongs in the
-        # usage log (status "error"), so trial data never hides a dead pin.
         _catat_perf_subrun(tool_executor, None, role, 0.0)
         return {
             "summary": f"{PREFIX_ERROR} {role} sub-run failed: {type(exc).__name__}: {str(exc)[:200]}",
-            # >>> UPDATE-025 commit 5: honest iteration count (0 used to
-            # erase the fact that the sub-run DID work before dying).
             "iterations": iter_done,
             "tool_calls": tool_calls,
             "status": "error",
@@ -705,8 +652,7 @@ async def run_subagent(
 
 
 def _semua_error(outcomes) -> bool:
-    """True when EVERY worker report string carries the error prefix —
-    the delegation produced nothing at all (UPDATE-024 Commit 3)."""
+    """True when EVERY worker report string carries the error prefix."""
     reports = [o for o in outcomes if isinstance(o, str)]
     return bool(reports) and all(PREFIX_ERROR in o for o in reports)
 
@@ -717,10 +663,6 @@ def _format_report(role: str, outcome: dict) -> str:
         f"{outcome['tool_calls']} tool calls, status {outcome['status']}]\n"
         f"{outcome['summary']}"
     )
-    # >>> UPDATE-025 commit 5 (owner: "the explorer was cut off, then Orion
-    # re-investigated everything itself"): when a sub-run dies or is capped,
-    # its salvaged trail rides along. The main agent continues FROM it —
-    # no repeat reads, and the pipeline may resume that role NEXT turn.
     salvage = str(outcome.get("salvage") or "")
     if salvage and outcome.get("status") in ("error", "capped"):
         teks += (
@@ -771,11 +713,6 @@ async def dispatch(
 
     role = role_of_tool(tool_name)
 
-    # >>> UPDATE-018: per-role model profile (orion_config subagent_models).
-    # Resolved ONCE per delegation; workers of one delegation share the
-    # 'workers' profile. A missing/invalid entry means llm_call_role is the
-    # untouched main-router callable (pre-018 behaviour); credential-level
-    # fallback happens inside the router with a logged warning.
     profile = read_model_profiles(config).get(role)
     if profile and logger is not None:
         try:
@@ -815,10 +752,8 @@ async def dispatch(
                 scope=item.get("files") or [],
                 project_map=project_map,
                 logger=logger,
-                state=state,  # UPDATE-022: worker edits feed the main ledger
+                state=state,
             )
-            # >>> UPDATE-025 commit 8: per-worker fate into the turn ledger
-            # (best status wins inside _catat_nasib when several workers run).
             _catat_nasib(
                 state,
                 WORKER,
@@ -830,16 +765,10 @@ async def dispatch(
         outcomes = await asyncio.gather(
             *[_one(i, t) for i, t in enumerate(tasks) if isinstance(t, dict)]
         )
-        # >>> UPDATE-024 Commit 3: a delegation that died wholesale must not
-        # eat the turn's budget — refund it so the main agent may retry once.
         if _semua_error(outcomes):
             state.subagent_calls = max(0, state.subagent_calls - 1)
         else:
-            # >>> UPDATE-025 commit 1: at least one worker really ran —
-            # the turn's delegation ledger records the role.
             _catat_peran(state, WORKER)
-            # >>> UPDATE-024 Commit 6: worker reports enter the findings
-            # ledger so next turn's context still knows what they found.
             for _idx, _rep in enumerate(outcomes):
                 findings_ledger.simpan_temuan(
                     getattr(tool_executor, "project_path", "."),
@@ -863,20 +792,11 @@ async def dispatch(
         max_iter=cfg["max_iter"],
         project_map=project_map,
         logger=logger,
-        state=state,  # UPDATE-022: read-only roles never edit, but the
-        # ledger hook is uniform (and future-proof) for every role
+        state=state,
     )
-    # >>> UPDATE-025 commit 8: the turn's fate ledger sees EVERY outcome,
-    # failures included — the success-only delegation ledger must stay
-    # blind to crashed sub-runs (commit 1 semantics), but the pipeline-
-    # broke disclosure needs exactly the deaths.
     _catat_nasib(state, role, outcome.get("status", "error"), outcome.get("retries", 0))
     if outcome.get("status") == "error":
         state.subagent_calls = max(0, state.subagent_calls - 1)
-        # >>> UPDATE-025 commit 5: a dead sub-run still found things. The
-        # salvaged trail enters the findings ledger too, so even a context
-        # prune/summarize or a soft-limit resume cannot erase it — the
-        # durable half of the "Orion loses context" fix.
         if str(outcome.get("salvage") or ""):
             findings_ledger.simpan_temuan(
                 getattr(tool_executor, "project_path", "."),
@@ -884,14 +804,7 @@ async def dispatch(
                 _format_report(role, outcome),
             )
     else:
-        # >>> UPDATE-025 commit 1: the sub-run succeeded — record the role
-        # on the turn's delegation ledger (a crashed sub-run refunds the
-        # budget AND stays invisible here, so the checkpoint can disclose
-        # "requested but never really ran").
         _catat_peran(state, role)
-        # >>> UPDATE-024 Commit 6: the report becomes durable conversation
-        # memory (findings ledger), immune to history pruning/summarize —
-        # the fix for "Orion forgot its own explorer findings next turn".
         findings_ledger.simpan_temuan(
             getattr(tool_executor, "project_path", "."),
             role,

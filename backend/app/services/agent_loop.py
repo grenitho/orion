@@ -1512,6 +1512,23 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 "user; jangan pernah menjadikannya dasar deteksi bahasa — "
                 "bahasa turn ini adalah bahasa permintaan asli user."
             )
+
+        if subagent_manager.is_strict_worker_coding(deps.config) and isinstance(
+            deps.context_message, dict
+        ):
+            deps.context_message["content"] = str(
+                deps.context_message.get("content", "")
+            ) + (
+                "\n[STRICT WORKER CODING MODE]: Direct `write_file` and `edit_file` "
+                "calls by the main agent are BLOCKED in this project. Use the main "
+                "agent (or `delegate_explorer`) ONLY for reading files, inspecting "
+                "references, searching code, running terminal/verification checks, "
+                "and planning. For EVERY code creation or edit — even a 1-line fix "
+                "— delegate to `delegate_workers` with exact `files` scopes and "
+                "complete, self-contained instructions (exact paths, design tokens, "
+                "and required changes) so the worker can execute without extra discovery."
+            )
+
         state.todo_ids_awal_turn = {
             str(t.get("id")) for t in state.sisa_todo(deps.todo_manager)
         }
@@ -2672,6 +2689,21 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 yield deps.kirim_status(
                                     "🚫 Mutasi diblok: " + str(func_name)
                                 )
+
+                        elif func_name in (
+                            "write_file",
+                            "edit_file",
+                        ) and subagent_manager.is_strict_worker_coding(deps.config):
+                            _target_w = func_args.get("file_path", "unknown")
+                            result = (
+                                f"🚫 [ORION STRICT WORKER MODE] Direct `{func_name}` on '{_target_w}' "
+                                "is BLOCKED. Even for a 1-line edit, delegate ALL code writes/edits "
+                                "to `delegate_workers` with explicit `files` scope and full instructions."
+                            )
+                            yield deps.kirim_status(
+                                f"🤖 Redirecting {func_name} to worker sub-agent..."
+                            )
+
                         elif func_name == "read_file":
                             file_path = func_args.get("file_path", "")
                             # >>> UPDATE-025 commit 11: remember when the
