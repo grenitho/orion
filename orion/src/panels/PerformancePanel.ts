@@ -8,9 +8,7 @@ import { orionHeaders } from '../services/authToken';
 // active project's .orion folder (path learned from /health, which the
 // backend already exposes) and ships it to the page; the page owns
 // role/model filtering and per-row token columns. Field names follow
-// perf_log.py exactly (input_tokens/output_tokens/estimated_cost_usd) —
-// the pre-0.4.4 page asked for input_chars/output_chars, which never
-// existed, hence the "undefined / undefined" column owners saw.
+// perf_log.py exactly (input_tokens/cached_tokens/output_tokens/estimated_cost_usd).
 const MAX_ENTRIES_SHIPPED = 5000;
 const MAX_ROWS_RENDERED = 500;
 
@@ -147,6 +145,11 @@ export class PerformancePanel {
                         font-size: 1.8em; 
                         font-weight: bold; 
                     }
+                    .card .subtext {
+                        margin-top: 6px;
+                        font-size: 0.82em;
+                        opacity: 0.8;
+                    }
                     .filters {
                         display: flex;
                         gap: 12px;
@@ -187,6 +190,13 @@ export class PerformancePanel {
                     .status-error { 
                         color: #f44336; 
                         font-weight: bold; 
+                    }
+                    .cached-hit {
+                        color: #26c6da;
+                        font-weight: bold;
+                    }
+                    .cached-zero {
+                        opacity: 0.5;
                     }
                     .role-badge {
                         padding: 2px 8px;
@@ -236,14 +246,17 @@ export class PerformancePanel {
                         const rows = filtered().slice().reverse();
                         const total = rows.length;
                         const shown = rows.slice(0, ${MAX_ROWS_RENDERED});
-                        let inT = 0, outT = 0, cost = 0;
+                        let inT = 0, cachedT = 0, outT = 0, cost = 0;
                         rows.forEach(l => {
                             inT += Number(l.input_tokens) || 0;
+                            cachedT += Number(l.cached_tokens) || 0;
                             outT += Number(l.output_tokens) || 0;
                             cost += Number(l.estimated_cost_usd) || 0;
                         });
+                        const filtHitPct = inT > 0 ? ((cachedT / inT) * 100).toFixed(1) : '0.0';
                         let html = '<div class="filtsum">Showing ' + total + ' of ' + ALL_LOGS.length +
-                            ' entries — filtered: ' + inT.toLocaleString() + ' in tok · ' +
+                            ' entries — filtered: ' + inT.toLocaleString() + ' in tok (' +
+                            cachedT.toLocaleString() + ' cached, ' + filtHitPct + '% hit) · ' +
                             outT.toLocaleString() + ' out tok · $' + cost.toFixed(6) + '</div>';
                         if (total === 0) {
                             html += '<div class="loading">No entries match the current filter.</div>';
@@ -251,17 +264,23 @@ export class PerformancePanel {
                             return;
                         }
                         html += '<table><thead><tr><th>Time</th><th>Role</th><th>Model</th>' +
-                            '<th>In tok</th><th>Out tok</th><th>Cost (USD)</th><th>ms</th><th>Status</th>' +
+                            '<th>In tok</th><th>Cached</th><th>Out tok</th><th>Cost (USD)</th><th>ms</th><th>Status</th>' +
                             '</tr></thead><tbody>';
                         shown.forEach(log => {
                             const time = new Date(log.timestamp).toLocaleTimeString();
                             const statusClass = log.status === 'success' ? 'status-success' : 'status-error';
                             const role = log.role || 'main';
+                            const inVal = Number(log.input_tokens) || 0;
+                            const cachedVal = Number(log.cached_tokens) || 0;
+                            const cachedCell = cachedVal > 0
+                                ? '<span class="cached-hit">' + cachedVal.toLocaleString() + '</span>'
+                                : '<span class="cached-zero">0</span>';
                             html += '<tr>';
                             html += '<td>' + esc(time) + '</td>';
                             html += '<td><span class="role-badge role-' + esc(role) + '">' + esc(role) + '</span></td>';
                             html += '<td>' + esc(log.model) + '</td>';
-                            html += '<td>' + (Number(log.input_tokens) || 0).toLocaleString() + '</td>';
+                            html += '<td>' + inVal.toLocaleString() + '</td>';
+                            html += '<td>' + cachedCell + '</td>';
                             html += '<td>' + (Number(log.output_tokens) || 0).toLocaleString() + '</td>';
                             html += '<td>$' + (Number(log.estimated_cost_usd) || 0).toFixed(6) + '</td>';
                             html += '<td>' + esc(log.duration_ms) + '</td>';
@@ -283,9 +302,15 @@ export class PerformancePanel {
                         let html = '';
                         if (SUMMARY) {
                             const s = SUMMARY;
+                            const totalIn = Number(s.total_input_tokens || 0);
+                            const totalCached = (s.total_cached_tokens !== undefined)
+                                ? (Number(s.total_cached_tokens) || 0)
+                                : ALL_LOGS.reduce((acc, l) => acc + (Number(l.cached_tokens) || 0), 0);
+                            const hitRate = totalIn > 0 ? ((totalCached / totalIn) * 100).toFixed(1) : '0.0';
                             html += '<div class="cards">';
                             html += '<div class="card"><h3>Total Requests (all-time)</h3><div class="value">' + esc(s.total_requests) + '</div></div>';
-                            html += '<div class="card"><h3>Total Input Tokens</h3><div class="value" style="color: #4caf50;">' + Number(s.total_input_tokens || 0).toLocaleString() + '</div></div>';
+                            html += '<div class="card"><h3>Total Input Tokens</h3><div class="value" style="color: #4caf50;">' + totalIn.toLocaleString() + '</div></div>';
+                            html += '<div class="card"><h3>Cached Tokens</h3><div class="value" style="color: #26c6da;">' + totalCached.toLocaleString() + '</div><div class="subtext">' + hitRate + '% cache hit rate</div></div>';
                             html += '<div class="card"><h3>Total Output Tokens</h3><div class="value" style="color: #2196f3;">' + Number(s.total_output_tokens || 0).toLocaleString() + '</div></div>';
                             html += '<div class="card"><h3>Estimated Cost (USD)</h3><div class="value">$' + Number(s.total_cost_usd || 0).toFixed(6) + '</div></div>';
                             html += '<div class="card"><h3>Success / Failed</h3><div class="value"><span class="status-success">' + esc(s.success_count) + '</span> / <span class="status-error">' + esc(s.error_count) + '</span></div></div>';
