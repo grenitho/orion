@@ -36,6 +36,7 @@ def log_performance(
     status: str,
     role: str | None = None,
     extra: dict | None = None,
+    cached_tokens: int = 0,
 ):
     """Record API usage statistics to the .orion/performance_log.jsonl file.
 
@@ -52,16 +53,23 @@ def log_performance(
 
         # >>> REALISTIC PRICING (DeepSeek V3/R1 via API) <<<
         price_input_per_million = 0.14
+        price_cached_per_million = price_input_per_million * 0.1
         price_output_per_million = 0.28
 
-        estimated_cost_usd = (input_tokens / 1_000_000) * price_input_per_million + (
-            output_tokens / 1_000_000
-        ) * price_output_per_million
+        safe_cached = max(0, min(cached_tokens or 0, input_tokens or 0))
+        uncached_input = max(0, (input_tokens or 0) - safe_cached)
+
+        estimated_cost_usd = (
+            (uncached_input / 1_000_000) * price_input_per_million
+            + (safe_cached / 1_000_000) * price_cached_per_million
+            + ((output_tokens or 0) / 1_000_000) * price_output_per_million
+        )
 
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "model": model,
             "input_tokens": input_tokens,
+            "cached_tokens": safe_cached,
             "output_tokens": output_tokens,
             "estimated_cost_usd": round(estimated_cost_usd, 6),
             "duration_ms": round(duration_ms, 2),

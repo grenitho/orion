@@ -49,6 +49,7 @@ from app.services import guard_rules, loop_guards, project_facts, research_rules
 from app.services import sse, stream_utils, tool_dispatch
 from app.services import subagent_manager, tool_guards
 from app.services.llm_router import get_ai_response
+from app.services.prompt_cache import ekstrak_cached_tokens
 
 # >>> UPDATE-024 Commit 1: the jsonl writer moved to perf_log.py so
 # subagent_manager can record sub-run usage without a circular import.
@@ -1280,6 +1281,31 @@ class Deps:
     inbox_desc: str = ""
 
 
+def _rakit_api_messages(
+    system_prompt: str, context_message: dict, history: list
+) -> list:
+    """Tempatkan context_message dinamis tepat sebelum pesan user terakhir
+    agar prefix system + riwayat chat tetap stabil untuk prompt caching."""
+    if not history:
+        return [{"role": "system", "content": system_prompt}, context_message]
+
+    idx_user_terakhir = -1
+    for i in range(len(history) - 1, -1, -1):
+        if history[i].get("role") == "user":
+            idx_user_terakhir = i
+            break
+
+    if idx_user_terakhir < 0:
+        return [{"role": "system", "content": system_prompt}, context_message] + history
+
+    return (
+        [{"role": "system", "content": system_prompt}]
+        + history[:idx_user_terakhir]
+        + [context_message]
+        + history[idx_user_terakhir:]
+    )
+
+
 async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
     """The agent loop: one /chat turn as an async iterator of SSE frames.
 
@@ -1712,10 +1738,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # >>> STEP 2: REBUILD THE PAYLOAD FROM THE SOURCE OF TRUTH <<<
             # Do NOT use the accumulating local 'messages' variable. Take it fresh from the summarized history.
             current_history = deps.context_manager.get_history()
-            api_messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                deps.context_message,
-            ] + current_history
+            api_messages = _rakit_api_messages(
+                SYSTEM_PROMPT, deps.context_message, current_history
+            )
 
             # >>> ATTACHMENT FEATURE (B4b): inject images only on the first iteration.
             # After that the history contains text placeholders, so later
@@ -1956,10 +1981,9 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
 
                 # Rebuild api_messages from the pruned history
                 current_history = deps.context_manager.get_history()
-                api_messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    deps.context_message,
-                ] + current_history
+                api_messages = _rakit_api_messages(
+                    SYSTEM_PROMPT, deps.context_message, current_history
+                )
 
                 new_est = sum(estimate_message_tokens(m) for m in api_messages)
                 print(f"[TOKEN GUARD] Successfully reduced to: {new_est} tokens")
@@ -2180,9 +2204,11 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             # >>> PERFORMANCE LOGGING (SUCCESS - REAL TOKENS) <<<
             end_time = asyncio.get_event_loop().time()
             duration_ms = (end_time - start_time) * 1000
+
             usage = getattr(response, "usage", None)
             input_tokens = usage.prompt_tokens if usage else 0
             output_tokens = usage.completion_tokens if usage else 0
+            cached_tokens = ekstrak_cached_tokens(usage)
             actual_model_used = getattr(response, "model", "auto_rotated_model")
 
             proj_path = deps.tool_executor.project_path if deps.tool_executor else "."
@@ -2193,6 +2219,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                 output_tokens,
                 duration_ms,
                 "success",
+                cached_tokens=cached_tokens,
             )
             # >>> END OF LOGGING <<<
 

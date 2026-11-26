@@ -45,6 +45,7 @@ from typing import Any, Callable
 
 from app.services import findings_ledger
 from app.services.perf_log import log_performance
+from app.services.prompt_cache import ekstrak_cached_tokens
 from app.services.tools_schema import TOOLS
 
 # --------------------------------------------------------------------------
@@ -457,6 +458,7 @@ def _catat_perf_subrun(
             "success",
             role=role,
             extra=extra,
+            cached_tokens=ekstrak_cached_tokens(usage),
         )
     except Exception:  # noqa: BLE001 - bookkeeping never breaks a run
         pass

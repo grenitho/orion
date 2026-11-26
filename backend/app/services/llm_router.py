@@ -5,6 +5,10 @@ import random
 import re
 
 import litellm
+from app.services.prompt_cache import (
+    adalah_model_claude,
+    terapkan_cache_control_claude,
+)
 
 # >>> CRITICAL FIX: _turn_on_debug() used to be ON UNCONDITIONALLY.
 # That made litellm print the FULL raw request/response (including the whole
@@ -173,9 +177,14 @@ REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "high").strip().lower()
 if REASONING_EFFORT not in {"minimal", "low", "medium", "high"}:
     REASONING_EFFORT = "high"
 MAX_OUTPUT_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "32768"))
-KIRIM_TEMPERATURE_GEMINI = os.getenv("LLM_SEND_TEMPERATURE", "0").lower() in ("1", "true", "yes")
+KIRIM_TEMPERATURE_GEMINI = os.getenv("LLM_SEND_TEMPERATURE", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 BACKOFF_BASE = float(os.getenv("LLM_BACKOFF_BASE", "1.5"))
 BACKOFF_CAP = float(os.getenv("LLM_BACKOFF_CAP", "20.0"))
+
 
 # ==========================================
 # 5. EXECUTION QUEUE BUILDER (UPDATE-011)
@@ -214,7 +223,10 @@ def build_execution_queue() -> list:
     primary_model = os.getenv("DEFAULT_MODEL", "gemini/gemini-3.5-flash")
     gemini_keys = _scan_gemini_keys()
     gemini_disabled = os.getenv("GEMINI_DISABLED", "").strip().lower() in (
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     )
     if gemini_disabled and gemini_keys and primary_model:
         print(
@@ -277,9 +289,7 @@ def build_execution_queue() -> list:
 
     # --- TIER 4: LEGACY FALLBACK (SHUFFLED) ---
     fallback_api_key = os.getenv("FALLBACK_API_KEY")
-    fallback_base_url = os.getenv(
-        "FALLBACK_BASE_URL", "https://openrouter.ai/api/v1"
-    )
+    fallback_base_url = os.getenv("FALLBACK_BASE_URL", "https://openrouter.ai/api/v1")
     fallback_models = [
         m.strip() for m in os.getenv("FALLBACK_MODELS", "").split(",") if m.strip()
     ]
@@ -322,7 +332,8 @@ def build_execution_queue() -> list:
             if _hit:
                 last_resort = [
                     {**e, "provider": f"{e['provider']} (Last Resort)"}
-                    for _n, entries in provider_tiers if _n == _wanted
+                    for _n, entries in provider_tiers
+                    if _n == _wanted
                     for e in entries
                 ]
                 provider_tiers = [
@@ -336,8 +347,7 @@ def build_execution_queue() -> list:
         elif router_fallback == "cloudflare":
             if cf_tier:
                 last_resort = [
-                    {**e, "provider": f"{e['provider']} (Last Resort)"}
-                    for e in cf_tier
+                    {**e, "provider": f"{e['provider']} (Last Resort)"} for e in cf_tier
                 ]
                 cf_tier = []
             else:
@@ -358,9 +368,7 @@ def build_execution_queue() -> list:
     execution_queue.extend(last_resort)
 
     if not execution_queue:
-        raise Exception(
-            "[LLM_ROUTER] No models configured. Check your .env."
-        )
+        raise Exception("[LLM_ROUTER] No models configured. Check your .env.")
     return execution_queue
 
 
@@ -439,9 +447,7 @@ def build_profile_queue(profile) -> list | None:
         if not api_key:
             return None
         model_name = (
-            model
-            if model.startswith(_FALLBACK_PREFIXES)
-            else f"openai/{model}"
+            model if model.startswith(_FALLBACK_PREFIXES) else f"openai/{model}"
         )
         return [
             {
@@ -487,9 +493,7 @@ def model_options() -> list:
         )
     if os.getenv("FALLBACK_API_KEY"):
         fallback_models = [
-            m.strip()
-            for m in os.getenv("FALLBACK_MODELS", "").split(",")
-            if m.strip()
+            m.strip() for m in os.getenv("FALLBACK_MODELS", "").split(",") if m.strip()
         ]
         options.append(
             {
@@ -501,7 +505,9 @@ def model_options() -> list:
     return options
 
 
-async def get_ai_response(messages: list, tools: list = None, profile: dict = None) -> dict:
+async def get_ai_response(
+    messages: list, tools: list = None, profile: dict = None
+) -> dict:
     """
     Hybrid Router: Gemini (N-key rotation) -> PROVIDER_<N>_* groups ->
     legacy FALLBACK_* -> Cloudflare. See build_execution_queue().
@@ -579,10 +585,14 @@ async def get_ai_response(messages: list, tools: list = None, profile: dict = No
                     if not KIRIM_TEMPERATURE_GEMINI:
                         target_temperature = None
 
+                req_messages, req_tools = terapkan_cache_control_claude(
+                    model_name, messages, tools
+                )
+
                 call_kwargs = {
                     "model": model_name,
-                    "messages": messages,
-                    "tools": tools,
+                    "messages": req_messages,
+                    "tools": req_tools,
                     "timeout": TIMEOUT_SEC,
                     "max_tokens": MAX_OUTPUT_TOKENS,
                     **extra_kwargs,
@@ -590,7 +600,17 @@ async def get_ai_response(messages: list, tools: list = None, profile: dict = No
                 if target_temperature is not None:
                     call_kwargs["temperature"] = target_temperature
 
-                response = await litellm.acompletion(**call_kwargs)
+                try:
+                    response = await litellm.acompletion(**call_kwargs)
+                except BadRequestError:
+                    # Jika aggregator/proxy tidak mendukung array cache_control pada system/tools,
+                    # ulangi sekali dengan payload standar agar tidak gagal.
+                    if adalah_model_claude(model_name) and req_messages is not messages:
+                        call_kwargs["messages"] = messages
+                        call_kwargs["tools"] = tools
+                        response = await litellm.acompletion(**call_kwargs)
+                    else:
+                        raise
 
                 print(
                     f"[LLM_ROUTER] [SUCCESS] Succeeded with: {model_name} ({provider_name})"
@@ -632,7 +652,9 @@ async def get_ai_response(messages: list, tools: list = None, profile: dict = No
                     # >>> PATCH ORION-7: this used to `continue` immediately (instant retry).
                     # For timeout/429, firing again instantly almost certainly fails again
                     # and just burns free-tier quota. Now there is a delay + jitter.
-                    _jeda = min(BACKOFF_BASE ** (attempt + 1), BACKOFF_CAP) * random.uniform(0.7, 1.3)
+                    _jeda = min(
+                        BACKOFF_BASE ** (attempt + 1), BACKOFF_CAP
+                    ) * random.uniform(0.7, 1.3)
                     print(
                         f"[LLM_ROUTER] [WARNING] {model_name} TIMEOUT/CONNECTION FAILED! "
                         f"Retry attempt {attempt + 2}/{MAX_RETRIES} in {_jeda:.1f} s..."
@@ -673,6 +695,4 @@ async def get_ai_response(messages: list, tools: list = None, profile: dict = No
                     break
 
     print("[LLM_ROUTER] [CRITICAL] All AI models failed to respond.")
-    raise Exception(
-        f"All AI models are busy/failing. Last error: {last_error!s}"
-    )
+    raise Exception(f"All AI models are busy/failing. Last error: {last_error!s}")

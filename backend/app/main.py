@@ -1594,6 +1594,7 @@ async def get_performance():
         "summary": {
             "total_requests": total_requests,
             "total_input_tokens": sum(l.get("input_tokens", 0) for l in logs),
+            "total_cached_tokens": sum(l.get("cached_tokens", 0) for l in logs),
             "total_output_tokens": sum(l.get("output_tokens", 0) for l in logs),
             "total_cost_usd": round(total_cost, 6),
             "avg_response_time_ms": round(avg_duration, 2),
