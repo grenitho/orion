@@ -20,7 +20,7 @@ from __future__ import annotations
 from app.services import guard_rules
 from app.services.agent_loop import _blok_referensi_belum_dibaca, _L
 from app.services.session_state import SessionState
-from app.services.test_reference_persistence import (
+from tests.test_reference_persistence import (
     TULIS_VUE,
     _Resp,
     _TERef,

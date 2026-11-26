@@ -44,15 +44,15 @@ from app.services.agent_loop import (
     aliran_agent,
 )
 from app.services.session_state import SessionState
-from app.services.test_reference_persistence import TULIS_VUE, _TERef
-from app.services.test_soft_limit_reanchor import (
+from tests.test_reference_persistence import TULIS_VUE, _TERef
+from tests.test_soft_limit_reanchor import (
     _CM,
     _LLM,
     _Resp,
     _TM,
     _tool_call,
 )
-from app.services.test_todo_evidence_checkpoint import _L
+from tests.test_todo_evidence_checkpoint import _L
 
 REF_MD = (
     "# Token desain InvoiceFlow\n"

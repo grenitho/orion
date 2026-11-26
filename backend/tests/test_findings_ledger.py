@@ -19,7 +19,7 @@ from app.services import findings_ledger as fl
 from app.services import subagent_manager as sa
 from app.services.agent_loop import Deps, aliran_agent
 from app.services.session_state import SessionState
-from app.services.test_subagent_manager import (
+from tests.test_subagent_manager import (
     LONG, FakeExecutor, ScriptedLLM,
 )
 

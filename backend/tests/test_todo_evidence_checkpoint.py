@@ -16,7 +16,7 @@ Disclosure first, rejection later — but the user can no longer be told
 from __future__ import annotations
 
 from app.services.session_state import SessionState
-from app.services.test_soft_limit_reanchor import (
+from tests.test_soft_limit_reanchor import (
     _CM,
     _LLM,
     _Resp,

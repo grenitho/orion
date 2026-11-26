@@ -27,8 +27,8 @@ from pathlib import Path
 from app.services import sse
 from app.services.stream_utils import PENANDA_DONE, buat_event_done
 
-MAIN = Path(__file__).resolve().parents[1] / "main.py"
-AGENT_LOOP = Path(__file__).resolve().parent / "agent_loop.py"
+MAIN = Path(__file__).resolve().parents[1] / "app" / "main.py"
+AGENT_LOOP = Path(__file__).resolve().parents[1] / "app" / "services" / "agent_loop.py"
 
 
 def _bentuk_lama(event_type: str, **payload) -> str:

@@ -141,9 +141,9 @@ def test_hasil_tool_kosong_berubah_jadi_diagnostik(tmp_path):
     become 'Executed successfully, no output.' in the transcript."""
     import json as _json
 
-    from app.services.test_computed_style_gate import _jalankan
-    from app.services.test_reference_persistence import _TERef
-    from app.services.test_soft_limit_reanchor import _Resp, _tool_call
+    from tests.test_computed_style_gate import _jalankan
+    from tests.test_reference_persistence import _TERef
+    from tests.test_soft_limit_reanchor import _Resp, _tool_call
 
     class _TEKosong(_TERef):
         def search_code(self, query: str, file_pattern: str = "*") -> str:

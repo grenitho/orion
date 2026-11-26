@@ -30,14 +30,14 @@ import asyncio
 from app.services import subagent_manager as sa
 from app.services.agent_loop import Deps, _blok_delegasi_akhir, aliran_agent
 from app.services.session_state import SessionState
-from app.services.test_soft_limit_reanchor import (
+from tests.test_soft_limit_reanchor import (
     _CM,
     _LLM,
     _Resp,
     _TM,
     _tool_call,
 )
-from app.services.test_todo_evidence_checkpoint import _L, _TE
+from tests.test_todo_evidence_checkpoint import _L, _TE
 
 PESAN_PIPELINE = (
     "Tugaskan sub agent explorer memeriksa file frontend yang terlewat "

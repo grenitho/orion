@@ -22,14 +22,14 @@ import asyncio
 from app.services.agent_loop import Deps, aliran_agent
 from app.services.session_state import SessionState
 from app.services.subagent_manager import roles_diminta
-from app.services.test_soft_limit_reanchor import (
+from tests.test_soft_limit_reanchor import (
     _CM,
     _LLM,
     _Resp,
     _TM,
     _tool_call,
 )
-from app.services.test_todo_evidence_checkpoint import _L, _TE
+from tests.test_todo_evidence_checkpoint import _L, _TE
 
 
 def _jalankan(pesan_user, responses, todos=None, state=None):

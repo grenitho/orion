@@ -29,8 +29,8 @@ import pytest
 from app.services import agent_loop, sse
 from app.services.agent_loop import Deps, _keepalive, aliran_agent
 from app.services.session_state import SessionState
-from app.services.test_soft_limit_reanchor import _CM, _LLM, _Resp, _TM, _tool_call
-from app.services.test_todo_evidence_checkpoint import _L, _TE
+from tests.test_soft_limit_reanchor import _CM, _LLM, _Resp, _TM, _tool_call
+from tests.test_todo_evidence_checkpoint import _L, _TE
 
 
 def test_keepalive_comment_tidak_dimakan_parser_webview():

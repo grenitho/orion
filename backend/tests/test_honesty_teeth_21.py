@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import json
 
-from app.services.test_computed_style_gate import _MCP, _jalankan
-from app.services.test_reference_persistence import TULIS_VUE, _TERef
-from app.services.test_soft_limit_reanchor import _Resp, _tool_call
+from tests.test_computed_style_gate import _MCP, _jalankan
+from tests.test_reference_persistence import TULIS_VUE, _TERef
+from tests.test_soft_limit_reanchor import _Resp, _tool_call
 
 KLAIM_IMPL = "Kotak subtab telah saya tambah dan warnanya diperbarui."
 # NOTE: "sudah saya ..." is a KATA_KLAIM word and would route into the

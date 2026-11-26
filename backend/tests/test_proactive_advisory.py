@@ -29,8 +29,8 @@ import asyncio
 from app.services import guard_rules, project_facts
 from app.services.agent_loop import Deps, aliran_agent
 from app.services.session_state import SessionState
-from app.services.test_soft_limit_reanchor import _CM, _LLM, _Resp, _TM
-from app.services.test_todo_evidence_checkpoint import _L, _TE
+from tests.test_soft_limit_reanchor import _CM, _LLM, _Resp, _TM
+from tests.test_todo_evidence_checkpoint import _L, _TE
 
 PESAN_GAGAL = (
     "percobaan untuk menambahkan data pelanggan masih gagal. ini kegagalan "

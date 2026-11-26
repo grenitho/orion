@@ -23,7 +23,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-AGENT_LOOP = Path(__file__).resolve().parent / "agent_loop.py"
+AGENT_LOOP = Path(__file__).resolve().parents[1] / "app" / "services" / "agent_loop.py"
 
 
 def _fungsi_aliran() -> ast.AsyncFunctionDef:

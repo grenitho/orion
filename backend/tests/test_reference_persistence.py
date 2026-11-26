@@ -42,8 +42,8 @@ from app.services.agent_loop import (
     aliran_agent,
 )
 from app.services.session_state import SessionState
-from app.services.test_soft_limit_reanchor import _CM, _LLM, _Resp, _TM, _tool_call
-from app.services.test_todo_evidence_checkpoint import _L, _TE
+from tests.test_soft_limit_reanchor import _CM, _LLM, _Resp, _TM, _tool_call
+from tests.test_todo_evidence_checkpoint import _L, _TE
 
 REF_HTML = b"<html><style>:root{--side:#10302a;--acc:#d9a21b}</style></html>"
 

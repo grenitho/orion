@@ -18,7 +18,7 @@ from app.services import tool_dispatch
 from app.services.tool_executor import ToolExecutor
 from app.services.tools_schema import TOOLS
 
-AGENT_LOOP = Path(__file__).resolve().parent / "agent_loop.py"
+AGENT_LOOP = Path(__file__).resolve().parents[1] / "app" / "services" / "agent_loop.py"
 NAMA_SKEMA = {t["function"]["name"] for t in TOOLS}
 
 
