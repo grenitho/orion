@@ -1222,17 +1222,27 @@ async def set_project(request: ProjectPathRequest):
     }
 
 
+_semantic_indexing_projects: set[str] = set()
+
+
 async def _trigger_semantic_auto_index(reason: str = "set-project"):
     if not orion_config.get("semantic_auto_index", True):
         return
-    if tool_executor is None:
+    executor = tool_executor
+    if executor is None:
         return
+    proj_key = os.path.realpath(executor.project_path)
+    if proj_key in _semantic_indexing_projects:
+        return
+    _semantic_indexing_projects.add(proj_key)
     try:
         loop = asyncio.get_running_loop()
-        res = await loop.run_in_executor(None, tool_executor.index_semantic_search)
+        res = await loop.run_in_executor(None, executor.index_semantic_search)
         logger.info("[SEMANTIC AUTO-INDEX] (%s) selesai: %s", reason, str(res)[:120])
     except Exception as e:
         logger.warning("[SEMANTIC AUTO-INDEX] (%s) gagal: %s", reason, e)
+    finally:
+        _semantic_indexing_projects.discard(proj_key)
 
 
 async def auto_restore_project():

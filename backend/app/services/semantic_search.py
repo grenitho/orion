@@ -1,11 +1,12 @@
 """
-semantic_search.py — Pencarian semantik untuk Orion (P6.3 + P6.4).
+semantic_search.py — Pencarian semantik untuk Orion (P6.3 + P6.4 + P6.5).
 
 Class `SemanticSearchEngine`:
   * index_project(force=False) — inkremental; hanya file berubah di-index ulang.
+  * index_file(file_path) / remove_file(file_path) — sinkronisasi real-time per file.
   * search(query, top_k) — hybrid (semantik 0.6 + keyword 0.4).
 
-P6.4 incremental: tabel `indexed_files(path, mtime, size)` menyimpan sidik
+P6.4/P6.5 incremental: tabel `indexed_files(path, mtime, size)` menyimpan sidik
 per file. File yang mtime+size sama dilewati; file berubah → chunk lama
 dihapus lalu re-index; file hilang → baris metadata + chunk dihapus.
 """
@@ -14,6 +15,7 @@ import logging
 import os
 import re
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -117,11 +119,15 @@ class SemanticSearchEngine:
         self._model = None
         self._import_error = _IMPORT_ERROR
         self._available = _IMPORT_ERROR is None
+        self._lock = threading.RLock()
+        self._model_lock = threading.Lock()
 
     def _load_model(self):
         if self._model is None and self._available:
-            self.log.info(f"Memuat model embedding: {MODEL_NAME}")
-            self._model = SentenceTransformer(MODEL_NAME)
+            with self._model_lock:
+                if self._model is None:
+                    self.log.info(f"Memuat model embedding: {MODEL_NAME}")
+                    self._model = SentenceTransformer(MODEL_NAME)
         return self._model
 
     def is_available(self) -> bool:
@@ -129,7 +135,7 @@ class SemanticSearchEngine:
 
     def _open_db(self):
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(str(self.index_path))
+        db = sqlite3.connect(str(self.index_path), timeout=30.0)
         db.enable_load_extension(True)
         sqlite_vec.load(db)
         db.enable_load_extension(False)
@@ -147,6 +153,16 @@ class SemanticSearchEngine:
         _schema_indexed_files(db)
         db.commit()
 
+    def _normalize_rel_path(self, file_path: str) -> Optional[tuple[str, Path]]:
+        raw = re.sub(r"^\./+", "", file_path.replace("\\", "/")).strip("/")
+        if not raw:
+            return None
+        fpath = (self.project_path / raw).resolve()
+        if self.project_path not in fpath.parents:
+            return None
+        rel = str(fpath.relative_to(self.project_path)).replace("\\", "/")
+        return rel, fpath
+
     def index_project(self, force: bool = False) -> str:
         if not self._available:
             return f"[SEMANTIC_SEARCH UNAVAILABLE] {self._import_error}"
@@ -156,17 +172,24 @@ class SemanticSearchEngine:
                 return "[SEMANTIC_SEARCH ERROR] Gagal memuat model."
             dim = model.get_embedding_dimension()
 
-            if force and self.index_path.exists():
-                self.index_path.unlink()
-            db = self._open_db()
-            self._ensure_schema(db, dim)
+            with self._lock:
+                if force and self.index_path.exists():
+                    self.index_path.unlink()
+                db = self._open_db()
+                try:
+                    self._ensure_schema(db, dim)
+                    known = {
+                        row[0]: (row[1], row[2])
+                        for row in db.execute(
+                            "SELECT path, mtime, size FROM indexed_files"
+                        )
+                    }
+                finally:
+                    db.close()
 
-            known = {
-                row[0]: (row[1], row[2])
-                for row in db.execute("SELECT path, mtime, size FROM indexed_files")
-            }
             seen = set()
-            n_new = n_upd = n_skip = 0
+            n_skip = 0
+            pending_updates = []
             for fpath in self._get_code_files():
                 rel = str(fpath.relative_to(self.project_path)).replace("\\", "/")
                 seen.add(rel)
@@ -182,58 +205,56 @@ class SemanticSearchEngine:
                 except OSError as e:
                     self.log.warning(f"Gagal baca {rel}: {e}")
                     continue
-                # hapus chunk lama
-                old_ids = [
-                    r[0]
-                    for r in db.execute(
-                        "SELECT rowid FROM chunks WHERE path = ?", (rel,)
-                    )
-                ]
-                for rid in old_ids:
-                    db.execute("DELETE FROM vec_items WHERE rowid = ?", (rid,))
-                    db.execute("DELETE FROM chunks WHERE rowid = ?", (rid,))
-                # tulis chunk baru
-                chunks = _chunk_code(text, fpath.suffix.lower())
-                for idx, chunk in enumerate(chunks):
-                    if not chunk.strip():
-                        continue
-                    emb = model.encode(chunk, show_progress_bar=False)
-                    cur = db.cursor()
-                    cur.execute(
-                        "INSERT INTO chunks (path, chunk_index, content) VALUES (?, ?, ?)",
-                        (rel, idx, chunk),
-                    )
-                    cur.execute(
-                        "INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)",
-                        (cur.lastrowid, sqlite_vec.serialize_float32(emb)),
-                    )
-                db.execute(
-                    "INSERT OR REPLACE INTO indexed_files (path, mtime, size) VALUES (?, ?, ?)",
-                    (rel, mtime, size),
-                )
-                if rel in known:
-                    n_upd += 1
-                else:
-                    n_new += 1
-                self.log.info(f"[SEMANTIC_INDEX] {rel}: {len(chunks)} chunk")
 
-            # purge file yang sudah hilang dari disk
-            n_del = 0
-            for old_rel in list(known.keys()):
-                if old_rel not in seen:
-                    old_ids = [
-                        r[0]
-                        for r in db.execute(
-                            "SELECT rowid FROM chunks WHERE path = ?", (old_rel,)
+                chunks = _chunk_code(text, fpath.suffix.lower())
+                encoded = [
+                    (
+                        idx,
+                        chunk,
+                        sqlite_vec.serialize_float32(
+                            model.encode(chunk, show_progress_bar=False)
+                        ),
+                    )
+                    for idx, chunk in enumerate(chunks)
+                    if chunk.strip()
+                ]
+                pending_updates.append((rel, mtime, size, encoded))
+
+            n_new = n_upd = n_del = 0
+            with self._lock:
+                db = self._open_db()
+                try:
+                    self._ensure_schema(db, dim)
+                    for rel, mtime, size, encoded in pending_updates:
+                        self._delete_rel_from_db(db, rel)
+                        for idx, chunk, vec_blob in encoded:
+                            cur = db.cursor()
+                            cur.execute(
+                                "INSERT INTO chunks (path, chunk_index, content) VALUES (?, ?, ?)",
+                                (rel, idx, chunk),
+                            )
+                            cur.execute(
+                                "INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)",
+                                (cur.lastrowid, vec_blob),
+                            )
+                        db.execute(
+                            "INSERT OR REPLACE INTO indexed_files (path, mtime, size) VALUES (?, ?, ?)",
+                            (rel, mtime, size),
                         )
-                    ]
-                    for rid in old_ids:
-                        db.execute("DELETE FROM vec_items WHERE rowid = ?", (rid,))
-                        db.execute("DELETE FROM chunks WHERE rowid = ?", (rid,))
-                    db.execute("DELETE FROM indexed_files WHERE path = ?", (old_rel,))
-                    n_del += 1
-            db.commit()
-            db.close()
+                        if rel in known:
+                            n_upd += 1
+                        else:
+                            n_new += 1
+                        self.log.info(f"[SEMANTIC_INDEX] {rel}: {len(encoded)} chunk")
+
+                    for old_rel in list(known.keys()):
+                        if old_rel not in seen:
+                            self._delete_rel_from_db(db, old_rel)
+                            n_del += 1
+                    db.commit()
+                finally:
+                    db.close()
+
             return (
                 f"[SEMANTIC_INDEX OK] incremental — new:{n_new} updated:{n_upd} "
                 f"deleted:{n_del} unchanged:{n_skip} → {self.index_path}"
@@ -253,16 +274,19 @@ class SemanticSearchEngine:
             qemb = model.encode(query, show_progress_bar=False)
             terms = _extract_terms(query)
 
-            db = self._open_db()
-            cur = db.cursor()
-            candidates = cur.execute(
-                "SELECT c.path, c.chunk_index, c.content, v.distance "
-                "FROM vec_items v JOIN chunks c ON c.rowid = v.rowid "
-                "WHERE v.embedding MATCH ? AND k = ? "
-                "ORDER BY v.distance",
-                (sqlite_vec.serialize_float32(qemb), DEFAULT_CANDIDATE_POOL),
-            ).fetchall()
-            db.close()
+            with self._lock:
+                db = self._open_db()
+                try:
+                    cur = db.cursor()
+                    candidates = cur.execute(
+                        "SELECT c.path, c.chunk_index, c.content, v.distance "
+                        "FROM vec_items v JOIN chunks c ON c.rowid = v.rowid "
+                        "WHERE v.embedding MATCH ? AND k = ? "
+                        "ORDER BY v.distance",
+                        (sqlite_vec.serialize_float32(qemb), DEFAULT_CANDIDATE_POOL),
+                    ).fetchall()
+                finally:
+                    db.close()
 
             scored = []
             for path, cidx, content, dist in candidates:
@@ -314,7 +338,10 @@ class SemanticSearchEngine:
     def remove_file(self, file_path: str) -> None:
         if not self._available or not self.index_path.exists():
             return
-        rel = file_path.replace("\\", "/").lstrip("./")
+        norm = self._normalize_rel_path(file_path)
+        if norm is None:
+            return
+        rel, _ = norm
         with self._lock:
             db = self._open_db()
             try:
@@ -326,8 +353,12 @@ class SemanticSearchEngine:
     def index_file(self, file_path: str) -> None:
         if not self._available or not self.index_path.exists():
             return
-        rel = file_path.replace("\\", "/").lstrip("./")
-        fpath = (self.project_path / rel).resolve()
+        norm = self._normalize_rel_path(file_path)
+        if norm is None:
+            return
+        rel, fpath = norm
+        if any(part in IGNORED_DIRS for part in Path(rel).parts[:-1]):
+            return
         if not fpath.is_file() or fpath.suffix.lower() not in CODE_EXTENSIONS:
             return
         if fpath.name.startswith("test_") or fpath.name.endswith("_test.py"):

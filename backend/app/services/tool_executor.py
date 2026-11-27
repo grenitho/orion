@@ -1675,8 +1675,15 @@ class ToolExecutor:
                 engine.remove_file(file_path)
             elif hasattr(engine, "index_file"):
                 engine.index_file(file_path)
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 - non-fatal incremental sync
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "[SEMANTIC SYNC] gagal sinkronisasi %s (deleted=%s): %s",
+                file_path,
+                deleted,
+                e,
+            )
 
     def semantic_search(self, query: str, top_k: int = 5) -> str:
         """Cari kode berdasarkan makna. Wrapper tipis ke SemanticSearchEngine."""
