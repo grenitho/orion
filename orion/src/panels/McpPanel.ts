@@ -20,6 +20,16 @@ import { orionHeaders } from '../services/authToken';
 
 const BACKEND = 'http://127.0.0.1:8000';
 
+function activeProjectPath(): string {
+    const folders = vscode.workspace.workspaceFolders;
+    return folders && folders.length > 0 ? folders[0].uri.fsPath : '';
+}
+
+function withProjectQuery(url: string): string {
+    const pp = activeProjectPath();
+    return pp ? url + (url.includes('?') ? '&' : '?') + 'project_path=' + encodeURIComponent(pp) : url;
+}
+
 interface ServerRow {
     name: string;
     status: string;          // ok | error | disabled
@@ -62,9 +72,13 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
 }
 
 function postConfig(payload: Record<string, unknown>): Promise<ConfigResult> {
+    const pp = activeProjectPath();
     return fetchJson(BACKEND + '/mcp/config', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+            ...payload,
+            project_path: pp || undefined,
+        }),
     }) as Promise<ConfigResult>;
 }
 
@@ -176,7 +190,7 @@ export class McpPanel {
         let status: McpStatus | null = null;
         let error: string | null = null;
         try {
-            status = (await fetchJson(BACKEND + '/mcp/status')) as McpStatus;
+            status = (await fetchJson(withProjectQuery(BACKEND + '/mcp/status'))) as McpStatus;
         } catch (e: unknown) {
             error = String(e instanceof Error ? e.message : e);
         }

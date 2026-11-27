@@ -266,6 +266,11 @@ function getNonce(): string {
 // posts messages — the same architecture as the MCP card (UPDATE-015).
 const MODELS_BACKEND = 'http://127.0.0.1:8000';
 
+function activeProjectPath(): string {
+    const folders = vscode.workspace.workspaceFolders;
+    return folders && folders.length > 0 ? folders[0].uri.fsPath : '';
+}
+
 interface ModelGroup { group: string; label: string; models: string[]; }
 
 interface ModelProfile { group: string; model: string; }
@@ -507,7 +512,11 @@ export class SetupWizardPanel {
             // the extension host holds the token, the webview never sees it.
             case 'loadModelOptions':
                 await this.runTask('loadModelOptions', async () => {
-                    const data = (await fetchModelsJson(MODELS_BACKEND + '/models/options')) as ModelsOptions;
+                    const pp = activeProjectPath();
+                    const optsUrl = pp
+                        ? MODELS_BACKEND + '/models/options?project_path=' + encodeURIComponent(pp)
+                        : MODELS_BACKEND + '/models/options';
+                    const data = (await fetchModelsJson(optsUrl)) as ModelsOptions;
                     const groups = Array.isArray(data.groups) ? data.groups : [];
                     this.post({
                         type: 'modelOptions',
@@ -532,7 +541,7 @@ export class SetupWizardPanel {
                     }
                     const res = (await fetchModelsJson(MODELS_BACKEND + '/models/test', {
                         method: 'POST',
-                        body: JSON.stringify({ group, model }),
+                        body: JSON.stringify({ group, model, project_path: activeProjectPath() || undefined }),
                     })) as ModelsTestResult;
                     if (!res || res.success !== true) {
                         throw new Error((res && res.error) || 'probe failed without a reported reason');
@@ -551,7 +560,7 @@ export class SetupWizardPanel {
                         : {};
                     const res = (await fetchModelsJson(MODELS_BACKEND + '/models/config', {
                         method: 'POST',
-                        body: JSON.stringify({ subagent_models: profiles }),
+                        body: JSON.stringify({ subagent_models: profiles, project_path: activeProjectPath() || undefined }),
                     })) as ModelsConfigResult;
                     if (!res || res.success !== true) {
                         throw new Error((res && res.error) || 'save failed without a reported reason');

@@ -1,22 +1,33 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { ActivityProvider } from './ActivityProvider';
 import { orionHeaders } from '../services/authToken';
 import { getSetupGuideUrl } from '../services/backendManager';
 
 export class ChatPanel {
+    public static readonly activePanels: Set<ChatPanel> = new Set();
     public static currentPanel: ChatPanel | undefined;
     private readonly _panel: vscode.WebviewPanel;
     private readonly _activity: ActivityProvider;
+    private readonly _sessionId: string;
+    private readonly _disposables: vscode.Disposable[] = [];
     // >>> NEW: keeps the currently running request controller, so it can be aborted
     private _currentAbortController: AbortController | undefined;
 
-    private constructor(panel: vscode.WebviewPanel, activity: ActivityProvider) {
+    private constructor(panel: vscode.WebviewPanel, activity: ActivityProvider, sessionId: string) {
         this._panel = panel;
         this._activity = activity;
+        this._sessionId = sessionId;
 
-        this._panel.onDidDispose(() => this.dispose(), null);
+        this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+
+        vscode.workspace.onDidChangeWorkspaceFolders(
+            () => this._postSessionMeta(),
+            null,
+            this._disposables
+        );
 
         this._panel.webview.onDidReceiveMessage(
             async (message) => {
@@ -30,16 +41,41 @@ export class ChatPanel {
                 }
             },
             null,
-            []
+            this._disposables
         );
     }
 
-    public static createOrShow(activity: ActivityProvider) {
+    public static createOrShow(activity: ActivityProvider, sessionId?: string) {
+        const resolvedSessionId = (sessionId || '').trim()
+            || (ChatPanel.activePanels.size === 0
+                ? 'default'
+                : `tab-${crypto.randomUUID().slice(0, 8)}`);
+        const title = resolvedSessionId === 'default'
+            ? 'Orion Chat'
+            : `Orion Chat (${resolvedSessionId})`;
         const panel = vscode.window.createWebviewPanel(
-            'orionChat', 'Orion Chat', vscode.ViewColumn.Beside, { enableScripts: true, retainContextWhenHidden: true }
+            'orionChat', title, vscode.ViewColumn.Beside, { enableScripts: true, retainContextWhenHidden: true }
         );
-        ChatPanel.currentPanel = new ChatPanel(panel, activity);
-        ChatPanel.currentPanel._update();
+        const instance = new ChatPanel(panel, activity, resolvedSessionId);
+        ChatPanel.activePanels.add(instance);
+        ChatPanel.currentPanel = instance;
+        instance._update();
+    }
+
+    private _getProjectPath(): string {
+        const folders = vscode.workspace.workspaceFolders;
+        return folders && folders.length > 0 ? folders[0].uri.fsPath : '';
+    }
+
+    private _postSessionMeta(): void {
+        const projectPath = this._getProjectPath();
+        const projectName = projectPath ? path.basename(projectPath) : '(no workspace)';
+        void this._panel.webview.postMessage({
+            command: 'sessionMeta',
+            projectName,
+            projectPath,
+            sessionId: this._sessionId,
+        });
     }
 
     private _update() {
@@ -108,6 +144,19 @@ export class ChatPanel {
                         padding: 10px; margin: 0; 
                         display: flex; flex-direction: column; 
                         height: 100vh; box-sizing: border-box; 
+                    }
+                    #session-bar {
+                        display: flex; align-items: center; justify-content: space-between;
+                        gap: 8px; margin-bottom: 6px; padding: 4px 8px;
+                        border: 1px solid var(--vscode-panel-border);
+                        border-radius: 4px; font-size: 11px;
+                        color: var(--vscode-descriptionForeground);
+                    }
+                    #session-actions { display: flex; gap: 6px; }
+                    #session-actions button {
+                        padding: 2px 8px; font-size: 11px; font-weight: normal;
+                        background: transparent; color: var(--vscode-foreground);
+                        border: 1px solid var(--vscode-panel-border, #555);
                     }
                     #chat-container { 
                         flex: 1; overflow-y: auto; margin-bottom: 10px; 
@@ -202,6 +251,13 @@ export class ChatPanel {
                 </style>
             </head>
             <body>
+                <div id="session-bar">
+                    <span id="session-label">Session: ${this._sessionId}</span>
+                    <div id="session-actions">
+                        <button id="new-tab-btn" type="button" title="Open a new isolated chat tab">+ New Tab</button>
+                        <button id="clear-btn" type="button" title="Clear history for this session only">Clear</button>
+                    </div>
+                </div>
                 <div id="chat-container"></div>
                 <div id="attach-chips"></div>
                 <div id="input-area">
@@ -380,7 +436,36 @@ export class ChatPanel {
         // the chat panel is open, the webview script did not run — the
         // exact signal the 2026-10-25 silent-death incident lacked.
         if (message.command === 'webviewBoot') {
-            console.log('[ORION] chat webview inline script booted');
+            console.log(`[ORION] chat webview inline script booted (session=${this._sessionId})`);
+            this._postSessionMeta();
+            return;
+        }
+
+        if (message.command === 'newChatTab') {
+            ChatPanel.createOrShow(this._activity);
+            return;
+        }
+
+        if (message.command === 'clearChat') {
+            if (this._currentAbortController) {
+                this._currentAbortController.abort();
+                this._currentAbortController = undefined;
+            }
+            const projectPath = this._getProjectPath();
+            try {
+                await fetch('http://127.0.0.1:8000/clear-chat', {
+                    method: 'POST',
+                    headers: orionHeaders(),
+                    body: JSON.stringify({
+                        project_path: projectPath || undefined,
+                        session_id: this._sessionId,
+                    }),
+                });
+            } catch (err) {
+                console.warn('[ORION] clear-chat failed (non-fatal):', err);
+            }
+            this._panel.webview.postMessage({ command: 'chatCleared' });
+            this._activity.addActivity(`Cleared session (${this._sessionId})`, '');
             return;
         }
 
@@ -418,8 +503,8 @@ export class ChatPanel {
             const controller = new AbortController();
             this._currentAbortController = controller;
             try {
-                const folders = vscode.workspace.workspaceFolders;
-                if (folders) {
+                const projectPath = this._getProjectPath();
+                if (projectPath) {
                     // >>> UPDATE-010: a failing set-project (backend still booting,
                     // transient hiccup) must not kill the whole request before /chat
                     // even runs — /chat will surface a proper error if the backend
@@ -428,7 +513,7 @@ export class ChatPanel {
                         await fetch('http://127.0.0.1:8000/set-project', {
                             method: 'POST',
                             headers: orionHeaders(),
-                            body: JSON.stringify({ path: folders[0].uri.fsPath })
+                            body: JSON.stringify({ path: projectPath })
                         });
                     } catch (spErr) {
                         console.warn('[ORION] set-project failed (non-fatal):', spErr);
@@ -441,6 +526,8 @@ export class ChatPanel {
                     // >>> ATTACHMENT FEATURE: forward attachments from the webview to the backend
                     body: JSON.stringify({
                         message: message.text,
+                        project_path: projectPath || undefined,
+                        session_id: this._sessionId,
                         // >>> UPDATE-020: the dormant forwarding is now ALIVE:
                         // chips from the 📎 button travel as [{name,mime,size,
                         // data(base64)}]; backend/app/services/attachments.py
@@ -598,10 +685,15 @@ export class ChatPanel {
         if (choice === 'Approve') {
             try {
                 // Call the new backend endpoint for execution
+                const projectPath = this._getProjectPath();
                 const res = await fetch('http://127.0.0.1:8000/execute-terminal', {
                     method: 'POST',
                     headers: orionHeaders(),
-                    body: JSON.stringify({ command: command })
+                    body: JSON.stringify({
+                        command: command,
+                        project_path: projectPath || undefined,
+                        session_id: this._sessionId,
+                    })
                 });
                 const result: any = await res.json();
 
@@ -636,10 +728,15 @@ export class ChatPanel {
 
         try {
             // Send the feedback message to the /chat endpoint
+            const projectPath = this._getProjectPath();
             const response = await fetch('http://127.0.0.1:8000/chat', {
                 method: 'POST',
                 headers: orionHeaders(),
-                body: JSON.stringify({ message: message }),
+                body: JSON.stringify({
+                    message: message,
+                    project_path: projectPath || undefined,
+                    session_id: this._sessionId,
+                }),
                 signal: controller.signal
             });
 
@@ -688,7 +785,12 @@ export class ChatPanel {
     }
 
     public dispose() {
-        ChatPanel.currentPanel = undefined;
+        ChatPanel.activePanels.delete(this);
+        if (ChatPanel.currentPanel === this) {
+            ChatPanel.currentPanel = ChatPanel.activePanels.values().next().value;
+        }
+        for (const d of this._disposables) { d.dispose(); }
+        this._disposables.length = 0;
         this._panel.dispose();
     }
 }

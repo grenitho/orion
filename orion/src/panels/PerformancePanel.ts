@@ -70,19 +70,30 @@ export class PerformancePanel {
     private async _pushPerf(): Promise<void> {
         try {
             const headers = orionHeaders();
-            const res = await fetch('http://127.0.0.1:8000/performance', { headers });
+            const folders = vscode.workspace.workspaceFolders;
+            const wsPath = folders && folders.length > 0 ? folders[0].uri.fsPath : '';
+            const perfUrl = wsPath
+                ? `http://127.0.0.1:8000/performance?project_path=${encodeURIComponent(wsPath)}`
+                : 'http://127.0.0.1:8000/performance';
+            const res = await fetch(perfUrl, { headers });
             const data = (await res.json()) as { summary?: unknown; recent_logs?: unknown[] };
             let logs: unknown[] = [];
             let logSource = 'none';
-            try {
-                const healthRes = await fetch('http://127.0.0.1:8000/health', { headers });
-                const health = (await healthRes.json()) as { project_path?: unknown };
-                if (health && typeof health.project_path === 'string' && health.project_path) {
-                    logs = this._readFullLog(health.project_path);
-                    logSource = logs.length > 0 ? 'file' : 'empty';
+            let targetProject = wsPath;
+            if (!targetProject) {
+                try {
+                    const healthRes = await fetch('http://127.0.0.1:8000/health', { headers });
+                    const health = (await healthRes.json()) as { project_path?: unknown };
+                    if (health && typeof health.project_path === 'string' && health.project_path) {
+                        targetProject = health.project_path;
+                    }
+                } catch {
+                    // health unreachable: fall through to recent_logs below
                 }
-            } catch {
-                // health unreachable: fall through to recent_logs below
+            }
+            if (targetProject) {
+                logs = this._readFullLog(targetProject);
+                logSource = logs.length > 0 ? 'file' : 'empty';
             }
             if (logs.length === 0 && Array.isArray(data.recent_logs)) {
                 logs = data.recent_logs;

@@ -15,6 +15,9 @@
                     const btn = document.getElementById('send-btn');
                     const cancelBtn = document.getElementById('cancel-btn'); // >>> NEW
                     const container = document.getElementById('chat-container');
+                    const sessionLabel = document.getElementById('session-label');
+                    const newTabBtn = document.getElementById('new-tab-btn');
+                    const clearBtn = document.getElementById('clear-btn');
                     let isProcessing = false;
                     let currentAiText = "";
 
@@ -241,7 +244,20 @@
 
                     window.addEventListener('message', event => {
                         const msg = event.data;
-                        if (msg.command === 'attachmentsPicked') {
+                        if (msg.command === 'sessionMeta') {
+                            if (sessionLabel) {
+                                sessionLabel.textContent = (msg.projectName || '(no workspace)') + ' · session: ' + (msg.sessionId || 'default');
+                            }
+                        } else if (msg.command === 'chatCleared') {
+                            container.innerHTML = '';
+                            const todoBox = document.getElementById('orion-todo-box');
+                            if (todoBox) { todoBox.remove(); }
+                            currentAiText = '';
+                            isProcessing = false;
+                            btn.disabled = false;
+                            btn.innerText = 'Send';
+                            cancelBtn.classList.remove('visible');
+                        } else if (msg.command === 'attachmentsPicked') {
                             // >>> UPDATE-020: host read the picked files; keep
                             // max 8 items total (backend caps images at 4 per
                             // message anyway; oversize was rejected host-side).
@@ -291,6 +307,16 @@
 
                     btn.addEventListener('click', send);
                     cancelBtn.addEventListener('click', cancel); // >>> NEW
+                    if (newTabBtn) {
+                        newTabBtn.addEventListener('click', () => {
+                            vscode.postMessage({ command: 'newChatTab' });
+                        });
+                    }
+                    if (clearBtn) {
+                        clearBtn.addEventListener('click', () => {
+                            vscode.postMessage({ command: 'clearChat' });
+                        });
+                    }
                     input.addEventListener('keydown', e => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();

@@ -18,6 +18,16 @@ import { orionHeaders } from '../services/authToken';
 
 const BACKEND = 'http://127.0.0.1:8000';
 
+function activeProjectPath(): string {
+  const folders = vscode.workspace.workspaceFolders;
+  return folders && folders.length > 0 ? folders[0].uri.fsPath : '';
+}
+
+function withProjectQuery(url: string): string {
+  const pp = activeProjectPath();
+  return pp ? url + (url.includes('?') ? '&' : '?') + 'project_path=' + encodeURIComponent(pp) : url;
+}
+
 interface ConfigRange { [key: string]: [number, number]; }
 
 interface ConfigSnapshot {
@@ -123,7 +133,7 @@ export class ConfigCenterPanel {
     let snapshot: ConfigSnapshot | null = null;
     let error: string | null = null;
     try {
-      snapshot = (await fetchJson(BACKEND + '/config')) as ConfigSnapshot;
+      snapshot = (await fetchJson(withProjectQuery(BACKEND + '/config'))) as ConfigSnapshot;
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -151,7 +161,7 @@ export class ConfigCenterPanel {
         try {
           const res = (await fetchJson(BACKEND + '/config', {
             method: 'POST',
-            body: JSON.stringify({ orion_config: incoming }),
+            body: JSON.stringify({ orion_config: incoming, project_path: activeProjectPath() || undefined }),
           })) as { success: boolean; error?: string };
           if (!res || res.success !== true) {
             this.lastNote = 'Save failed: ' + (res?.error || 'unknown error');
@@ -167,11 +177,11 @@ export class ConfigCenterPanel {
       case 'reset': {
         // Fetch defaults from the last GET, then save them as a payload.
         try {
-          const snap = (await fetchJson(BACKEND + '/config')) as ConfigSnapshot;
+          const snap = (await fetchJson(withProjectQuery(BACKEND + '/config'))) as ConfigSnapshot;
           const defaults = snap.defaults || {};
           const res = (await fetchJson(BACKEND + '/config', {
             method: 'POST',
-            body: JSON.stringify({ orion_config: defaults }),
+            body: JSON.stringify({ orion_config: defaults, project_path: activeProjectPath() || undefined }),
           })) as { success: boolean; error?: string };
           if (!res || res.success !== true) {
             this.lastNote = 'Reset failed: ' + (res?.error || 'unknown error');
@@ -201,7 +211,7 @@ export class ConfigCenterPanel {
     let status: McpStatus | null = null;
     let error: string | null = null;
     try {
-      status = (await fetchJson(BACKEND + '/mcp/status')) as McpStatus;
+      status = (await fetchJson(withProjectQuery(BACKEND + '/mcp/status'))) as McpStatus;
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e);
     }
