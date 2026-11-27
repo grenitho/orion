@@ -5,7 +5,7 @@ import { PerformancePanel } from './panels/PerformancePanel';
 import { ActivityProvider } from './panels/ActivityProvider';
 import { SetupWizardPanel } from './panels/SetupWizardPanel';
 import { McpPanel } from './panels/McpPanel';
-import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl, startStaleWatchdog, restartBackend, detectEnvironment } from './services/backendManager';
+import { ensureBackendRunning, initSetupGuide, getSetupGuideUrl, startStaleWatchdog, restartBackend, detectEnvironment, detachOrStopBackend } from './services/backendManager';
 import { ConfigCenterPanel } from './panels/ConfigCenterPanel';
 
 
@@ -112,4 +112,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	await ensureBackendRunning();
 }
 
-export function deactivate() { }
+export function deactivate() {
+	// Keep shared multi-session backend alive across windows; only detach local handle.
+	detachOrStopBackend();
+}

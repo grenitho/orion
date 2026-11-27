@@ -5,7 +5,10 @@ import * as net from 'net';
 import * as fs from 'fs';
 import { orionHeaders } from './authToken';
 
+const BACKEND_BASE_URL = 'http://127.0.0.1:8000';
 let backendProcess: ChildProcess | null = null;
+let ownedByThisWindow = false;
+let ensureInFlight: Promise<boolean> | null = null;
 
 // >>> UPDATE-013: the relative-backendPath warning (scope c) fires at most
 // once per extension-host session — findBackendFolderWithSource is called
@@ -126,8 +129,12 @@ export async function inspectPort8000(workspacePath: string): Promise<Port8000In
     const h = (health && health.status === 200 ? health.body : null) as HealthInfo | null;
     if (h && h.app === 'orion-backend') {
         const found = findBackendFolder(workspacePath);
+        const foundSource = findBackendFolderWithSource(workspacePath).source;
         if (found) {
-            if (!sameFolder(h.backend_path || '', found)) {
+            // Only flag different-folder when THIS workspace explicitly has its own local
+            // backend/ folder that differs from the running server; otherwise attach to the
+            // shared multi-session backend cleanly.
+            if (foundSource === 'workspace' && !sameFolder(h.backend_path || '', found)) {
                 return {
                     kind: 'stale', health: h, reason: 'different-folder',
                     message: 'Orion: port 8000 is answered by a backend from a DIFFERENT Orion installation, not the folder this workspace uses. Restart so the correct backend takes over?',
@@ -304,25 +311,79 @@ async function showSetupError(message: string, offerSettings: boolean) {
     }
 }
 
-export async function ensureBackendRunning() {
+async function attachWorkspaceToBackend(workspacePath: string, sessionId = 'default'): Promise<void> {
+    if (!workspacePath) { return; }
+    try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 3000);
+        try {
+            await fetch(`${BACKEND_BASE_URL}/set-project`, {
+                method: 'POST',
+                headers: orionHeaders(),
+                body: JSON.stringify({ path: workspacePath, session_id: sessionId }),
+                signal: ctrl.signal,
+            });
+            console.log(`[BACKEND] Attached workspace to shared backend: ${workspacePath} (session=${sessionId})`);
+        } finally {
+            clearTimeout(timer);
+        }
+    } catch (err) {
+        console.warn('[BACKEND] /set-project attach skipped (non-fatal):', err);
+    }
+}
+
+export function detachOrStopBackend(): void {
+    // Never terminate a shared backend that was started by another VS Code window.
+    if (!ownedByThisWindow) {
+        backendProcess = null;
+        return;
+    }
+    if (backendProcess && !backendProcess.killed) {
+        try { backendProcess.kill(); } catch { /* ignore */ }
+    }
+    backendProcess = null;
+    ownedByThisWindow = false;
+}
+
+export async function ensureBackendRunning(): Promise<boolean> {
+    if (ensureInFlight) {
+        return ensureInFlight;
+    }
+    ensureInFlight = _ensureBackendRunningInternal().finally(() => {
+        ensureInFlight = null;
+    });
+    return ensureInFlight;
+}
+
+async function _ensureBackendRunningInternal(): Promise<boolean> {
     console.log('[BACKEND] === STARTING BACKEND AUTOMATION ===');
 
     const folders = vscode.workspace.workspaceFolders;
-
-    // >>> FIX 1 (kept): do not return immediately when folders is empty;
-    // the setting/env/absolute fallbacks below still apply.
     const workspacePath = folders && folders.length > 0 ? folders[0].uri.fsPath : '';
     console.log(`[BACKEND] Current workspace root: ${workspacePath || '(no workspace)'}`);
 
-    // >>> UPDATE-013 (scope a + b): "port 8000 answers" is no longer treated
-    // as "backend ready". The listener is fingerprinted via GET /health and
-    // classified: fresh (proceed), stale/orphan/legacy/token-mismatch (offer
-    // a restart) or a foreign application (actionable error, no spawn race).
+    // 1. Pre-flight GET /health probe (1.5s timeout on explicit 127.0.0.1:8000)
+    // If a shared Orion backend from another window is already running, attach directly
+    // without spawning a duplicate uvicorn process.
+    const preflight = await fetchWithTimeout(`${BACKEND_BASE_URL}/health`, orionHeaders(), 1500);
+    const preHealth = (preflight && preflight.status === 200 ? preflight.body : null) as HealthInfo | null;
+    if (preHealth && preHealth.app === 'orion-backend') {
+        const inspectionFast = await inspectPort8000(workspacePath);
+        if (inspectionFast.kind === 'fresh') {
+            ownedByThisWindow = false;
+            console.log(`[BACKEND] Shared Orion backend already alive (version ${preHealth.version}, pid ${preHealth.pid}). Attaching workspace.`);
+            await attachWorkspaceToBackend(workspacePath, 'default');
+            return true;
+        }
+    }
+
     const inspection = await inspectPort8000(workspacePath);
     switch (inspection.kind) {
         case 'fresh':
+            ownedByThisWindow = false;
             console.log(`[BACKEND] Port 8000 is answered by a FRESH Orion backend (version ${inspection.health.version}, pid ${inspection.health.pid}). Ready.`);
-            return;
+            await attachWorkspaceToBackend(workspacePath, 'default');
+            return true;
         case 'foreign':
             console.error('[BACKEND] ❌ Port 8000 is in use by ANOTHER application (it does not answer like an Orion backend).');
             {
@@ -330,9 +391,9 @@ export async function ensureBackendRunning() {
                     'Orion: port 8000 is in use by ANOTHER application (it does not answer like an Orion backend). Close that application — or configure it to use a different port — then press Retry.',
                     'Retry'
                 );
-                if (pick === 'Retry') { await ensureBackendRunning(); }
+                if (pick === 'Retry') { return ensureBackendRunning(); }
             }
-            return;
+            return false;
         case 'stale':
         case 'legacy-orion':
         case 'token-mismatch':
@@ -348,7 +409,8 @@ export async function ensureBackendRunning() {
                 );
                 if (pick !== 'Restart backend now') {
                     console.log('[BACKEND] User kept the existing backend; continuing without restart.');
-                    return;
+                    await attachWorkspaceToBackend(workspacePath, 'default');
+                    return true;
                 }
                 const freed = await killPort8000();
                 if (!freed) {
@@ -360,7 +422,7 @@ export async function ensureBackendRunning() {
                             void vscode.env.openExternal(vscode.Uri.parse(setupGuideUrl));
                         }
                     });
-                    return;
+                    return false;
                 }
                 console.log('[BACKEND] Old backend stopped; port 8000 is free — starting the fresh one.');
             }
@@ -370,7 +432,6 @@ export async function ensureBackendRunning() {
             console.log('[BACKEND] Port 8000 is free; discovering and starting the backend.');
             break;
     }
-    // >>> END OF UPDATE-013 freshness gate
 
     const backendPath = findBackendFolder(workspacePath);
     if (!backendPath) {
@@ -379,7 +440,7 @@ export async function ensureBackendRunning() {
             'Orion: backend folder not found. Install it once with the one-line installer (see the setup guide), or point the setting "orion.backendPath" at your existing backend folder.',
             true
         );
-        return;
+        return false;
     }
     console.log(`[BACKEND] ✅ FOUND a valid Orion backend at: ${backendPath}`);
 
@@ -391,13 +452,14 @@ export async function ensureBackendRunning() {
             `Orion: Python virtual environment not found in ${backendPath}. Run "python -m venv .venv" there, then "pip install -r requirements.txt" — or use the one-line installer from the setup guide.`,
             false
         );
-        return;
+        return false;
     }
 
     const command = `"${venvPython}" -m uvicorn app.main:app --host 127.0.0.1 --port 8000`;
     console.log(`[BACKEND] Running command: ${command}`);
 
     backendProcess = exec(command, { cwd: backendPath });
+    ownedByThisWindow = true;
 
     backendProcess.stdout?.on('data', (data) => console.log(`[BACKEND OUT] ${data}`));
     backendProcess.stderr?.on('data', (data) => console.error(`[BACKEND ERR] ${data}`));
@@ -407,50 +469,52 @@ export async function ensureBackendRunning() {
         vscode.window.showErrorMessage(`Orion: Failed to start the backend. ${err.message}`);
     });
 
-    // >>> UPDATE-013 (scope b): notice an EARLY EXIT instead of waiting out
-    // the full 20 s. The two common causes deserve different messages: the
-    // backend crashed during import, or another application grabbed port
-    // 8000 between the check above and the bind ("address already in use").
     let exitCode: number | null = null;
     backendProcess.on('exit', (code) => {
         exitCode = code;
+        ownedByThisWindow = false;
         console.warn(`[BACKEND] Backend process exited early with code ${code}.`);
     });
 
-    let attempts = 0;
-    while (attempts < 20) {
-        const ready = await checkPort(8000);
-        if (ready) {
-            // >>> UPDATE-013: confirm the answer really is an Orion backend
-            // (a foreign app could have won the race for the free port).
-            const health = await probeHealth();
-            const hb = (health && health.status === 200 ? health.body : null) as HealthInfo | null;
-            if (hb && hb.app === 'orion-backend') {
-                console.log(`[BACKEND] ✅ Backend is up! (version ${hb.version}, pid ${hb.pid})`);
-            } else {
-                console.log('[BACKEND] ✅ Port 8000 is up (identity not confirmed via /health).');
-            }
+    // Gradual 500ms polling up to 20s (40 attempts) to tolerate cold-start / MCP / model loading
+    const maxAttempts = 40;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const health = await fetchWithTimeout(`${BACKEND_BASE_URL}/health`, orionHeaders(), 1000);
+        const hb = (health && health.status === 200 ? health.body : null) as HealthInfo | null;
+        if (hb && hb.app === 'orion-backend') {
+            console.log(`[BACKEND] ✅ Backend is up! (version ${hb.version}, pid ${hb.pid})`);
+            await attachWorkspaceToBackend(workspacePath, 'default');
             vscode.window.showInformationMessage('Orion: Backend started automatically.');
-            return;
+            return true;
         }
         if (exitCode !== null) {
+            // Another window may have won the port-8000 race right as we spawned; check /health once more
+            const raceHealth = await fetchWithTimeout(`${BACKEND_BASE_URL}/health`, orionHeaders(), 1200);
+            const rhb = (raceHealth && raceHealth.status === 200 ? raceHealth.body : null) as HealthInfo | null;
+            if (rhb && rhb.app === 'orion-backend') {
+                ownedByThisWindow = false;
+                await attachWorkspaceToBackend(workspacePath, 'default');
+                return true;
+            }
             console.error(`[BACKEND] ❌ FAILED: the backend process exited (code ${exitCode}) before listening on port 8000.`);
             await vscode.window.showErrorMessage(
                 `Orion: the backend process exited (code ${exitCode}) before it could listen on port 8000. Common causes: another application grabbed the port at the last moment, or the backend failed during startup — see .orion/logs/orion_stdout.log inside the project folder for the exact error.`,
                 'Retry'
             ).then(pick => {
                 if (pick === 'Retry') { return ensureBackendRunning(); }
-                return Promise.resolve();
+                return Promise.resolve(false);
             });
-            return;
+            return false;
         }
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        attempts++;
-        console.log(`[BACKEND] Waiting for backend... (${attempts}/20)`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (attempt % 4 === 0) {
+            console.log(`[BACKEND] Waiting for backend... (${attempt * 0.5}s / 20s)`);
+        }
     }
 
     console.error('[BACKEND] ⚠️ TIMEOUT: Backend responded too slowly.');
     vscode.window.showWarningMessage('Orion: Backend is too slow. Try chatting again in 5 seconds or check the backend terminal manually.');
+    return false;
 }
 
 // ---------------------------------------------------------------------------
