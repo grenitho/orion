@@ -234,9 +234,23 @@ KATA_PENOLAKAN_JUJUR = (
 
 
 def kalimat_perintah_kerja(teks: str) -> str:
-    """First sentence of the turn instruction ordering MUTATING work
-    (empty = nothing was ordered that a file mutation would satisfy)."""
-    return _kalimat_pertama_berkata(teks, KATA_KERJA_MUTASI)
+    """First non-interrogative sentence of the turn instruction ordering
+    MUTATING work (empty = nothing was ordered that a file mutation would satisfy)."""
+    if not teks:
+        return ""
+    rendah = teks.lower()
+    if not any(k in rendah for k in KATA_KERJA_MUTASI):
+        return ""
+    for kalimat in re.split(r"(?<=[!?])\s+|(?<=\.)(?:\s+|$)|\n+", teks):
+        potongan = kalimat.strip()
+        if not potongan or potongan.endswith("?") or adalah_pertanyaan(potongan):
+            continue
+        rp = potongan.lower()
+        for k in KATA_KERJA_MUTASI:
+            idx = rp.find(k)
+            if idx >= 0 and not _ternegasi(rp, idx):
+                return potongan[:200]
+    return ""
 
 
 # >>> P6.3 follow-up: an INTERROGATIVE request is not a work order.
@@ -315,6 +329,19 @@ def perintah_verifikasi_gaya(teks: str) -> tuple:
     return perintah, butuh
 
 
+_POLA_ZERO_MUTASI = re.compile(
+    r"\b(?:dilarang|jangan|tanpa)\s+"
+    r"(?:membuat|mengubah|ubah|mengedit|edit|menulis|hapus|menghapus)"
+    r"(?:\s+atau\s+(?:membuat|mengubah|ubah|mengedit|edit|menulis|hapus|menghapus))?"
+    r"\s+file\b"
+    r"|\b(?:do\s+not|don't|never|forbidden\s+to|must\s+not)\s+"
+    r"(?:create|modify|edit|write|change|delete)"
+    r"(?:\s+or\s+(?:create|modify|edit|write|change|delete))?"
+    r"\s+(?:any\s+)?files?\b",
+    re.IGNORECASE,
+)
+
+
 def zero_mutasi_diperintah(teks: str) -> tuple:
     """UPDATE-025 commit 31: (does the instruction forbid ALL file
     mutation, quote sentence). The 0.10.34 exam ended with Orion
@@ -322,15 +349,19 @@ def zero_mutasi_diperintah(teks: str) -> tuple:
     "DILARANG membuat atau mengubah file apa pun" — disclosure teeth
     report violations after the fact; this turns the order into a
     hard, code-side block on mutating tools."""
-    low = (teks or "").lower()
-    if not (
+    raw = teks or ""
+    low = raw.lower()
+    cocok_lama = (
         "dilarang" in low and "file" in low and ("mengubah" in low or "membuat" in low)
-    ):
+    )
+    m = _POLA_ZERO_MUTASI.search(raw)
+    if not (cocok_lama or m):
         return False, ""
-    for kal in (teks or "").splitlines():
-        if "dilarang" in kal.lower():
+    for kal in raw.splitlines():
+        kl = kal.lower()
+        if "dilarang" in kl or _POLA_ZERO_MUTASI.search(kal):
             return True, kal.strip()[:200]
-    return True, "dilarang membuat/mengubah file"
+    return True, (m.group(0).strip()[:200] if m else "dilarang membuat/mengubah file")
 
 
 def teks_status_checkpoint(ada_utang: bool) -> tuple:

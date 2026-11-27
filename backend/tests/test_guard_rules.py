@@ -199,3 +199,47 @@ def test_adalah_tugas_non_coding_negatif_untuk_kode():
         assert (
             guard_rules.adalah_tugas_non_coding(teks) is False
         ), f"Salah deteksi pada: {teks}"
+
+
+def test_kalimat_perintah_kerja_abaikan_pertanyaan_dan_deteksi_perintah_campuran():
+    assert (
+        guard_rules.kalimat_perintah_kerja(
+            "Di file mana fitur login diimplementasikan?"
+        )
+        == ""
+    )
+    assert (
+        guard_rules.kalimat_perintah_kerja("Jelaskan bagaimana cara ubah warna tombol")
+        == ""
+    )
+    assert (
+        guard_rules.kalimat_perintah_kerja(
+            "Kenapa tombolnya error? Tolong perbaiki di App.jsx."
+        )
+        == "Tolong perbaiki di App.jsx."
+    )
+
+
+def test_zero_mutasi_diperintah_bilingual_dan_aman_false_positive():
+    assert (
+        guard_rules.zero_mutasi_diperintah(
+            "DILARANG membuat atau mengubah file apa pun"
+        )[0]
+        is True
+    )
+    assert (
+        guard_rules.zero_mutasi_diperintah(
+            "Periksa kode ini, jangan ubah file apa pun."
+        )[0]
+        is True
+    )
+    assert (
+        guard_rules.zero_mutasi_diperintah(
+            "Inspect the repository, do not modify any files."
+        )[0]
+        is True
+    )
+    assert guard_rules.zero_mutasi_diperintah("Jangan lupa ubah file App.jsx") == (
+        False,
+        "",
+    )
