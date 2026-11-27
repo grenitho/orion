@@ -1,22 +1,30 @@
 import json
 import os
+import shutil
+import uuid
+
+from app.services.session_state import jalur_file_sesi, normalisasi_session_id
 
 
 class ContextManager:
-    def __init__(self, project_path: str = None):
+    def __init__(self, project_path: str = None, session_id: str = "default"):
         self.project_path = project_path
+        self.session_id = normalisasi_session_id(session_id)
         self.history = []
         self.project_map = ""
         self.history_file = None
 
         if project_path:
-            self.set_project_path(project_path)
+            self.set_project_path(project_path, session_id=self.session_id)
 
-    def set_project_path(self, project_path: str):
+    def set_project_path(self, project_path: str, session_id: str | None = None):
         self.project_path = project_path
-        orion_dir = os.path.join(project_path, ".orion")
-        os.makedirs(orion_dir, exist_ok=True)
-        self.history_file = os.path.join(orion_dir, "session_history.json")
+        if session_id is not None:
+            self.session_id = normalisasi_session_id(session_id)
+        self.history_file = jalur_file_sesi(
+            project_path, "session_history.json", self.session_id
+        )
+        os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
         self.load_history()
 
     def add_message(
@@ -51,21 +59,24 @@ class ContextManager:
             self.save_history()
 
     def save_history(self):
-        """Atomic write to prevent file corruption when the process dies suddenly."""
+        """Atomic write with unique temp suffix to prevent file corruption or Windows lock collisions."""
         if not self.history_file:
             return
 
+        tmp_path = f"{self.history_file}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
         try:
             os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
-            tmp_path = self.history_file + ".tmp"
-
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(self.history, f, indent=2, ensure_ascii=False)
 
-            # Atomic replace at the filesystem level
             os.replace(tmp_path, self.history_file)
         except Exception as e:
             print(f"[CONTEXT_MANAGER WARNING] Failed to save history: {e}")
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
 
     def load_history(self):
         """Load history with orphaned tool_calls validation (both directions)."""
@@ -77,8 +88,6 @@ class ContextManager:
             with open(self.history_file, "r", encoding="utf-8") as f:
                 loaded_history = json.load(f)
 
-            # VALIDATION DIRECTION 1: Discard assistant messages with orphaned tool_calls
-            # (the assistant has tool_calls, but their tool responses are missing)
             clean_history = []
             i = 0
             while i < len(loaded_history):
@@ -89,7 +98,6 @@ class ContextManager:
                     found_ids = set()
                     j = i + 1
 
-                    # Collect the tool_call_ids from the tool messages that follow
                     while (
                         j < len(loaded_history)
                         and loaded_history[j].get("role") == "tool"
@@ -97,15 +105,13 @@ class ContextManager:
                         found_ids.add(loaded_history[j].get("tool_call_id"))
                         j += 1
 
-                    # If any tool_call_id has no partner, discard the whole block
                     if expected_ids - found_ids:
                         print(
                             f"[CONTEXT_MANAGER] ⚠️ Discarding assistant message with {len(expected_ids - found_ids)} orphaned tool_calls."
                         )
-                        i = j  # Skip this assistant + its tool messages
+                        i = j
                         continue
 
-                # Discard tool messages without tool_call_id (legacy sanitization)
                 if msg.get("role") == "tool" and not msg.get("tool_call_id"):
                     i += 1
                     continue
@@ -113,10 +119,6 @@ class ContextManager:
                 clean_history.append(msg)
                 i += 1
 
-            # VALIDATION DIRECTION 2: Discard orphaned tool responses
-            # (a tool response exists, but its assistant tool_calls partner is gone —
-            # this can happen when history was once cut by index/count without
-            # respecting assistant+tool block boundaries, e.g. during summarize/pruning)
             all_valid_call_ids = set()
             for m in clean_history:
                 if m.get("role") == "assistant" and m.get("tool_calls"):
@@ -171,8 +173,6 @@ class ContextManager:
 
         try:
             backup_file = self.history_file + ".backup"
-            import shutil
-
             shutil.copy2(self.history_file, backup_file)
             print(f"[CONTEXT_MANAGER] Backup created at {backup_file}")
         except Exception as e:
@@ -180,20 +180,10 @@ class ContextManager:
 
     @staticmethod
     def safe_split_index(history: list, target_index: int) -> int:
-        """
-        Find a safe cut point near target_index so the pair
-        'assistant(tool_calls)' + 'tool(response)' is never split in two.
-        Used before slicing history for summarize/pruning (e.g. history[:N]
-        or history[-N:]), so every remaining 'tool' part always has its
-        assistant tool_calls partner on the same side.
-
-        Return: an index safe to use as the cut boundary (history[:idx]).
-        """
+        """Find a safe cut point near target_index so assistant(tool_calls) + tool(response) is never split."""
         if target_index <= 0 or target_index >= len(history):
             return target_index
 
-        # If the message right at target_index is a 'tool' response,
-        # back the boundary up to just before the assistant+tool_calls block that owns it.
         idx = target_index
         while idx > 0 and history[idx].get("role") == "tool":
             idx -= 1

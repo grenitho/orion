@@ -1,37 +1,37 @@
 """
 todo_manager.py
 
-An independent module tracking an explicit per-project todo list, so the
-progress of large (multi-step) tasks is clearly visible to the user --
-similar to the "todo tracking" approach of modern agentic coding assistants.
-
-Designed to be 100% ADDITIVE: it does not touch context_manager,
-tool_executor, or the main loop flow in main.py. The model MAY call the
-`update_todos` tool at any time for multi-step tasks, or NOT call it at all
-for simple tasks -- both are valid; no old behaviour changed.
+An independent module tracking an explicit per-project / per-session todo list,
+so the progress of large (multi-step) tasks is clearly visible to the user.
 """
 
 import json
 import os
+import uuid
+
+from app.services.session_state import jalur_file_sesi, normalisasi_session_id
 
 VALID_STATUSES = {"pending", "in_progress", "completed"}
 
 
 class TodoManager:
-    def __init__(self, project_path: str = None):
+    def __init__(self, project_path: str = None, session_id: str = "default"):
         self.project_path = None
+        self.session_id = normalisasi_session_id(session_id)
         self.todo_file = None
         self.todos = []  # list of dict: {"id": str, "text": str, "status": str}
         if project_path:
-            self.set_project_path(project_path)
+            self.set_project_path(project_path, session_id=self.session_id)
 
-    def set_project_path(self, project_path: str):
-        """Called from the same places as context_manager.set_project_path
-        (see the integration in main.py: /set-project and auto_restore_project)."""
+    def set_project_path(self, project_path: str, session_id: str | None = None):
+        """Bind TodoManager to a project and session (defaults to 'default')."""
         self.project_path = project_path
-        orion_dir = os.path.join(project_path, ".orion")
-        os.makedirs(orion_dir, exist_ok=True)
-        self.todo_file = os.path.join(orion_dir, "todo_list.json")
+        if session_id is not None:
+            self.session_id = normalisasi_session_id(session_id)
+        self.todo_file = jalur_file_sesi(
+            project_path, "todo_list.json", self.session_id
+        )
+        os.makedirs(os.path.dirname(self.todo_file), exist_ok=True)
         self.load()
 
     def load(self):
@@ -48,25 +48,22 @@ class TodoManager:
     def save(self):
         if not self.todo_file:
             return
+        tmp = f"{self.todo_file}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
         try:
             os.makedirs(os.path.dirname(self.todo_file), exist_ok=True)
-            tmp = self.todo_file + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.todos, f, indent=2, ensure_ascii=False)
             os.replace(tmp, self.todo_file)
         except Exception as e:
             print(f"[TODO_MANAGER WARNING] Failed to save todo list: {e}")
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
 
     def set_todos(self, todos: list) -> str:
-        """
-        Overwrite the entire todo list with a new list from the model.
-        Expected format of each item in the tool-call arguments:
-            {"id": "1", "text": "Add a brightness slider", "status": "pending"}
-        The "id" field is optional (auto-generated from the index when empty).
-        The "status" field is optional, defaulting to "pending".
-        Invalid items (not a dict / empty text) are skipped silently, so one
-        broken item cannot fail the whole list.
-        """
+        """Overwrite the entire todo list with a new list from the model."""
         cleaned = []
         for i, item in enumerate(todos or []):
             if not isinstance(item, dict):

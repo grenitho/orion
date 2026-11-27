@@ -4,23 +4,7 @@ from pathlib import Path
 
 
 def _resolve_stdout_log() -> Path:
-    """Decide where every print()/stdout line of the backend goes.
-
-    >>> UPDATE-012: the file moved from ``~/orion_stdout.log`` into the
-    project so BOTH logs live side by side and several projects no longer
-    mix their output in one home-directory file.
-
-    Priority:
-      1. ``$ORION_STDOUT_LOG`` — explicit override (tests / debugging).
-      2. ``<project>/.orion/logs/orion_stdout.log`` — deterministic via
-         ``__file__``: this file is ``<project>/backend/app/main.py``, so
-         ``parents[2]`` is the project root. Same folder as ``backend.log``
-         (see ``logging_setup._cari_folder_log``).
-      3. ``~/orion_stdout.log`` — the historical location, used only when
-         the project folder cannot be created (read-only install, exotic
-         layout). Old copies are never deleted; the backend simply stops
-         writing to them.
-    """
+    """Decide where every print()/stdout line of the backend goes."""
     env = os.getenv("ORION_STDOUT_LOG")
     if env:
         return Path(env).expanduser()
@@ -38,15 +22,7 @@ _STDOUT_LOG_PATH = _resolve_stdout_log()
 
 
 def _open_stdout_sink(path: Path):
-    """Open the stdout sink for ``path`` — rotating since UPDATE-013.
-
-    The pre-013 sink was a plain ``open(path, "a")``: the log grew without
-    bound (2.6 MB and counting on a daily-driver machine). The rotating
-    writer caps the family at 5 MB x (1 + 2 backups); an oversized legacy
-    log is reclaimed on the very first open. If the rotation module itself
-    cannot be imported (exotic layout), fall back to the old plain append so
-    a missing helper can never stop the backend from booting.
-    """
+    """Open the stdout sink for ``path`` — rotating since UPDATE-013."""
     try:
         from app.stdout_rotation import RotatingFileWriter
     except ImportError:  # pragma: no cover
@@ -64,10 +40,6 @@ except OSError:  # pragma: no cover - last resort: historical home location
     sys.stdout = _open_stdout_sink(_STDOUT_LOG_PATH)
 sys.stderr = sys.stdout
 
-# >>> UPDATE-024 Commit 8: uvicorn's loggers may already exist (built against
-# the pre-redirect stderr handle, which goes invalid on console-less
-# Windows). Re-point them at the guarded sink NOW; the lifespan hook repeats
-# it for anything constructed between import and serve.
 try:
     from app.stdout_rotation import repoint_handlers as _repoint_handlers
 
@@ -76,17 +48,7 @@ except Exception:  # noqa: BLE001 - logging hygiene must never block boot
     pass
 
 # >>> CRITICAL FIX: load_dotenv() MUST be called HERE, FIRST, BEFORE any
-# module below is imported. Previously load_dotenv() was called far below
-# (after `from app.services.llm_router import get_ai_response`).
-# llm_router.py reads os.getenv("GEMINI_API_KEY_1/2/3", "DEFAULT_MODEL", etc)
-# DIRECTLY at module top level (executed ONCE when the module is imported, not
-# inside a function) -- so if load_dotenv() has not run by then, .env has not
-# entered os.environ at all, and GEMINI_API_KEYS becomes an EMPTY list. The
-# condition `if GEMINI_API_KEYS and PRIMARY_MODEL` in llm_router.py then fails,
-# and Gemini (Tier 1) is SKIPPED ENTIRELY without ever being tried -- the
-# router jumps straight to Tier 2 (OpenRouter) / Tier 3 (Cloudflare) even
-# though the Gemini quota is nowhere near exhausted. This was the real cause
-# of the report "Orion never uses Gemini, jumps straight to fallback".
+# module below is imported.
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -95,20 +57,11 @@ load_dotenv()
 import asyncio
 import json
 import re
+import time
+import uuid
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 
-# >>> UPDATE-019: the structure checker below walks the project at every
-# /set-project. Before 019 it skipped NOTHING except roots whose path
-# merely CONTAINED "venv"/"target"/".git" (substring!): an `assets` folder
-# inside node_modules/__pycache__ produced a false "duplicate assets"
-# warning (seen again on the owner's set-project output in 017/018), while
-# a legitimate folder like `target-practice` was silently skipped (false
-# NEGATIVE), and a 100k-folder project stalled the walk for nothing. It now
-# prunes dependency/tooling folders by the same PATTERN family
-# dependency_scanner._dir_ignored uses (exact names + venv-family prefix +
-# node_modules/__pycache__ markers) and caps the walk.
-# Deliberately NOT pruned (unlike the scanner's map-size set): dist/build/
-# out/public/test/tests/assets — legitimate project folders where a nested
-# `assets` folder IS the duplicate this checker exists to report.
 VALIDATE_MAX_DIRS = 20_000
 
 _VALIDATE_PRUNE_EXACT = {
@@ -144,8 +97,6 @@ def validate_project_structure(project_path: str) -> list:
     capped = False
 
     for root, dirs, _files in os.walk(project_path):
-        # Prune BEFORE the check: ignored trees never contribute warnings
-        # and are never even walked (speed on huge projects).
         dirs[:] = [d for d in dirs if not _validate_dir_pruned(d)]
         visited += 1
         if visited > VALIDATE_MAX_DIRS:
@@ -155,15 +106,11 @@ def validate_project_structure(project_path: str) -> list:
 
         if "assets" in dirs:
             assets_path = os.path.join(root, "assets")
-            # If there is an assets folder inside another folder (not the
-            # project root), warn
             expected_assets = os.path.join(project_path, "assets")
             if os.path.normpath(assets_path) != os.path.normpath(expected_assets):
                 warnings.append(f"⚠️ Duplicate folder detected: {assets_path}")
 
     if capped:
-        # Honest truncation, same philosophy as the scanner's map cap: a
-        # silent partial scan would let a real duplicate hide unnoticed.
         warnings.append(
             f"⚠️ STRUCTURE SCAN CAPPED: checked {VALIDATE_MAX_DIRS} folders; "
             "deeper folders were NOT checked for duplicate 'assets' folders. "
@@ -171,8 +118,6 @@ def validate_project_structure(project_path: str) -> list:
         )
     return warnings
 
-
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -182,25 +127,17 @@ from pydantic import BaseModel
 from app.services import auth, findings_ledger, sse, stream_utils
 from app.services import tool_dispatch
 from app.services.agent_loop import Deps, aliran_agent, blok_jangkar_tugas
-from app.services.session_state import SessionState
+from app.services.session_state import SessionState, normalisasi_session_id
 from app.services.tools_schema import TOOLS
 from app.services.context_manager import ContextManager
 from app.services.dependency_scanner import DependencyScanner
-from app.services.llm_router import (  # <-- The only gateway to the LLM
-    build_profile_queue,  # UPDATE-018: profile feasibility probe (/models/test)
+from app.services.llm_router import (
+    build_profile_queue,
     get_ai_response,
-    model_options,  # UPDATE-018: env-derived group+model list (/models/options)
+    model_options,
 )
 from app.services.tool_executor import ToolExecutor
 
-# >>> CRITICAL FIX: 3 additional modules (todo tracking, post-edit
-# verification, permission/sandboxing) were PREVIOUSLY hard-imported -- if any
-# of these files had not been placed in app/services/ (or had a typo/was
-# broken), the ENTIRE backend would ModuleNotFoundError and fail to start AT
-# ALL before ever listening on any port (exactly the symptom "the backend is
-# completely unusable"). They are now soft dependencies: if the import fails,
-# only the related feature is disabled (with a safe fallback) and the backend
-# still starts normally.
 try:
     from app.services.todo_manager import TodoManager
 except Exception as e:
@@ -209,9 +146,6 @@ except Exception as e:
     )
     TodoManager = None
 
-# >>> UPDATE-014: MCP client foundation. Same soft-dependency policy as
-# todo_manager above: a broken mcp_manager (or a missing/broken mcp SDK
-# inside it) only disables MCP tools — the backend must still boot.
 try:
     from app.services.mcp_manager import MCPManager
 except Exception as e:
@@ -220,10 +154,6 @@ except Exception as e:
     )
     MCPManager = None
 
-# >>> UPDATE-018: inbox drop-zone (.orion/inbox/). Same soft-dependency
-# policy again: a broken inbox_manager (or a missing document parser inside
-# it) only disables the inbox feature — the backend must still boot, and
-# the module itself never raises into the request path anyway.
 try:
     from app.services import inbox_manager
 except Exception as e:
@@ -241,35 +171,11 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
 )
 
-# (load_dotenv() has already been called at the very top of this file, before
-# the app.services.* imports -- see the CRITICAL FIX comment around line ~11)
-
-# >>> PATCH ORION-5: structured logging to a FILE.
-# CORRECTION NOTE: the initial suspicion that the 122 print() calls caused
-# stdout backpressure was NOT accurate -- the top of this file already
-# redirects sys.stdout/stderr to a log file with buffering=1, so the
-# parent pipe is never flooded. That problem had already been solved.
-#
-# What is STILL true and fixed here:
-#   1. (historical) the stdout log was opened in "a" mode WITHOUT ROTATION
-#      -> it grew forever. UPDATE-013 rotates the stdout sink too (see
-#      app/stdout_rotation.py: 5 MB cap x 2 backups). The
-#      RotatingFileHandler below caps backend.log at 5 MB x 5.
-#   2. print() has no level/timestamp/module name -> hard to filter.
-# The stdout redirect is DELIBERATELY kept so there is no unnecessary
-# behaviour change; the two can coexist.
-#
-# >>> UPDATE-012: the redirect target moved from ~/orion_stdout.log to
-# <project>/.orion/logs/orion_stdout.log (see _resolve_stdout_log at the
-# top), which also resolves old point 3 ("logs of several projects mix").
 try:
     from app.logging_setup import get_logger, setup_logging
 except ImportError:  # pragma: no cover
     from logging_setup import get_logger, setup_logging  # type: ignore[no-redef]
 
-# >>> UPDATE-013: identity of the running backend — the GET /health payload
-# and the PID-file lifecycle live in app/runtime_id.py so both the route and
-# the lifespan hook share one source of truth.
 try:
     from app import runtime_id
 except ImportError:  # pragma: no cover
@@ -279,21 +185,28 @@ setup_logging()
 logger = get_logger("orion.main")
 
 
+def _atomic_write_json(target_path: str, payload: dict, trailing_newline: bool = False) -> None:
+    """Write JSON atomically using a PID+UUID temp file and os.replace."""
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+    tmp_path = f"{target_path}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+            if trailing_newline:
+                f.write("\n")
+        os.replace(tmp_path, target_path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Startup hook via lifespan (UPDATE-008: replaces the deprecated
-    ``@app.on_event("startup")`` which modern FastAPI flags and will remove).
-    ``auto_restore_project`` is defined further down in this module; the name
-    is resolved at startup time, not at import time.
-
-    UPDATE-013: the PID file is announced HERE (not at import time) because
-    the lifespan startup only runs after uvicorn successfully bound the port
-    — a backend that dies on "address already in use" must never leave a
-    PID file claiming this install is alive.
-
-    UPDATE-019: the OLD claim is read BEFORE it is overwritten (incident-013
-    forensics): evidence of a racing or uncleanly-dead predecessor belongs
-    in the log, not silently clobbered."""
+    """Startup & shutdown lifecycle hook."""
     try:
         from app.stdout_rotation import repoint_handlers
 
@@ -324,10 +237,13 @@ async def lifespan(_app: FastAPI):
         print(f"[ORION RUNTIME] PID file written: {pid_path} (pid={os.getpid()})")
     await auto_restore_project()
     yield
-    # >>> UPDATE-014: MCP subprocesses must not outlive the backend. stop_all
-    # is best-effort and never raises; the PID file is cleared afterwards so
-    # a hung MCP shutdown can never leave a stale "alive" announcement.
-    if mcp_manager is not None:
+    # >>> P9.0: Stop MCP subprocesses across ALL active ProjectContexts
+    stopped_managers = set()
+    for _proj_ctx in list(_project_contexts.values()):
+        if _proj_ctx.mcp_manager is not None and id(_proj_ctx.mcp_manager) not in stopped_managers:
+            stopped_managers.add(id(_proj_ctx.mcp_manager))
+            await _proj_ctx.mcp_manager.stop_all()
+    if mcp_manager is not None and id(mcp_manager) not in stopped_managers:
         await mcp_manager.stop_all()
     runtime_id.clear_pid_file()
 
@@ -339,13 +255,6 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    # >>> PATCH ORION-37 (SECURITY): allow_origins=["*"] + /execute-terminal
-    # without auth = a local RCE hole: while the backend is alive, a malicious
-    # web page opened by the user could POST cross-origin to 127.0.0.1:8000
-    # and run shell commands, bypassing the VS Code approval modal. Cross-origin
-    # JSON requests trigger a preflight; with the origin not allowed, the
-    # browser never sends the request at all. Legitimate clients (extension
-    # host / Node) are not subject to CORS, so nothing breaks.
     allow_origins=[],
     allow_origin_regex=r"^vscode-webview://",
     allow_credentials=False,
@@ -354,12 +263,6 @@ app.add_middleware(
 )
 
 
-# >>> SECURITY (UPDATE-003): SHARED-SECRET TOKEN ==========================
-# Loopback bind + closed CORS stop browsers and remote hosts, but any local
-# process could still call these endpoints. The middleware below demands the
-# X-Orion-Token header (see app/services/auth.py) on every route except the
-# bare health probe GET / and CORS preflight. The extension reads the same
-# token file, so normal installs need no configuration.
 @app.middleware("http")
 async def shared_secret_guard(request, call_next):
     if request.method == "OPTIONS" or request.url.path == "/":
@@ -372,26 +275,270 @@ async def shared_secret_guard(request, call_next):
     )
 
 
-# >>> END OF SHARED-SECRET TOKEN =========================================
+# >>> P9.0: Multi-Window ProjectContext & Multi-Session SessionContext Registry
+SESSION_IDLE_TTL_SECONDS = float(os.getenv("ORION_SESSION_IDLE_TTL", "1800"))
+MAX_CACHED_SESSIONS_PER_PROJECT = int(os.getenv("ORION_MAX_CACHED_SESSIONS", "32"))
+
+
+@dataclass
+class SessionContext:
+    """Isolated per-(project_path, session_id) runtime container."""
+
+    session_id: str
+    context_manager: ContextManager
+    todo_manager: object | None
+    state: SessionState
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    last_accessed: float = field(default_factory=time.monotonic)
+
+    def touch(self) -> None:
+        self.last_accessed = time.monotonic()
+        self.state.sentuh_aktivitas()
+
+
+@dataclass
+class ProjectContext:
+    """Isolated per-project runtime container (Multi-Window safe)."""
+
+    project_path: str
+    real_path: str
+    project_map: str = ""
+    orion_config: dict = field(default_factory=lambda: {"max_iterations": 20})
+    tool_executor: object | None = None
+    mcp_manager: object | None = None
+    project_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    sessions: dict[str, SessionContext] = field(default_factory=dict)
+
+    def get_or_create_session(self, session_id: str | None = "default") -> SessionContext:
+        sid = normalisasi_session_id(session_id)
+        self.evict_idle_sessions()
+        sess = self.sessions.get(sid)
+        if sess is None:
+            cm = ContextManager(self.project_path, session_id=sid)
+            cm.set_project_map(self.project_map)
+            tm = TodoManager(self.project_path, session_id=sid) if TodoManager else None
+            st = SessionState.muat_checkpoint(self.project_path, session_id=sid)
+            sess = SessionContext(
+                session_id=sid,
+                context_manager=cm,
+                todo_manager=tm,
+                state=st,
+            )
+            self.sessions[sid] = sess
+        else:
+            sess.context_manager.set_project_map(self.project_map)
+        sess.touch()
+        return sess
+
+    def evict_idle_sessions(
+        self,
+        now: float | None = None,
+        ttl: float | None = None,
+        max_sessions: int | None = None,
+    ) -> list[str]:
+        """Evict idle non-'default' unlocked sessions from RAM after persisting checkpoint."""
+        current = time.monotonic() if now is None else now
+        effective_ttl = SESSION_IDLE_TTL_SECONDS if ttl is None else ttl
+        effective_max = (
+            MAX_CACHED_SESSIONS_PER_PROJECT if max_sessions is None else max_sessions
+        )
+        evicted: list[str] = []
+
+        # 1. TTL-based eviction
+        for sid, sess in list(self.sessions.items()):
+            if sid == "default" or sess.lock.locked():
+                continue
+            if (current - sess.last_accessed) > effective_ttl:
+                sess.state.simpan_checkpoint(self.project_path)
+                self.sessions.pop(sid, None)
+                evicted.append(sid)
+
+        # 2. Capacity-based LRU eviction if still over max_sessions
+        if len(self.sessions) > effective_max:
+            candidates = [
+                (sess.last_accessed, sid, sess)
+                for sid, sess in self.sessions.items()
+                if sid != "default" and not sess.lock.locked()
+            ]
+            candidates.sort(key=lambda item: item[0])
+            while len(self.sessions) > effective_max and candidates:
+                _, sid, sess = candidates.pop(0)
+                sess.state.simpan_checkpoint(self.project_path)
+                self.sessions.pop(sid, None)
+                evicted.append(sid)
+
+        return evicted
+
+
+_project_contexts: dict[str, ProjectContext] = {}
+_active_project_path: str | None = None
+
+# Legacy module-level references (kept in sync with active project + 'default' session
+# for 100% backward compatibility with older tests and callers).
 context_manager = ContextManager()
 tool_executor = None
-todo_manager = (
-    TodoManager() if TodoManager else None
-)  # >>> FIX: None-safe if the import fails
-# >>> UPDATE-014: one manager instance for the whole backend; it follows the
-# ACTIVE project (started by /set-project, stopped on project change/shutdown).
+todo_manager = TodoManager() if TodoManager else None
 mcp_manager = MCPManager() if MCPManager else None
-orion_config = {"max_iterations": 20}  # Default config
+orion_config = {"max_iterations": 20}
 
-# File for storing the last project
+_synced_context_manager = context_manager
+_synced_tool_executor = tool_executor
+_synced_todo_manager = todo_manager
+_synced_mcp_manager = mcp_manager
+_synced_orion_config = orion_config
+
 LAST_PROJECT_FILE = os.path.join(os.path.expanduser("~"), ".orion_last_project.json")
 
-# >>> P9.0: Multi-session state registry & per-project concurrency locks
 _project_states: dict[str, SessionState] = {}
 _project_locks: dict[str, asyncio.Lock] = {}
 
 
-def _get_project_lock(project_path: str) -> asyncio.Lock:
+def _get_or_create_project_context(project_path: str) -> ProjectContext:
+    real_key = os.path.realpath(project_path)
+    ctx = _project_contexts.get(real_key)
+    if ctx is None:
+        ctx = ProjectContext(
+            project_path=project_path,
+            real_path=real_key,
+            orion_config={"max_iterations": 20},
+            mcp_manager=MCPManager() if MCPManager else None,
+        )
+        _project_contexts[real_key] = ctx
+    else:
+        ctx.project_path = project_path
+    return ctx
+
+
+def _sync_legacy_globals(proj_ctx: ProjectContext) -> SessionContext:
+    """Keep legacy module-level globals synced to the active project & 'default' session."""
+    global _active_project_path, context_manager, tool_executor, todo_manager
+    global mcp_manager, orion_config
+    global _synced_context_manager, _synced_tool_executor, _synced_todo_manager
+    global _synced_mcp_manager, _synced_orion_config
+
+    _active_project_path = proj_ctx.project_path
+    default_sess = proj_ctx.get_or_create_session("default")
+
+    context_manager = default_sess.context_manager
+    tool_executor = proj_ctx.tool_executor
+    todo_manager = default_sess.todo_manager
+    mcp_manager = proj_ctx.mcp_manager
+    orion_config = proj_ctx.orion_config
+
+    _synced_context_manager = context_manager
+    _synced_tool_executor = tool_executor
+    _synced_todo_manager = todo_manager
+    _synced_mcp_manager = mcp_manager
+    _synced_orion_config = orion_config
+
+    _project_states[proj_ctx.real_path] = default_sess.state
+    _project_locks[proj_ctx.real_path] = default_sess.lock
+    return default_sess
+
+
+def _is_legacy_active_path(project_path: str) -> bool:
+    """True when project_path corresponds to the active legacy single-window project."""
+    cm_path = getattr(context_manager, "project_path", None) if context_manager is not None else None
+    if cm_path and os.path.realpath(cm_path) == os.path.realpath(project_path):
+        return True
+    if _active_project_path is None:
+        return True
+    return os.path.realpath(project_path) == os.path.realpath(_active_project_path)
+
+
+def _resolve_project_context(project_path: str | None = None) -> ProjectContext | None:
+    """Resolve explicit project_path or fall back strictly to context_manager.project_path."""
+    target = project_path
+    if target is None:
+        if context_manager is not None and getattr(context_manager, "project_path", None):
+            target = context_manager.project_path
+    if not target:
+        return None
+
+    real_key = os.path.realpath(target)
+    ctx = _project_contexts.get(real_key)
+    if ctx is None:
+        if not os.path.isdir(target):
+            return None
+        ctx = _get_or_create_project_context(target)
+        if os.path.isfile(os.path.join(target, ".orion", "orion_config.json")):
+            load_orion_config(target, target_config=ctx.orion_config)
+
+    # Honor direct monkeypatching on module globals in legacy tests
+    is_legacy_active = project_path is None or (
+        context_manager is not None
+        and getattr(context_manager, "project_path", None)
+        and os.path.realpath(context_manager.project_path) == real_key
+    )
+    if is_legacy_active:
+        if tool_executor is not _synced_tool_executor:
+            ctx.tool_executor = tool_executor
+        elif ctx.tool_executor is None and os.path.isdir(target):
+            ctx.tool_executor = ToolExecutor(target)
+
+        if mcp_manager is not _synced_mcp_manager:
+            ctx.mcp_manager = mcp_manager
+
+        if orion_config is not _synced_orion_config and isinstance(orion_config, dict):
+            ctx.orion_config = orion_config
+
+        if (
+            context_manager is not _synced_context_manager
+            and getattr(context_manager, "project_map", "")
+            and not ctx.project_map
+        ):
+            ctx.project_map = context_manager.project_map
+
+    return ctx
+
+
+def _resolve_session_context(
+    project_path: str | None = None, session_id: str | None = None
+) -> tuple[ProjectContext | None, SessionContext | None]:
+    """Resolve both ProjectContext and SessionContext for (project_path, session_id)."""
+    proj_ctx = _resolve_project_context(project_path)
+    if proj_ctx is None:
+        return None, None
+
+    sid = normalisasi_session_id(session_id)
+    sess_ctx = proj_ctx.get_or_create_session(sid)
+
+    if sid == "default":
+        if proj_ctx.real_path in _project_states:
+            sess_ctx.state = _project_states[proj_ctx.real_path]
+        else:
+            sess_ctx.state = SessionState.muat_checkpoint(
+                proj_ctx.project_path, session_id="default"
+            )
+            _project_states[proj_ctx.real_path] = sess_ctx.state
+
+        if proj_ctx.real_path in _project_locks:
+            sess_ctx.lock = _project_locks[proj_ctx.real_path]
+        else:
+            _project_locks[proj_ctx.real_path] = sess_ctx.lock
+
+    is_legacy_default = sid == "default" and (
+        project_path is None
+        or (
+            context_manager is not None
+            and getattr(context_manager, "project_path", None)
+            and os.path.realpath(context_manager.project_path) == proj_ctx.real_path
+        )
+    )
+    if is_legacy_default:
+        if context_manager is not _synced_context_manager and context_manager is not None:
+            sess_ctx.context_manager = context_manager
+        if todo_manager is not _synced_todo_manager:
+            sess_ctx.todo_manager = todo_manager
+
+    sess_ctx.touch()
+    return proj_ctx, sess_ctx
+
+
+def _get_project_lock(project_path: str, session_id: str | None = "default") -> asyncio.Lock:
+    proj_ctx, sess_ctx = _resolve_session_context(project_path, session_id)
+    if sess_ctx is not None:
+        return sess_ctx.lock
     key = os.path.realpath(project_path)
     lock = _project_locks.get(key)
     if lock is None:
@@ -400,12 +547,29 @@ def _get_project_lock(project_path: str) -> asyncio.Lock:
     return lock
 
 
-def _get_or_restore_state(project_path: str, pending_image=None) -> SessionState:
-    key = os.path.realpath(project_path)
-    state = _project_states.get(key)
+def _get_or_restore_state(
+    project_path: str, pending_image=None, session_id: str | None = "default"
+) -> SessionState:
+    sid = normalisasi_session_id(session_id)
+    real_key = os.path.realpath(project_path)
+    existing_proj = _project_contexts.get(real_key)
+    if sid == "default":
+        already_active = real_key in _project_states
+    else:
+        already_active = existing_proj is not None and sid in existing_proj.sessions
+
+    _, sess_ctx = _resolve_session_context(project_path, sid)
+    if sess_ctx is not None:
+        state = sess_ctx.state
+        if already_active:
+            state.reset_per_turn()
+        state.pending_image = pending_image
+        return state
+
+    state = _project_states.get(real_key)
     if state is None:
-        state = SessionState.muat_checkpoint(project_path)
-        _project_states[key] = state
+        state = SessionState.muat_checkpoint(project_path, session_id=sid)
+        _project_states[real_key] = state
     else:
         state.reset_per_turn()
     state.pending_image = pending_image
@@ -415,8 +579,7 @@ def _get_or_restore_state(project_path: str, pending_image=None) -> SessionState
 def save_last_project(path: str):
     """Save the last project path to disk."""
     try:
-        with open(LAST_PROJECT_FILE, "w", encoding="utf-8") as f:
-            json.dump({"path": path}, f)
+        _atomic_write_json(LAST_PROJECT_FILE, {"path": path})
         print(f"[ORION PERSIST] Project path saved to {LAST_PROJECT_FILE}")
     except Exception as e:
         print(f"[ORION PERSIST WARNING] Failed to save last project: {e}")
@@ -433,78 +596,55 @@ def load_last_project():
     return None
 
 
-def load_orion_config(project_path: str):
-    """Read or create the default config file at .orion/orion_config.json"""
+def load_orion_config(project_path: str, target_config: dict | None = None) -> dict:
+    """Read or create the default config file at .orion/orion_config.json."""
     global orion_config
     config_path = os.path.join(project_path, ".orion", "orion_config.json")
+    base_cfg = target_config if target_config is not None else {"max_iterations": 20}
 
     print(f"[ORION CONFIG DEBUG] Attempting to read config from: {config_path}")
 
     if os.path.exists(config_path):
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, "r", encoding="utf-8-sig") as f:
                 loaded_config = json.load(f)
-                orion_config = {**orion_config, **loaded_config}
-                print(f"[ORION CONFIG] ✅ Loaded successfully: {orion_config}")
+                merged = {**base_cfg, **loaded_config}
+                if target_config is not None:
+                    target_config.clear()
+                    target_config.update(merged)
+                if target_config is None or _is_legacy_active_path(project_path):
+                    orion_config = target_config if target_config is not None else merged
+                print(f"[ORION CONFIG] ✅ Loaded successfully: {merged}")
                 print(
-                    f"[ORION CONFIG] max_iterations value: {orion_config.get('max_iterations')}"
+                    f"[ORION CONFIG] max_iterations value: {merged.get('max_iterations')}"
                 )
+                return target_config if target_config is not None else merged
         except Exception as e:
             print(
                 f"[ORION CONFIG WARNING] Failed to read config, using defaults. Error: {e}"
             )
+            return base_cfg
     else:
-        default_config = {
-            "max_iterations": 20,
-            # >>> NEW: the token budget threshold is configurable per project.
-            # Match it to the context window of the model you actually use
-            # (do not assume 8K if your model supports a larger context).
-            "token_budget_threshold": 12000,
-            # >>> UPDATE-016: sub-agent knobs (backend/app/services/
-            # subagent_manager.py). Delegations are bounded per turn and per
-            # sub-run so the feature can never burn quota silently.
-            "subagents_enabled": True,
-            "subagent_max_per_turn": 3,
-            "subagent_max_iterations": 6,
-            "subagent_workers_max": 3,
-            # >>> UPDATE-017: master switch for the whole MCP layer of this
-            # project (the "stop kontak": off = no servers spawned, mcp.json
-            # preserved; per-server Disable/Enable lives in the MCP panel).
-            "mcp_enabled": True,
-            # >>> UPDATE-018: inbox drop-zone knobs (backend/app/services/
-            # inbox_manager.py). inbox_max_files is clamped to 1..20 per
-            # turn; hard caps (20 MB/file, 7 MB/image, 60k chars, 30 PDF
-            # pages, 200 spreadsheet rows) live in the module itself.
-            "inbox_enabled": True,
-            "inbox_max_files": 5,
-            # >>> UPDATE-018: per-role sub-agent model profiles. Empty (or
-            # null per role) = the sub-agent uses the main router, exactly
-            # like before. Shape per role: {"group": "gemini"|"provider_N"|
-            # "fallback", "model": "<model name>"} — written by the setup
-            # wizard via POST /models/config; a broken profile falls back
-            # to the main router with a logged warning (never crashes).
-            "subagent_models": {},
-            "description": "Orion settings. Change max_iterations to limit the AI thinking loop. token_budget_threshold controls when emergency context pruning occurs. subagents_* control the internal sub-agents (UPDATE-016). inbox_* control the .orion/inbox drop-zone; subagent_models pins per-role models (UPDATE-018).",
-            "semantic_auto_index": True,
-        }
+        default_config = _config_defaults()
         try:
-            os.makedirs(os.path.dirname(config_path), exist_ok=True)
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(default_config, f, indent=2)
-            orion_config = default_config
+            _atomic_write_json(config_path, default_config)
+            if target_config is not None:
+                target_config.clear()
+                target_config.update(default_config)
+            if (
+                target_config is None
+                or _active_project_path is None
+                or os.path.realpath(project_path)
+                == os.path.realpath(_active_project_path)
+            ):
+                orion_config = (
+                    target_config if target_config is not None else default_config
+                )
             print(f"[ORION CONFIG] Default config file created at {config_path}")
+            return target_config if target_config is not None else default_config
         except Exception as e:
             print(f"[ORION CONFIG WARNING] Failed to create config file: {e}")
-
-
-# >>> PATCH ORION-15: TOOL CONSISTENCY CHECKER =====================
-# The "3 dead tools" bug happened because the TOOLS schema and the /chat
-# dispatch chain were maintained separately, so the two could diverge
-# undetected. This checker runs once at startup and REPORTS to the log when
-# a tool is declared but has no method on tool_executor.
-# (The dispatch branch itself still has to be added manually in /chat -- see
-#  the warning message.)
-# =====================================================================
+            return base_cfg
 
 
 def periksa_konsistensi_tools() -> None:
@@ -540,7 +680,6 @@ def periksa_konsistensi_tools() -> None:
 
 
 periksa_konsistensi_tools()
-# >>> END OF PATCH ORION-15
 
 
 class ProjectPathRequest(BaseModel):
@@ -549,12 +688,15 @@ class ProjectPathRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    # >>> ATTACHMENT FEATURE: list of {name, mime, data(base64)} from the extension.
-    # Default [] so old requests (without this field) stay valid.
     attachments: list = []
-    # >>> PATCH ORION-20c: Orion's "eyes" from VS Code.
-    # {activeFile, selection, diagnostics[]}. Empty with an old extension.
     editor: dict = {}
+    project_path: str | None = None
+    session_id: str | None = None
+
+
+class ClearChatRequest(BaseModel):
+    project_path: str | None = None
+    session_id: str | None = None
 
 
 @app.get("/")
@@ -565,47 +707,25 @@ async def root():
     }
 
 
-# >>> UPDATE-013: identity check for the extension. Unlike the bare GET /
-# (deliberately unauthenticated so anything can probe "is A server alive"),
-# /health sits behind the shared-secret middleware: only a caller holding
-# the token can fingerprint the process. backendManager.ts uses the fields
-# below to tell a FRESH Orion from a stale orphan (booted before the code
-# was last modified) or a foreign app squatting on port 8000.
 @app.get("/health")
-async def health():
-    payload = runtime_id.health_payload(context_manager.project_path)
-    # >>> UPDATE-014: additive MCP fields (mcp_servers, mcp_tools). Old
-    # extensions ignore unknown keys — same policy as the 013 interpreter
-    # fields. Absent entirely when the manager could not be imported.
-    if mcp_manager is not None:
-        payload.update(mcp_manager.health_fields())
+async def health(project_path: str | None = None):
+    proj_ctx = _resolve_project_context(project_path)
+    resolved_path = proj_ctx.project_path if proj_ctx else context_manager.project_path
+    active_mcp = proj_ctx.mcp_manager if proj_ctx else mcp_manager
+
+    payload = runtime_id.health_payload(resolved_path)
+    if active_mcp is not None:
+        payload.update(active_mcp.health_fields())
     return payload
 
 
-# >>> END OF UPDATE-013 /health
-
-
-# >>> UPDATE-019: twin-process forensics (incident 013) ====================
-# One token-guarded surface where the three sources of truth that can
-# disagree meet: the PID file's claim, the process answering port 8000
-# (this one), and the code mtime on disk. Empty "verdicts" = nothing
-# suspicious; otherwise honest, actionable sentences (TWIN SUSPECTED /
-# STALE PID FILE / PID FILE UNREADABLE / STALE CODE). The startup log line
-# uses the same evidence before the claim is overwritten.
 @app.get("/runtime/forensics")
-async def runtime_forensics():
-    return runtime_id.forensics_payload(context_manager.project_path)
+async def runtime_forensics(project_path: str | None = None):
+    proj_ctx = _resolve_project_context(project_path)
+    resolved_path = proj_ctx.project_path if proj_ctx else context_manager.project_path
+    return runtime_id.forensics_payload(resolved_path)
 
 
-# >>> END OF UPDATE-019 forensics ==========================================
-
-
-# >>> UPDATE-015: MCP management surface for the VS Code panel ============
-# Both routes sit behind the shared-secret middleware like every route
-# except GET / (test_health pins that rule). status_detail() never exposes
-# env VALUES (only key names); /mcp/config is one transaction: validate ->
-# atomic write -> reload, so the panel can never leave the file and the
-# live servers out of sync.
 class McpConfigRequest(BaseModel):
     op: str
     name: str | None = None
@@ -613,57 +733,51 @@ class McpConfigRequest(BaseModel):
     disabled: bool | None = None
     servers: dict | None = None
     keep_env: bool | None = None
-    # >>> UPDATE-020: master-switch op payload (mcp_enabled in orion_config)
     enabled: bool | None = None
+    project_path: str | None = None
 
 
 @app.get("/mcp/status")
-async def mcp_status():
-    if mcp_manager is None:
+async def mcp_status(project_path: str | None = None):
+    proj_ctx = _resolve_project_context(project_path)
+    active_mcp = proj_ctx.mcp_manager if proj_ctx else mcp_manager
+    if active_mcp is None:
         return JSONResponse(
             {"error": "MCP support is unavailable in this backend"},
             status_code=503,
         )
-    return mcp_manager.status_detail()
+    return active_mcp.status_detail()
 
 
 @app.post("/mcp/config")
 async def mcp_config(request: McpConfigRequest):
-    if mcp_manager is None:
+    proj_ctx = _resolve_project_context(request.project_path)
+    active_mcp = proj_ctx.mcp_manager if proj_ctx else mcp_manager
+    if active_mcp is None:
         return JSONResponse(
             {"error": "MCP support is unavailable in this backend"},
             status_code=503,
         )
-    result = await mcp_manager.apply_config_op(
-        request.op,
-        {
-            "name": request.name,
-            "spec": request.spec,
-            "disabled": request.disabled,
-            "servers": request.servers,
-            "keep_env": request.keep_env,
-            "enabled": request.enabled,  # UPDATE-020 master switch
-        },
-    )
+    op_payload = {
+        "name": request.name,
+        "spec": request.spec,
+        "disabled": request.disabled,
+        "servers": request.servers,
+        "keep_env": request.keep_env,
+        "enabled": request.enabled,
+    }
+    if proj_ctx is not None:
+        async with proj_ctx.project_lock:
+            result = await active_mcp.apply_config_op(request.op, op_payload)
+            if result["success"] and request.op == "master_switch" and isinstance(request.enabled, bool):
+                proj_ctx.orion_config["mcp_enabled"] = request.enabled
+    else:
+        result = await active_mcp.apply_config_op(request.op, op_payload)
     if not result["success"]:
         return JSONResponse(result, status_code=400)
     return result
 
 
-# >>> END OF UPDATE-015 MCP management ====================================
-
-
-# >>> UPDATE-018: model-profile surface for the setup wizard ===============
-# Three token-guarded routes (the shared-secret middleware covers every path
-# except GET /, so nothing here needs its own auth check). Design rules:
-#   * GET  /models/options — what the ENVIRONMENT offers (groups + model
-#     names + the profiles currently saved in the project). Never a key
-#     value: same env-privacy posture as /mcp/status.
-#   * POST /models/test    — a small real probe through the profile path so
-#     the owner learns "this group+model answers" BEFORE saving it.
-#   * POST /models/config  — validate -> atomic write -> live sync, one
-#     transaction (same shape as /mcp/config), so the file and the running
-#     backend can never disagree.
 SUBAGENT_ROLE_KEYS = ("explorer", "verifier", "workers")
 PROFILE_GROUP_PATTERN = re.compile(r"^(gemini|provider_[1-9][0-9]?|fallback)$")
 
@@ -674,16 +788,16 @@ class ModelsTestRequest(BaseModel):
 
 
 class ModelsConfigRequest(BaseModel):
-    # >>> Role -> {"group","model"} | null. `null` (or an absent role) means
-    # "main router", the owner's explicit requirement for the empty state.
     subagent_models: dict | None = None
+    project_path: str | None = None
 
 
-def _orion_config_path() -> str | None:
-    project_path = context_manager.project_path
-    if not project_path:
+def _orion_config_path(project_path: str | None = None) -> str | None:
+    proj_ctx = _resolve_project_context(project_path)
+    resolved = proj_ctx.project_path if proj_ctx else context_manager.project_path
+    if not resolved:
         return None
-    return os.path.join(project_path, ".orion", "orion_config.json")
+    return os.path.join(resolved, ".orion", "orion_config.json")
 
 
 def validate_subagent_models(payload) -> str | None:
@@ -725,10 +839,10 @@ def _sanitize_profile_error(text: str, queue: list) -> str:
 
 
 @app.get("/models/options")
-async def models_options_route():
+async def models_options_route(project_path: str | None = None):
     """Groups + models offered by this environment, and the saved profiles."""
     saved = {}
-    cfg_path = _orion_config_path()
+    cfg_path = _orion_config_path(project_path)
     if cfg_path and os.path.exists(cfg_path):
         try:
             with open(cfg_path, "r", encoding="utf-8-sig") as f:
@@ -777,7 +891,7 @@ async def models_test_route(request: ModelsTestRequest):
             "resolved_model": queue[0]["model"],
             "reply_preview": content[:120],
         }
-    except Exception as exc:  # a failed probe is data, not a crash
+    except Exception as exc:
         return {
             "success": False,
             "profile": profile,
@@ -789,9 +903,8 @@ async def models_test_route(request: ModelsTestRequest):
 @app.post("/models/config")
 async def models_config_route(request: ModelsConfigRequest):
     """Validate -> atomic write -> live sync of subagent_models."""
-    global orion_config
-
-    cfg_path = _orion_config_path()
+    proj_ctx = _resolve_project_context(request.project_path)
+    cfg_path = _orion_config_path(request.project_path)
     if cfg_path is None:
         return JSONResponse(
             {"success": False, "error": "No project is set; open a folder first."},
@@ -801,64 +914,49 @@ async def models_config_route(request: ModelsConfigRequest):
     payload = request.subagent_models if request.subagent_models is not None else {}
     error = validate_subagent_models(payload)
     if error:
-        # Reject BEFORE touching the file (same rule as /mcp/config).
         return JSONResponse({"success": False, "error": error}, status_code=400)
 
-    data = {}
-    if os.path.exists(cfg_path):
+    async def _apply_models_cfg():
+        data = {}
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    data = loaded
+            except (OSError, json.JSONDecodeError) as e:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": f"orion_config.json is unreadable/corrupt: {e}",
+                    },
+                    status_code=400,
+                )
+
+        data["subagent_models"] = payload
         try:
-            with open(cfg_path, "r", encoding="utf-8-sig") as f:
-                loaded = json.load(f)
-            if isinstance(loaded, dict):
-                data = loaded
-        except (OSError, json.JSONDecodeError) as e:
+            _atomic_write_json(cfg_path, data)
+        except OSError as e:
             return JSONResponse(
-                {
-                    "success": False,
-                    "error": f"orion_config.json is unreadable/corrupt: {e}",
-                },
-                status_code=400,
+                {"success": False, "error": f"could not write orion_config.json: {e}"},
+                status_code=500,
             )
 
-    data["subagent_models"] = payload
-    try:
-        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
-        tmp_path = cfg_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp_path, cfg_path)
-    except OSError as e:
-        return JSONResponse(
-            {"success": False, "error": f"could not write orion_config.json: {e}"},
-            status_code=500,
-        )
+        if proj_ctx is not None:
+            proj_ctx.orion_config["subagent_models"] = payload
+            if _is_legacy_active_path(proj_ctx.project_path):
+                orion_config["subagent_models"] = payload
+        else:
+            orion_config["subagent_models"] = payload
+        print(f"[ORION MODELS] subagent_models saved: {payload}")
+        return {"success": True, "subagent_models": payload}
 
-    # Live sync: a saved profile must apply to the NEXT /chat turn without
-    # re-running /set-project (deps.config is this very dict object).
-    orion_config["subagent_models"] = payload
-    print(f"[ORION MODELS] subagent_models saved: {payload}")
-    return {"success": True, "subagent_models": payload}
+    if proj_ctx is not None:
+        async with proj_ctx.project_lock:
+            return await _apply_models_cfg()
+    return await _apply_models_cfg()
 
 
-# >>> END OF UPDATE-018 model profiles ====================================
-
-# >>> P7.1: Configuration Center surface (backend side) ===================
-# One token-guarded endpoint that reads and writes the PROJECT-SCOPED
-# runtime config file .orion/orion_config.json (max_iterations, token
-# budget, subagents_*, inbox_*, subagent_models, mcp_enabled, ...).
-#
-# Deliberately NOT touching .env: API keys and routing credentials stay
-# the Setup Wizard's territory (single writer, single source of truth).
-# The panel's "Model" tab is read-only summary + jump-to-wizard buttons.
-#
-# Design mirrors /mcp/config and /models/config one-for-one:
-#   * GET  -> {"project_path", "orion_config", "defaults", "ranges",
-#              "env_summary"} — env_summary NEVER contains key VALUES.
-#   * POST -> validate -> atomic write -> live sync into the global
-#              orion_config dict that agent_loop.py reads via Deps.config.
-#             Unknown keys, wrong types, and out-of-range values are
-#             rejected BEFORE the file is touched (same contract as the
-#             other two config routes).
 CONFIG_RANGES = {
     "max_iterations": (1, 200),
     "token_budget_threshold": (1000, 200000),
@@ -874,17 +972,13 @@ CONFIG_BOOLEANS = (
     "semantic_auto_index",
 )
 CONFIG_OTHER = (
-    "subagent_models",  # dict, validated by validate_subagent_models()
-    "description",  # str, free text (not advertised in the panel)
+    "subagent_models",
+    "description",
 )
 
 
 def _config_defaults() -> dict:
-    """The same defaults load_orion_config() writes on first touch.
-
-    Kept here so the panel can offer a 'Reset to defaults' button without
-    guessing; a fresh project already gets this dict written to disk.
-    """
+    """The same defaults load_orion_config() writes on first touch."""
     return {
         "max_iterations": 20,
         "token_budget_threshold": 12000,
@@ -908,12 +1002,7 @@ def _config_defaults() -> dict:
 
 
 def _env_summary() -> dict:
-    """Key-COUNT-only view of .env for the Model tab.
-
-    NEVER returns key VALUES. Same posture as /mcp/status and
-    /models/options: names and counts may surface, secrets may not.
-    Safe to call without a project set — it only reflects os.environ.
-    """
+    """Key-COUNT-only view of .env for the Model tab."""
     gemini_count = 0
     for name, value in os.environ.items():
         if name.startswith("GEMINI_API_KEY_") and value and value.strip():
@@ -929,9 +1018,9 @@ def _env_summary() -> dict:
         if not m:
             continue
         idx = int(m.group(1))
-        field = m.group(2).lower()
+        field_name = m.group(2).lower()
         val = (value or "").strip()
-        slots.setdefault(idx, {})[field] = val
+        slots.setdefault(idx, {})[field_name] = val
     for idx in sorted(slots):
         slot = slots[idx]
         if not slot.get("api_key"):
@@ -974,16 +1063,10 @@ def _env_summary() -> dict:
 
 
 def validate_orion_config_payload(payload) -> str | None:
-    """Return an error string when the incoming orion_config is malformed.
-
-    Deliberately strict: the panel is the ONLY editor, so any typo it emits
-    must be caught here before the file is touched. The user's manual edits
-    keep working through the file itself (GET reads whatever is on disk).
-    """
+    """Return an error string when the incoming orion_config is malformed."""
     if not isinstance(payload, dict):
         return "orion_config must be an object."
 
-    # ints with ranges
     for key, (lo, hi) in CONFIG_RANGES.items():
         if key not in payload:
             continue
@@ -993,14 +1076,12 @@ def validate_orion_config_payload(payload) -> str | None:
         if not (lo <= value <= hi):
             return f"'{key}' must be between {lo} and {hi} (got {value})."
 
-    # booleans
     for key in CONFIG_BOOLEANS:
         if key not in payload:
             continue
         if not isinstance(payload[key], bool):
             return f"'{key}' must be true or false."
 
-    # subagent_models goes through the existing validator
     if "subagent_models" in payload:
         err = validate_subagent_models(payload["subagent_models"])
         if err:
@@ -1009,9 +1090,6 @@ def validate_orion_config_payload(payload) -> str | None:
     if "description" in payload and not isinstance(payload["description"], str):
         return "'description' must be a string."
 
-    # Reject unknown keys. A typo silently living in the file would
-    # contradict the "panel is the single editor" promise; unknown keys
-    # added by hand are still readable via GET.
     allowed = set(CONFIG_RANGES) | set(CONFIG_BOOLEANS) | set(CONFIG_OTHER)
     unknown = sorted(set(payload) - allowed)
     if unknown:
@@ -1020,12 +1098,13 @@ def validate_orion_config_payload(payload) -> str | None:
 
 
 @app.get("/config")
-async def get_config():
+async def get_config(project_path: str | None = None):
     """Current orion_config + defaults + ranges + safe env summary."""
-    project_path = context_manager.project_path
+    proj_ctx = _resolve_project_context(project_path)
+    resolved_path = proj_ctx.project_path if proj_ctx else context_manager.project_path
     cfg_path = (
-        os.path.join(project_path, ".orion", "orion_config.json")
-        if project_path
+        os.path.join(resolved_path, ".orion", "orion_config.json")
+        if resolved_path
         else None
     )
     data: dict = {}
@@ -1039,7 +1118,7 @@ async def get_config():
             print(f"[ORION CONFIG WARNING] GET /config could not read file: {e}")
 
     return {
-        "project_path": project_path,
+        "project_path": resolved_path,
         "config_path": cfg_path,
         "orion_config": data,
         "defaults": _config_defaults(),
@@ -1051,10 +1130,10 @@ async def get_config():
 @app.post("/config")
 async def post_config(request: dict):
     """Validate -> atomic write -> live sync of orion_config."""
-    global orion_config
-
-    project_path = context_manager.project_path
-    if not project_path:
+    req_proj = request.get("project_path") if isinstance(request, dict) else None
+    proj_ctx = _resolve_project_context(req_proj)
+    resolved_path = proj_ctx.project_path if proj_ctx else context_manager.project_path
+    if not resolved_path:
         return JSONResponse(
             {"success": False, "error": "No project is set; open a folder first."},
             status_code=400,
@@ -1065,170 +1144,178 @@ async def post_config(request: dict):
     if error:
         return JSONResponse({"success": False, "error": error}, status_code=400)
 
-    cfg_path = os.path.join(project_path, ".orion", "orion_config.json")
-    on_disk: dict = {}
-    if os.path.exists(cfg_path):
+    cfg_path = os.path.join(resolved_path, ".orion", "orion_config.json")
+
+    async def _apply_cfg():
+        on_disk: dict = {}
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8-sig") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    on_disk = loaded
+            except (OSError, json.JSONDecodeError) as e:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": f"orion_config.json is unreadable/corrupt: {e}",
+                    },
+                    status_code=400,
+                )
+
+        merged = {**on_disk, **payload}
+
         try:
-            with open(cfg_path, "r", encoding="utf-8-sig") as f:
-                loaded = json.load(f)
-            if isinstance(loaded, dict):
-                on_disk = loaded
-        except (OSError, json.JSONDecodeError) as e:
+            _atomic_write_json(cfg_path, merged, trailing_newline=True)
+        except OSError as e:
             return JSONResponse(
-                {
-                    "success": False,
-                    "error": f"orion_config.json is unreadable/corrupt: {e}",
-                },
-                status_code=400,
+                {"success": False, "error": f"could not write orion_config.json: {e}"},
+                status_code=500,
             )
 
-    # Merge, not replace: keys the panel did not send survive untouched
-    # (e.g. a future 'description' or a hand-added experiment).
-    merged = {**on_disk, **payload}
+        if proj_ctx is not None:
+            proj_ctx.orion_config.update(merged)
+            if _is_legacy_active_path(proj_ctx.project_path):
+                orion_config.update(merged)
+            active_cfg = dict(proj_ctx.orion_config)
+        else:
+            orion_config.update(merged)
+            active_cfg = dict(orion_config)
+        print(f"[ORION CONFIG] saved via /config: {sorted(payload)}")
+        return {
+            "success": True,
+            "orion_config": active_cfg,
+        }
 
-    try:
-        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
-        tmp = cfg_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(merged, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        os.replace(tmp, cfg_path)
-    except OSError as e:
-        return JSONResponse(
-            {"success": False, "error": f"could not write orion_config.json: {e}"},
-            status_code=500,
-        )
-
-    # Live sync: Deps.config in agent_loop reads THIS very dict object, so
-    # a Save takes effect on the next /chat turn without a restart.
-    orion_config.update(merged)
-    print(f"[ORION CONFIG] saved via /config: {sorted(payload)}")
-    return {
-        "success": True,
-        "orion_config": dict(orion_config),
-    }
-
-
-# >>> END OF P7.1 Configuration Center surface =============================
+    if proj_ctx is not None:
+        async with proj_ctx.project_lock:
+            return await _apply_cfg()
+    return await _apply_cfg()
 
 
 @app.post("/set-project")
 async def set_project(request: ProjectPathRequest):
-    global tool_executor
-
     if not os.path.isdir(request.path):
         return {"success": False, "error": "Folder not found."}
 
-    # 1. Validate the folder structure
-    structure_warnings = validate_project_structure(request.path)
+    proj_ctx = _get_or_create_project_context(request.path)
 
-    # 2. Set the path and initialize the tool executor
-    context_manager.set_project_path(request.path)
-    _project_states[os.path.realpath(request.path)] = SessionState.muat_checkpoint(
-        request.path
-    )
-    tool_executor = ToolExecutor(request.path)
-    # >>> P6.3: reset semantic engine setiap ganti proyek.
-    # Diletakkan di luar `if todo_manager:` agar SELALU berjalan, dan
-    # tepat setelah ToolExecutor dibuat agar engine terikat ke proyek baru.
-    try:
-        if hasattr(tool_executor, "_semantic_engine"):
-            tool_executor._semantic_engine = None
-    except Exception:
-        pass  # Jangan pernah gagalkan set-project karena ini
+    async with proj_ctx.project_lock:
+        # 1. Validate the folder structure
+        structure_warnings = validate_project_structure(request.path)
 
-    if todo_manager:
-        todo_manager.set_project_path(request.path)  # >>> FIX: None-safe guard
+        # 2. Initialize project-scoped ToolExecutor & default session
+        proj_ctx.tool_executor = ToolExecutor(request.path)
+        try:
+            if hasattr(proj_ctx.tool_executor, "_semantic_engine"):
+                proj_ctx.tool_executor._semantic_engine = None
+        except Exception:
+            pass
 
-    # 3. Save to disk for auto-restore
-    save_last_project(request.path)
-
-    # 4. Initialize the .orion/ folder
-    orion_dir = os.path.join(request.path, ".orion")
-    if not os.path.exists(orion_dir):
-        os.makedirs(orion_dir)
-        print(f"[ORION INIT] Creating .orion/ folder at {orion_dir}")
-
-        default_files = {
-            "master_context.md": "# Master Context\n\nProject: [Project Name]\nVersion: 0.1\nTechnology: \n",
-            "decision_log.md": "# Decision Log\n\nNo architecture decisions yet.\n",
-            "coding_rules.md": "# Coding Rules\n\nNo coding rules yet.\n",
-            "current_sprint.md": "# Current Sprint\n\nSprint: Initialization\nStatus: Just started\n",
-        }
-        for filename, content in default_files.items():
-            file_path = os.path.join(orion_dir, filename)
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-    # 5. Scan dependencies and save to project_map
-    try:
-        scanner = DependencyScanner(request.path)
-        scan_result = scanner.scan()
-        print(
-            f"[ORION INIT] Dependency Map generated. Total {scan_result['total_files']} files scanned."
+        default_sess = proj_ctx.get_or_create_session("default")
+        default_sess.context_manager.set_project_path(request.path, session_id="default")
+        default_sess.state = SessionState.muat_checkpoint(
+            request.path, session_id="default"
         )
-
-        # Build the project structure string and save it to context_manager
-        map_lines = [f"📁 {path}" for path in scan_result["files"].keys()]
-        project_map_str = "Project Structure:\n" + "\n".join(map_lines)
-        # >>> UPDATE-013 hardening (patch 0007): when the scan hit the file
-        # cap, SAY SO inside the map itself. A silent partial map would let
-        # the model believe the project is smaller than it is; a loud one
-        # tells it to explore beyond the list with search_code.
-        if scan_result.get("truncated"):
-            note = (
-                f"⚠️ PROJECT MAP TRUNCATED: showing {scan_result['total_files']} files "
-                f"(scanner cap {scan_result.get('file_cap')}). The project contains more "
-                "scannable files than Orion maps at once; explore beyond this list with "
-                "search_code / read_file_range instead of assuming the map is complete."
+        if default_sess.todo_manager:
+            default_sess.todo_manager.set_project_path(
+                request.path, session_id="default"
             )
-            project_map_str = note + "\n" + project_map_str
-            structure_warnings.append(note)
-            print(f"[SCANNER WARNING] {note}")
-        context_manager.set_project_map(project_map_str)
 
-    except Exception as e:
-        print(f"[ORION INIT WARNING] Failed to generate Dependency Map: {e}")
-        context_manager.set_project_map("Project Structure: Scan failed.")
+        # 3. Save to disk for auto-restore
+        save_last_project(request.path)
 
-    # 6. Load config
-    load_orion_config(request.path)
+        # 4. Initialize the .orion/ folder
+        orion_dir = os.path.join(request.path, ".orion")
+        if not os.path.exists(orion_dir):
+            os.makedirs(orion_dir)
+            print(f"[ORION INIT] Creating .orion/ folder at {orion_dir}")
 
-    # 7. >>> UPDATE-014: (re)start the MCP tool servers of THIS project.
-    # start_all stops the servers of the previous project first, reads
-    # <project>/.orion/mcp.json, and never raises: a broken config or a dead
-    # server only produces warnings inside the additive "mcp" response field.
-    mcp_summary = None
-    if mcp_manager is not None:
-        mcp_summary = await mcp_manager.start_all(request.path)
-        for _w in mcp_summary.get("warnings", []):
-            print(f"[ORION MCP WARNING] {_w}")
-        for _srv in mcp_summary.get("servers", []):
-            if _srv.get("status") == "ok":
-                print(
-                    f"[ORION MCP] server '{_srv['name']}' ready with {_srv['tools']} tool(s)"
+            default_files = {
+                "master_context.md": "# Master Context\n\nProject: [Project Name]\nVersion: 0.1\nTechnology: \n",
+                "decision_log.md": "# Decision Log\n\nNo architecture decisions yet.\n",
+                "coding_rules.md": "# Coding Rules\n\nNo coding rules yet.\n",
+                "current_sprint.md": "# Current Sprint\n\nSprint: Initialization\nStatus: Just started\n",
+            }
+            for filename, content in default_files.items():
+                file_path = os.path.join(orion_dir, filename)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+        # 5. Scan dependencies and save to project_map
+        try:
+            scanner = DependencyScanner(request.path)
+            scan_result = scanner.scan()
+            print(
+                f"[ORION INIT] Dependency Map generated. Total {scan_result['total_files']} files scanned."
+            )
+
+            map_lines = [f"📁 {path}" for path in scan_result["files"].keys()]
+            project_map_str = "Project Structure:\n" + "\n".join(map_lines)
+            if scan_result.get("truncated"):
+                note = (
+                    f"⚠️ PROJECT MAP TRUNCATED: showing {scan_result['total_files']} files "
+                    f"(scanner cap {scan_result.get('file_cap')}). The project contains more "
+                    "scannable files than Orion maps at once; explore beyond this list with "
+                    "search_code / read_file_range instead of assuming the map is complete."
                 )
-            elif _srv.get("status") == "error":
-                print(
-                    f"[ORION MCP] server '{_srv['name']}' FAILED to start: {_srv.get('error')}"
-                )
-    asyncio.create_task(_trigger_semantic_auto_index("set-project"))
-    return {
-        "success": True,
-        "message": "Project scanned successfully.",
-        "project_map_preview": context_manager.get_project_map()[:500] + "...",
-        "structure_warnings": structure_warnings,  # Send warnings to the frontend
-        "mcp": mcp_summary,  # UPDATE-014 (additive; None when MCP is unavailable)
-    }
+                project_map_str = note + "\n" + project_map_str
+                structure_warnings.append(note)
+                print(f"[SCANNER WARNING] {note}")
+            proj_ctx.project_map = project_map_str
+            for _s in proj_ctx.sessions.values():
+                _s.context_manager.set_project_map(project_map_str)
+
+        except Exception as e:
+            print(f"[ORION INIT WARNING] Failed to generate Dependency Map: {e}")
+            proj_ctx.project_map = "Project Structure: Scan failed."
+            for _s in proj_ctx.sessions.values():
+                _s.context_manager.set_project_map(proj_ctx.project_map)
+
+        # 6. Load project-scoped config
+        load_orion_config(request.path, target_config=proj_ctx.orion_config)
+
+        # 7. Sync legacy globals for single-window / older test compatibility
+        _sync_legacy_globals(proj_ctx)
+
+        # 8. (Re)start MCP servers ONLY for THIS project (other open projects stay alive)
+        mcp_summary = None
+        if proj_ctx.mcp_manager is not None:
+            mcp_summary = await proj_ctx.mcp_manager.start_all(request.path)
+            for _w in mcp_summary.get("warnings", []):
+                print(f"[ORION MCP WARNING] {_w}")
+            for _srv in mcp_summary.get("servers", []):
+                if _srv.get("status") == "ok":
+                    print(
+                        f"[ORION MCP] server '{_srv['name']}' ready with {_srv['tools']} tool(s)"
+                    )
+                elif _srv.get("status") == "error":
+                    print(
+                        f"[ORION MCP] server '{_srv['name']}' FAILED to start: {_srv.get('error')}"
+                    )
+
+        asyncio.create_task(
+            _trigger_semantic_auto_index("set-project", proj_ctx=proj_ctx)
+        )
+        return {
+            "success": True,
+            "message": "Project scanned successfully.",
+            "project_map_preview": proj_ctx.project_map[:500] + "...",
+            "structure_warnings": structure_warnings,
+            "mcp": mcp_summary,
+        }
 
 
 _semantic_indexing_projects: set[str] = set()
 
 
-async def _trigger_semantic_auto_index(reason: str = "set-project"):
-    if not orion_config.get("semantic_auto_index", True):
+async def _trigger_semantic_auto_index(
+    reason: str = "set-project", proj_ctx: ProjectContext | None = None
+):
+    cfg = proj_ctx.orion_config if proj_ctx is not None else orion_config
+    if not cfg.get("semantic_auto_index", True):
         return
-    executor = tool_executor
+    executor = proj_ctx.tool_executor if proj_ctx is not None else tool_executor
     if executor is None:
         return
     proj_key = os.path.realpath(executor.project_path)
@@ -1246,30 +1333,33 @@ async def _trigger_semantic_auto_index(reason: str = "set-project"):
 
 
 async def auto_restore_project():
-    """Auto-restore the last project when the backend starts up.
-    Invoked by the ``lifespan`` handler above (UPDATE-008)."""
-    auth.get_shared_token()  # mint at startup so clients can read it immediately
+    """Auto-restore the last project when the backend starts up."""
+    auth.get_shared_token()
     print(
         f"[ORION AUTH] Shared token file: {auth.token_file_path()} — "
         "X-Orion-Token required on all routes except GET /"
     )
-    global tool_executor
     last_path = load_last_project()
     if last_path and os.path.isdir(last_path):
         print(f"[ORION STARTUP] 🔄 Auto-restoring previous project: {last_path}")
-        context_manager.set_project_path(last_path)
-        tool_executor = ToolExecutor(last_path)
-        if todo_manager:
-            todo_manager.set_project_path(last_path)  # >>> FIX: None-safe guard
-        load_orion_config(last_path)
-        if mcp_manager is not None:
+        proj_ctx = _get_or_create_project_context(last_path)
+        proj_ctx.tool_executor = ToolExecutor(last_path)
+        default_sess = proj_ctx.get_or_create_session("default")
+        default_sess.context_manager.set_project_path(last_path, session_id="default")
+        if default_sess.todo_manager:
+            default_sess.todo_manager.set_project_path(last_path, session_id="default")
+        load_orion_config(last_path, target_config=proj_ctx.orion_config)
+        _sync_legacy_globals(proj_ctx)
+        if proj_ctx.mcp_manager is not None:
             try:
-                _ringkasan_mcp = await mcp_manager.start_all(last_path)
+                _ringkasan_mcp = await proj_ctx.mcp_manager.start_all(last_path)
                 for _w in _ringkasan_mcp.get("warnings", []):
                     print(f"[ORION MCP WARNING] {_w}")
             except Exception as e:
                 print(f"[ORION MCP WARNING] MCP startup skipped: {e}")
-        asyncio.create_task(_trigger_semantic_auto_index("auto-restore"))
+        asyncio.create_task(
+            _trigger_semantic_auto_index("auto-restore", proj_ctx=proj_ctx)
+        )
         print("[ORION STARTUP] ✅ Project restored successfully. Tool executor ready.")
     else:
         print("[ORION STARTUP] No previous project found. Waiting for /set-project...")
@@ -1277,15 +1367,18 @@ async def auto_restore_project():
 
 @app.post("/chat")
 async def chat_with_orion(request: ChatRequest):
-    if not context_manager.project_map or tool_executor is None:
+    proj_ctx, sess_ctx = _resolve_session_context(
+        request.project_path, request.session_id
+    )
+    active_cm = sess_ctx.context_manager if sess_ctx else context_manager
+    active_executor = proj_ctx.tool_executor if proj_ctx else tool_executor
+    active_map = (
+        (proj_ctx.project_map if proj_ctx else "")
+        or getattr(active_cm, "project_map", "")
+    )
 
-        # >>> UPDATE-013 (SSE robustness): this early-exit was the ONLY /chat
-        # path that bypassed stream_utils.jamin_done — the stream ended with
-        # 'error' and NO 'done'. The extension (PATCH ORION-12: "no done ==
-        # crash") then layered a false 'Connection to the backend was lost'
-        # alarm on top of the perfectly clear error bubble. Found by the SSE
-        # harness (scenario h recorded 1 frame instead of 2). The wrapper
-        # guarantees the terminal done, exactly like every other path.
+    if not active_map or active_executor is None or proj_ctx is None or sess_ctx is None:
+
         async def error_gen():
             yield sse.ev("error", text="Please set a project first.")
 
@@ -1294,205 +1387,154 @@ async def chat_with_orion(request: ChatRequest):
             media_type="text/event-stream",
         )
 
-    # >>> ATTACHMENT FEATURE ==============================================
-    # Images are NOT stored in the history. The base64 of one 1 MB screenshot
-    # becomes +/- 1.4 million characters; if it entered session_history.json then
-    # every agent iteration would resend it and the free-tier quota would run out fast.
-    # The history only stores a text placeholder; the actual image is injected
-    # into api_messages ONLY on the first iteration (see patch B4b).
-    # ==================================================================
     from app.services.attachments import build_user_content, describe_attachments
 
     _lamp_desc = describe_attachments(request.attachments)
     _content_parts, _riwayat_text = build_user_content(
         request.message,
         request.attachments,
-        project_path=context_manager.project_path,
-    )
-    # >>> PHASE C STEP 2: per-turn mutable state now lives in one SessionState
-    # (app/services/session_state.py) instead of loose locals inside the
-    # generator. The attachment image parts are single-use: injected into
-    # api_messages on the first iteration, then state.pending_image is set
-    # back to None. The old 1-element-list holder (a workaround for ruff
-    # F823) is no longer needed — assigning through `state.` cannot create a
-    # generator-local.
-    state = _get_or_restore_state(
-        context_manager.project_path,
-        pending_image=_content_parts if isinstance(_content_parts, list) else None,
+        project_path=proj_ctx.project_path,
     )
     if _lamp_desc:
         logger.info("[ATTACHMENT] %s", _lamp_desc)
 
-    # >>> UPDATE-018: INBOX — the ambient drop-zone (.orion/inbox/) =========
-    # ingest() runs once per /chat turn and NEVER raises: an unreadable
-    # folder, a broken parser or an oversized file all come back as warning
-    # strings. Routing of the result (same philosophy as attachments.py):
-    #   * extracted texts   -> appended to THIS turn's context message
-    #                          (visible on every iteration of this turn,
-    #                          never persisted into session_history.json);
-    #   * images            -> joined into the single-use vision parts of
-    #                          the first iteration, in the SAME part format
-    #                          attachments.py uses (image_url + data URI);
-    #   * history           -> placeholders only ("[INBOX FILE: name …]"),
-    #                          so later turns know the files arrived and
-    #                          where the archived copies live;
-    #   * names/warnings    -> frozen 'status' frame (📥 Inbox: …) via
-    #                          Deps.inbox_desc + [INBOX WARNINGS] inside the
-    #                          context block, so the model is told what it
-    #                          cannot see.
-    # With an empty inbox every variable below is empty/None and the stream
-    # stays byte-identical to the pre-018 shape (harness u018base contract).
-    if inbox_manager is not None:
-        _inbox = inbox_manager.ingest(context_manager.project_path, orion_config)
-        _inbox_desc = inbox_manager.describe(_inbox)
-        _inbox_block = inbox_manager.context_block(_inbox)
-    else:
-        _inbox, _inbox_desc, _inbox_block = {"names": [], "images": []}, "", ""
-
-    _inbox_riwayat = "".join(
-        f"\n[INBOX FILE: {_n} — processed this turn; archived copy under "
-        ".orion/inbox/archive/]"
-        for _n in _inbox.get("names", [])
-    )
-    if _inbox.get("names"):
-        logger.info("[INBOX] %s", _inbox_desc)
-        for _w in _inbox.get("warnings", []):
-            logger.warning("[INBOX] %s", _w)
-
-    if _inbox.get("images"):
-        # FIX P1.1: Paksa list dan pastikan elemen pertama adalah teks
-        _bagian = (
-            list(state.pending_image) if isinstance(state.pending_image, list) else []
-        )
-        if not _bagian:
-            _bagian = [{"type": "text", "text": "(see attached images)"}]
-        if not any(isinstance(_p, dict) and _p.get("type") == "text" for _p in _bagian):
-            _bagian.insert(
-                0,
-                {
-                    "type": "text",
-                    "text": (_riwayat_text + _inbox_riwayat)
-                    or "(see the inbox images)",
-                },
-            )
-        for _nama, _mime, _b64 in _inbox["images"]:
-            _bagian.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{_mime};base64,{_b64}"},
-                }
-            )
-        state.pending_image = _bagian
-    # >>> END OF UPDATE-018 inbox ingest ====================================
-
-    context_manager.add_message("user", _riwayat_text + _inbox_riwayat)
-
-    # >>> CACHE OPTIMIZATION: separate static and dynamic messages <<<
-
-    # (The static SYSTEM_PROMPT itself is imported by agent_loop.py since Phase C step 4.)
-
-    # >>> PATCH ORION-20d ================================================
-    # INJECT THE EDITOR CONTEXT. This is what makes Orion "see":
-    #   - which file you currently have open
-    #   - which text you have selected (the most relevant context, for free)
-    #   - the errors VS Code reports in the Problems panel
-    # The last part is the strongest hallucination preventer: if Orion just
-    # edited file X and Problems mentions an ERROR in file X, it gets explicit
-    # instructions to fix it before claiming completion.
-    # ====================================================================
-    _editor_ctx = request.editor if isinstance(request.editor, dict) else {}
-    _editor_block = ""
-
-    _aktif = str(_editor_ctx.get("activeFile") or "")
-    if _aktif and not _aktif.startswith(".."):
-        _editor_block += f"\n\nFILE THE USER CURRENTLY HAS OPEN: {_aktif}"
-
-    _sel = str(_editor_ctx.get("selection") or "")
-    if _sel:
-        _editor_block += f"\n\nTEXT THE USER CURRENTLY HAS SELECTED IN THAT FILE:\n```\n{_sel[:4000]}\n```"
-
-    _diags = _editor_ctx.get("diagnostics") or []
-    if isinstance(_diags, list) and _diags:
-        _editor_block += (
-            "\n\nLATEST DIAGNOSTICS FROM VS CODE (Problems panel). "
-            "These are FACTS about the current state of the code, more accurate than your guesses:\n"
-            + "\n".join(str(d) for d in _diags[:30])
-            + "\n\nRULE: if you just changed a file and the list above "
-            "mentions an ERROR in that file, your change is BROKEN or incomplete. "
-            "Fix it first until the error is gone BEFORE reporting the task complete. "
-            "If the error is in a file you did not touch, mention it to the user as a finding, "
-            "do not silently ignore it."
-        )
-
-    _prev_changed = getattr(state, "_checkpoint_file_terakhir", []) or []
-    _resume_block = ""
-    if _prev_changed or state.analyzed_files:
-        _parts_cp = ["\n\n[SESSION CHECKPOINT — PRESERVED ACROSS PAUSE]"]
-        if _prev_changed:
-            _parts_cp.append(
-                "Files already written/edited in the previous turn (do NOT redo unless fixing an error): "
-                + ", ".join(_prev_changed[-15:])
-            )
-        if state.analyzed_files:
-            _parts_cp.append(
-                f"Files already read in this session ({len(state.analyzed_files)} total, e.g. "
-                + ", ".join(sorted(state.analyzed_files)[:10])
-                + ") — skip re-reading unchanged files."
-            )
-        _resume_block = "\n".join(_parts_cp)
-
-    context_message = {
-        "role": "user",
-        "content": f"Current project structure:\n{context_manager.get_project_map()}"
-        + _editor_block
-        + _inbox_block
-        + findings_ledger.blok_konteks(context_manager.project_path)
-        + blok_jangkar_tugas(
-            context_manager.get_history(),
-            todo_manager,
-            state.utang_verifikasi_terbuka(),
-        )
-        + _resume_block,
-    }
-
-    # >>> END OF CACHE OPTIMIZATION <<<
-
-    # >>> PHASE C STEP 4: the agent loop itself now lives in
-    # app/services/agent_loop.py. This route composes its explicit
-    # dependencies; the terminal-'done' guarantee stays here, in the
-    # stream_utils.jamin_done wrapper below (PATCH ORION-28/36).
-    deps = Deps(
-        context_manager=context_manager,
-        todo_manager=todo_manager,
-        tool_executor=tool_executor,
-        llm_call=get_ai_response,
-        kirim_status=lambda teks: sse.ev("status", text=teks),
-        config=orion_config,
-        logger=logger,
-        context_message=context_message,
-        lampiran_desc=_lamp_desc,
-        mcp=mcp_manager,  # UPDATE-014: None when the manager failed to import
-        inbox_desc=_inbox_desc,  # UPDATE-018: '' when the drop-zone is empty
-    )
-
-    # >>> PATCH ORION-28 ================================================
-    # The audit found TEN exit paths in the core stream that ended the
-    # stream WITHOUT sending a 'done' event (ask_user, waiting for terminal
-    # confirmation, emergency stop, iteration cap, etc). As a result the
-    # extension read those LEGITIMATE closures as crashes and showed
-    # "Connection to the backend was lost" -- a false alarm.
-    #
-    # Instead of patching ten places (and future ones), a single
-    # wrapper guarantees: whatever the path, if the stream ends
-    # without 'done', the wrapper sends it. A genuine crash (dead
-    # process) still produces no done, so ORION-12 in the extension
-    # can still tell a real disconnect from a normal ending.
-    # ==================================================================
     async def generate_stream():
-        proj_path = context_manager.project_path
+        proj_path = proj_ctx.project_path
+        sid = sess_ctx.session_id
 
-        lock = _get_project_lock(proj_path)
-        async with lock:
+        async with sess_ctx.lock:
+            sess_ctx.touch()
+            state = sess_ctx.state
+            state.reset_per_turn()
+            state.pending_image = (
+                _content_parts if isinstance(_content_parts, list) else None
+            )
+
+            if inbox_manager is not None:
+                _inbox = inbox_manager.ingest(proj_path, proj_ctx.orion_config)
+                _inbox_desc = inbox_manager.describe(_inbox)
+                _inbox_block = inbox_manager.context_block(_inbox)
+            else:
+                _inbox, _inbox_desc, _inbox_block = {"names": [], "images": []}, "", ""
+
+            _inbox_riwayat = "".join(
+                f"\n[INBOX FILE: {_n} — processed this turn; archived copy under "
+                ".orion/inbox/archive/]"
+                for _n in _inbox.get("names", [])
+            )
+            if _inbox.get("names"):
+                logger.info("[INBOX] %s", _inbox_desc)
+                for _w in _inbox.get("warnings", []):
+                    logger.warning("[INBOX] %s", _w)
+
+            if _inbox.get("images"):
+                _bagian = (
+                    list(state.pending_image)
+                    if isinstance(state.pending_image, list)
+                    else []
+                )
+                if not _bagian:
+                    _bagian = [{"type": "text", "text": "(see attached images)"}]
+                if not any(
+                    isinstance(_p, dict) and _p.get("type") == "text" for _p in _bagian
+                ):
+                    _bagian.insert(
+                        0,
+                        {
+                            "type": "text",
+                            "text": (_riwayat_text + _inbox_riwayat)
+                            or "(see the inbox images)",
+                        },
+                    )
+                for _nama, _mime, _b64 in _inbox["images"]:
+                    _bagian.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{_mime};base64,{_b64}"},
+                        }
+                    )
+                state.pending_image = _bagian
+
+            sess_cm = sess_ctx.context_manager
+            sess_tm = sess_ctx.todo_manager
+            sess_cm.add_message("user", _riwayat_text + _inbox_riwayat)
+
+            _editor_ctx = request.editor if isinstance(request.editor, dict) else {}
+            _editor_block = ""
+
+            _aktif = str(_editor_ctx.get("activeFile") or "")
+            if _aktif and not _aktif.startswith(".."):
+                _editor_block += f"\n\nFILE THE USER CURRENTLY HAS OPEN: {_aktif}"
+
+            _sel = str(_editor_ctx.get("selection") or "")
+            if _sel:
+                _editor_block += (
+                    f"\n\nTEXT THE USER CURRENTLY HAS SELECTED IN THAT FILE:\n```\n{_sel[:4000]}\n```"
+                )
+
+            _diags = _editor_ctx.get("diagnostics") or []
+            if isinstance(_diags, list) and _diags:
+                _editor_block += (
+                    "\n\nLATEST DIAGNOSTICS FROM VS CODE (Problems panel). "
+                    "These are FACTS about the current state of the code, more accurate than your guesses:\n"
+                    + "\n".join(str(d) for d in _diags[:30])
+                    + "\n\nRULE: if you just changed a file and the list above "
+                    "mentions an ERROR in that file, your change is BROKEN or incomplete. "
+                    "Fix it first until the error is gone BEFORE reporting the task complete. "
+                    "If the error is in a file you did not touch, mention it to the user as a finding, "
+                    "do not silently ignore it."
+                )
+
+            _prev_changed = getattr(state, "_checkpoint_file_terakhir", []) or []
+            _resume_block = ""
+            if _prev_changed or state.analyzed_files:
+                _parts_cp = ["\n\n[SESSION CHECKPOINT — PRESERVED ACROSS PAUSE]"]
+                if _prev_changed:
+                    _parts_cp.append(
+                        "Files already written/edited in the previous turn (do NOT redo unless fixing an error): "
+                        + ", ".join(_prev_changed[-15:])
+                    )
+                if state.analyzed_files:
+                    _parts_cp.append(
+                        f"Files already read in this session ({len(state.analyzed_files)} total, e.g. "
+                        + ", ".join(sorted(state.analyzed_files)[:10])
+                        + ") — skip re-reading unchanged files."
+                    )
+                _resume_block = "\n".join(_parts_cp)
+
+            current_map = (
+                proj_ctx.project_map
+                or getattr(sess_cm, "project_map", "")
+                or active_map
+            )
+            context_message = {
+                "role": "user",
+                "content": f"Current project structure:\n{current_map}"
+                + _editor_block
+                + _inbox_block
+                + findings_ledger.blok_konteks(proj_path)
+                + blok_jangkar_tugas(
+                    sess_cm.get_history(),
+                    sess_tm,
+                    state.utang_verifikasi_terbuka(),
+                )
+                + _resume_block,
+            }
+
+            deps = Deps(
+                context_manager=sess_cm,
+                todo_manager=sess_tm,
+                tool_executor=proj_ctx.tool_executor,
+                llm_call=get_ai_response,
+                kirim_status=lambda teks: sse.ev("status", text=teks),
+                config=proj_ctx.orion_config,
+                logger=logger,
+                context_message=context_message,
+                lampiran_desc=_lamp_desc,
+                mcp=proj_ctx.mcp_manager,
+                inbox_desc=_inbox_desc,
+            )
+
             try:
                 async for potongan in stream_utils.jamin_done(
                     aliran_agent(state, deps), logger=logger
@@ -1502,59 +1544,98 @@ async def chat_with_orion(request: ChatRequest):
                 state._checkpoint_file_terakhir = list(state.files_changed_this_turn)[
                     -30:
                 ]
-                state.simpan_checkpoint(proj_path)
+                state.simpan_checkpoint(proj_path, session_id=sid)
+                sess_ctx.touch()
 
     return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
 
 @app.post("/clear-chat")
-async def clear_chat():
+async def clear_chat(request: ClearChatRequest | None = None):
+    req_proj = request.project_path if request else None
+    req_sid = request.session_id if request else None
+    proj_ctx, sess_ctx = _resolve_session_context(req_proj, req_sid)
+
+    if proj_ctx is not None and sess_ctx is not None:
+        async with sess_ctx.lock:
+            sid = sess_ctx.session_id
+            sess_ctx.context_manager.clear_history(persist=True)
+            SessionState.hapus_checkpoint(proj_ctx.project_path, session_id=sid)
+            fresh_state = SessionState(session_id=sid)
+            sess_ctx.state = fresh_state
+            sess_ctx.touch()
+            if sid == "default":
+                _project_states.pop(proj_ctx.real_path, None)
+        return {
+            "success": True,
+            "message": "Chat history cleared.",
+            "session_id": sid,
+        }
+
     context_manager.clear_history(persist=True)
     if context_manager.project_path:
         key = os.path.realpath(context_manager.project_path)
         _project_states.pop(key, None)
-        SessionState.hapus_checkpoint(context_manager.project_path)
-    return {"success": True, "message": "Chat history cleared."}
+        SessionState.hapus_checkpoint(context_manager.project_path, session_id="default")
+    return {"success": True, "message": "Chat history cleared.", "session_id": "default"}
 
 
 class TerminalRequest(BaseModel):
     command: str
+    project_path: str | None = None
+    session_id: str | None = None
 
 
 @app.post("/execute-terminal")
 async def execute_approved_terminal(request: TerminalRequest):
     """Dedicated endpoint for executing a command the user already approved."""
-    if tool_executor is None:
+    proj_ctx, sess_ctx = _resolve_session_context(
+        request.project_path, request.session_id
+    )
+    active_executor = proj_ctx.tool_executor if proj_ctx else tool_executor
+    if active_executor is None:
         return {"success": False, "output": "Tool executor not initialized."}
 
-    output = tool_executor.run_terminal(command=request.command)
+    async def _run_and_record():
+        loop = asyncio.get_running_loop()
+        output = await loop.run_in_executor(
+            None, lambda: active_executor.run_terminal(command=request.command)
+        )
 
-    # >>> CRITICAL FIX: update the placeholder with the real result <<<
-    history = context_manager.get_history()
-    for i in range(len(history) - 1, -1, -1):
-        msg = history[i]
-        if msg.get("role") == "tool" and "[AWAITING CONFIRMATION]" in msg.get(
-            "content", ""
-        ):
-            history[i]["content"] = output
-            print(
-                f"[ORION] Dangerous command executed. Tool call ID {msg.get('tool_call_id')} updated."
-            )
-            if hasattr(context_manager, "save_history"):
-                context_manager.save_history()
-            break
+        active_cm = sess_ctx.context_manager if sess_ctx else context_manager
+        history = active_cm.get_history()
+        for i in range(len(history) - 1, -1, -1):
+            msg = history[i]
+            if msg.get("role") == "tool" and "[AWAITING CONFIRMATION]" in msg.get(
+                "content", ""
+            ):
+                history[i]["content"] = output
+                print(
+                    f"[ORION] Dangerous command executed. Tool call ID {msg.get('tool_call_id')} updated."
+                )
+                if hasattr(active_cm, "save_history"):
+                    active_cm.save_history()
+                break
+        if sess_ctx is not None:
+            sess_ctx.touch()
+        return {"success": True, "output": output}
 
-    return {"success": True, "output": output}
+    if sess_ctx is not None:
+        async with sess_ctx.lock:
+            return await _run_and_record()
+    return await _run_and_record()
 
 
 @app.get("/performance")
-async def get_performance():
-    """Read and compute statistics from performance_log.jsonl"""
-    if tool_executor is None:
+async def get_performance(project_path: str | None = None):
+    """Read and compute statistics from performance_log.jsonl."""
+    proj_ctx = _resolve_project_context(project_path)
+    active_executor = proj_ctx.tool_executor if proj_ctx else tool_executor
+    if active_executor is None:
         return {"error": "Project not set yet."}
 
     log_file = os.path.join(
-        tool_executor.project_path, ".orion", "performance_log.jsonl"
+        active_executor.project_path, ".orion", "performance_log.jsonl"
     )
 
     if not os.path.exists(log_file):
@@ -1570,8 +1651,6 @@ async def get_performance():
     logs = []
     total_cost = 0.0
     total_duration = 0.0
-    total_input_tokens = 0
-    total_output_tokens = 0
     success_count = 0
     error_count = 0
 
@@ -1584,15 +1663,11 @@ async def get_performance():
                         logs.append(entry)
                         total_cost += entry.get("estimated_cost_usd", 0)
                         total_duration += entry.get("duration_ms", 0)
-                        total_input_tokens += entry.get("input_tokens", 0)
-                        total_output_tokens += entry.get("output_tokens", 0)
                         if entry.get("status") == "success":
                             success_count += 1
                         else:
                             error_count += 1
                     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                        # >>> PATCH ORION-3: `except: pass` swallowed ALL errors including
-                        # KeyboardInterrupt/SystemExit, and hid broken log lines.
                         continue
     except OSError as e:
         return {"error": f"Failed to read log: {e!s}"}

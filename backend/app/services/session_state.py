@@ -1,6 +1,6 @@
 """
-session_state.py — the per-turn agent state (Phase C step 2)
-=============================================================
+session_state.py — the per-turn agent state (Phase C step 2 + P9.0 Multi-Session)
+=================================================================================
 Before this module existed, the agent loop in main.py carried ~9 loose mutable
 locals initialized at the top of the ~1,200-line generator (analyzed_files,
 files_changed_this_turn, pending_system_notices, the nudge/verification
@@ -8,204 +8,95 @@ counters, the single-use attachment image parts, current_iter). That made the
 loop's bookkeeping impossible to unit-test and easy to break.
 
 SessionState bundles those names into one dataclass with small explicit
-methods. The loop (still in main.py at this step) builds one instance per
-/chat request and reads/writes through it — no behaviour change: every field
-starts at the same default the old locals had.
-
-Deliberately NOT moved here:
-  - the `_` loop counter (guarded by test_loop_counter_guard.py — it must
-    stay the for-loop target inside the generator);
-  - `last_tool_calls`, `consecutive_400_errors`, `last_400_error_msg`
-    (loop-internal recovery bookkeeping, not listed in the Phase C plan
-    inventory);
-  - `total_input_tokens`/`total_output_tokens` — the plan inventory lists
-    them as per-turn loop state, but they are actually locals of the
-    /performance route (computed from performance_log.jsonl), not of the
-    agent loop. Left untouched.
-
-Identifiers stay Indonesian, consistent with the rest of the codebase and
-with the method names prescribed by FASE_C_PLAN.md (catat_file_berubah,
-tambah_notice, reset_per_turn, sisa_todo).
+methods. In P9.0, SessionState also carries session_id isolation, activity
+timestamps for idle eviction, and atomic per-session checkpoint persistence.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
+import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+
+_SESSION_ID_INVALID = re.compile(r"[^a-zA-Z0-9_-]")
+MAX_SESSION_ID_LEN = 64
+
+
+def normalisasi_session_id(session_id: str | None) -> str:
+    """Normalize a client-provided session_id into a safe filesystem token.
+
+    Returns 'default' when empty/None so legacy single-session clients map
+    1-to-1 onto the historical .orion/ files.
+    """
+    if not session_id or not isinstance(session_id, str):
+        return "default"
+    cleaned = _SESSION_ID_INVALID.sub("_", session_id.strip()).strip("._-")
+    if not cleaned or cleaned == "default":
+        return "default"
+    return cleaned[:MAX_SESSION_ID_LEN]
+
+
+def jalur_file_sesi(
+    project_path: str, filename: str, session_id: str | None = "default"
+) -> str:
+    """Resolve the storage path for a session-scoped JSON file.
+
+    - session_id == 'default' -> <project>/.orion/<filename> (100% backward compatible)
+    - session_id != 'default' -> <project>/.orion/sessions/<session_id>/<filename>
+    """
+    sid = normalisasi_session_id(session_id)
+    orion_dir = os.path.join(project_path, ".orion")
+    if sid == "default":
+        return os.path.join(orion_dir, filename)
+    return os.path.join(orion_dir, "sessions", sid, filename)
 
 
 @dataclass
 class SessionState:
-    """Mutable state of one /chat turn (one agent-loop run)."""
+    """Mutable state of one /chat session & turn."""
 
-    # Files/line-ranges already read during this run — the redundancy guard
-    # for read_file / read_file_range (the warning says "in this session").
     analyzed_files: set = field(default_factory=set)
-
-    # Evidence of real work: appended ONLY when a write_file/edit_file result
-    # genuinely starts with the success marker. Mandatory precondition for the
-    # completion checkpoint (PATCH ORION-17b / the claim gate).
     files_changed_this_turn: list = field(default_factory=list)
-
-    # System notices deferred until after the assistant + tool messages are
-    # stored, so history order stays valid. Re-initialized per tool-call batch
-    # inside the loop (state.pending_system_notices.clear()).
     pending_system_notices: list = field(default_factory=list)
-
-    # Attachment image parts, injected into api_messages ONLY on the first
-    # iteration and then set back to None (single use). Replaces the old
-    # 1-element-list holder workaround (ruff F823): assigning through
-    # `state.` cannot create a generator-local, so rebinding is safe now.
     pending_image: object = None
-
-    # Quotas/counters (PATCH ORION-1b and ORION-17a). Scoped to the whole
-    # run, exactly like the old per-request locals.
     nudge_count: int = 0
     verifikasi_count: int = 0
-
-    # >>> UPDATE-016: sub-agent delegations used on THIS turn (budget gate
-    # in subagent_manager.dispatch; cap = subagent_max_per_turn config).
     subagent_calls: int = 0
 
-    # >>> UPDATE-022 (InvoiceFlow M1 incident, HANDOFF_UPDATE_022 §2C):
-    # the failure-aware EDIT LEDGER. files_changed_this_turn only ever saw
-    # SUCCESSES, so a turn that mixed one real edit with a FAILED edit of
-    # another file passed the claim gate — Orion reported "fixed" for a
-    # file whose edit_file call had returned an error (or was rejected by
-    # a guard), and the checkpoint happily listed the unrelated success.
-    # The ledger records BOTH outcomes per attempt, in order, so the gate
-    # can demand evidence per claimed file instead of per turn.
-    #   edit_gagal  : [{"urutan", "path", "alasan"}] every failed attempt
-    #   edit_sukses : [{"urutan", "path"}]           every successful one
-    # `urutan` is a turn-scoped sequence number (never wall-clock time:
-    # recordings/tests must stay deterministic).
     edit_gagal: list = field(default_factory=list)
     edit_sukses: list = field(default_factory=list)
     _edit_urutan: int = 0
 
-    # Iteration progress marker used by the short-reply pause path.
     current_iter: int = 0
 
-    # >>> UPDATE-025 hotfix (InvoiceFlow todo-hijack incident, 2026-10-28):
-    # per-turn re-anchor state, captured at loop start in agent_loop.
-    #   permintaan_turn_ini : the user's genuine request this turn (last
-    #       non-"[SYSTEM" user message in history). Quoted by the soft-limit
-    #       warning and the RE-ANCHOR nudge so a paused or nudged turn can
-    #       never lose sight of what the user actually asked.
-    #   last_tool_note      : deterministic "tool key='value'" one-liner of
-    #       the most recent tool call this turn (soft-limit status line).
-    #   todo_ids_awal_turn  : ids of pending/in_progress todos that existed
-    #       BEFORE this turn. A LANJUT_TODO nudge whose next item is in this
-    #       set re-anchors to the current request instead of force-feeding
-    #       the stale item — todos created this turn keep the old forced
-    #       continuation (PATCH ORION-1 protection stays intact).
     permintaan_turn_ini: str = ""
     last_tool_note: str = ""
     todo_ids_awal_turn: set = field(default_factory=set)
-    # >>> END OF UPDATE-025 hotfix fields <<<
-    # >>> UPDATE-025 commit 1 (delegation-compliance disclosure, InvoiceFlow
-    # round 2): roles whose delegate_* call ACTUALLY ran a successful
-    # sub-run THIS turn. subagent_manager.dispatch records them; the
-    # checkpoint compares against the roles the user's own message named
-    # (subagent_manager.roles_diminta) and discloses the gap. Reset at
-    # loop start so last turn's dispatches can never launder this turn.
     delegasi_terpakai: set = field(default_factory=set)
-    # >>> UPDATE-025 commit 8: per-role fate of THIS turn's dispatches:
-    # {role: (status, retries)}, best status winning when a role ran more
-    # than once ("ok" > "capped" > "error"). A requested role that DIED
-    # means the ordered pipeline broke — and on a read-only turn whose
-    # reply claims nothing, every older disclosure tooth stayed silent
-    # (owner 2026-10-29: explorer died at 3:34:33, worker/verifier never
-    # ran, the answer read as if nothing had happened). The turn-end
-    # pipeline-broke block fires on this ledger.
     nasib_role: dict = field(default_factory=dict)
-    # >>> UPDATE-025 commit 9: the OPEN FAILURE THREAD. A user message
-    # reporting a still-failing behaviour ("masih gagal", "tidak
-    # terhubung", "still fails") stores its snippet here and the thread
-    # STAYS OPEN across turns until an assistant answer carries root-
-    # cause/options wording (guard_rules.kata_saran). While open: gate
-    # 5.5 challenges plain closings once per turn (TANTANG_SARAN) and
-    # the deterministic persistence-fact block may ride one final frame
-    # when the thread is about stored/added data. Proactivity with a
-    # memory, instead of a blindfolded horse.
     utas_gagal: str = ""
     saran_count: int = 0
     fakta_persistensi_disampaikan: bool = False
-    # >>> UPDATE-025 commit 11: paths of saved reference attachments
-    # (.orion/attachments/…) that read_file actually opened this turn.
-    # The checkpoint uses it to disclose UI work that shipped while the
-    # user's own design references sat unread.
     lampiran_dibaca_turn_ini: set = field(default_factory=set)
-    # >>> UPDATE-025 commit 12: how many times this turn the in-loop
-    # REFERENCE RECONCILIATION challenge fired (cap 1 — a nudge, not a
-    # loop trap). Also flags the escalated checkpoint wording when the
-    # model closed anyway.
     nudge_referensi: int = 0
-    # >>> UPDATE-025 commit 17: computed-style verification ledger.
-    # `gaya_diperiksa_turn_ini` flips True ONLY when an MCP
-    # browser_evaluate call carrying getComputedStyle is dispatched
-    # this turn — the sole deterministic evidence that the RENDERED
-    # styles were inspected (reading source code or a passing build is
-    # self-certification, the indigo-#4f46e5 lesson). `nudge_gaya`
-    # caps the mid-turn COMPUTED-STYLE VERIFICATION challenge at 1 per
-    # turn, same shape as nudge_referensi, and flags the escalated
-    # end-of-turn disclosure when the model closed anyway.
     gaya_diperiksa_turn_ini: bool = False
     nudge_gaya: int = 0
-    # >>> UPDATE-025 commit 19: how many times this turn the VISUAL CLAIM
-    # CHALLENGE fired (cap 1): the one-shot that intercepts a closing
-    # message claiming visual verification ("diverifikasi pada file…")
-    # while the ledger holds no getComputedStyle evidence.
     tantang_klaim_visual: int = 0
-    # >>> UPDATE-025 commit 21: honesty-teeth ledgers. mutasi is the
-    # existing files_changed_this_turn; these cap the two new challenges
-    # at 1/turn and record the user's explicit tool order plus the count
-    # of successful browser/MCP calls that either honours it or leaves
-    # the order unexecuted. <<<
     tantang_klaim_implementasi: int = 0
     tantang_perintah_tool: int = 0
-    # >>> UPDATE-025 commit 23: cap for the instruction-anchored
-    # zero-mutation challenge (work ordered, ledger empty, closing not a
-    # plain decline). Ledger+instruction anchored, so keyword dodging on
-    # the closing cannot evade it. <<<
     tantang_nihil_mutasi: int = 0
-    # >>> UPDATE-026 commit 40: how many IPv4 localhost-fallback retries
-    # fired this turn (capped at 2 — a probe, not a retry storm). <<<
     fallback_ipv4_count: int = 0
     perintah_tool_eksplisit: str = ""
     panggilan_browser_turn_ini: int = 0
-    # >>> UPDATE-025 commit 13: the detected language of this turn's user
-    # request ("id"/"en"); every user-facing deterministic block renders
-    # in it, so the system voice stops out-voting the LANGUAGE RULE.
     bahasa_turn: str = ""
 
-    # >>> UPDATE-025 hotfix-2 (commit 5 v1, InvoiceFlow incident): a todo
-    # can be marked 'completed' by the model with zero work behind it
-    # (incident: "Implementasikan UI interaktif ..." completed on a turn
-    # whose only file change was a status markdown). The checkpoint now
-    # DISCLOSES that: when an item flips to completed, the evidence
-    # present at that moment is snapshotted here (files changed /
-    # successful run_terminal calls / sub-agent runs THIS turn) and the
-    # checkpoint lists every item completed with NONE of them.
-    # Disclosure first (logging-first philosophy); hard rejection is a
-    # later step once the evidence model proves itself.
     terminal_ok: int = 0
     bukti_todo: dict = field(default_factory=dict)
-    # >>> END OF hotfix-2 fields <<<
-    # >>> UPDATE-025 commit 25: verification-debt ledger + stagnation
-    # counters. InvoiceFlow transcript 2026-11-01: FOUR one-shot closing
-    # challenges fired in ONE closing sequence (reference gate, computed
-    # style, explicit tool order, visual claim) and the model paid all of
-    # them with a plain disclosure — the ordered Playwright check was
-    # never dispatched, zero browser calls in the whole transcript. A
-    # one-shot OR-branch tooth can be paid with words; a SESSION-scoped
-    # debt ledger makes the unpaid order ride the per-turn TASK ANCHOR
-    # (commit 24) until the check lands in a ledger or a decline about an
-    # OLDER debt reaches the user, and widens the iteration ceiling while
-    # it stays open. Per-turn caps stay 1: the philosophy (disclosure not
-    # rejection, no ritual loops) is untouched. <<<
+
     debt_verifikasi: list = field(default_factory=list)
     debt_disampaikan: list = field(default_factory=list)
     turn_ke: int = 0
@@ -213,46 +104,33 @@ class SessionState:
     tulis_akhir_iterasi: int = 0
     edit_gagal_beruntun: int = 0
     tantang_stagnasi: int = 0
-    # >>> UPDATE-025 commit 29: the instruction names getComputedStyle —
-    # a bare navigate must NOT honour the named order. <<<
     perintah_butuh_gaya: bool = False
-    # >>> UPDATE-025 commit 30: raw read-value snippets captured by CODE
-    # at evaluate time, so context compression ("Memory full…") can no
-    # longer eat the evidence before the closing report. <<<
     gaya_bukti_turn: list = field(default_factory=list)
-    # >>> UPDATE-025 commit 31: the instruction forbids ALL file
-    # mutation; mutating tools are hard-blocked at the call site. <<<
     zero_mutasi_turn: bool = False
     kutipan_zero_mutasi: str = ""
-    # >>> UPDATE-025 commit 32: one mid-turn ledger-gap nudge per turn.
     nudge_ledger: int = 0
-    # >>> Commit 34: one turn-start tool-availability probe per turn; the
-    # named-but-missing tool list is disclosed immediately instead of at
-    # closing (handoff §10 candidate). <<<
     probe_tool_hilang: int = 0
-    # >>> Commit 35: one turn-start attachment-block note per turn. <<<
     lampiran_note_turn: int = 0
-    # >>> Commit 36: the inline attachment block, split OFF the pure
-    # request at anchor time so classifiers/debt quotes never read the
-    # document under discussion as an order. <<<
     lampiran_blok: str = ""
-    # >>> END OF UPDATE-025 commit 25 fields <<<
+
+    # >>> P9.0: Multi-session identity & activity tracking <<<
+    session_id: str = "default"
+    last_accessed: float = field(default_factory=time.time)
+    _checkpoint_file_terakhir: list = field(default_factory=list, repr=False)
+
+    def sentuh_aktivitas(self) -> None:
+        """Perbarui timestamp aktivitas terakhir untuk pelacakan idle eviction."""
+        self.last_accessed = time.time()
 
     def catat_file_berubah(self, entri: str) -> None:
         """Record one piece of real-work evidence (a successfully changed file)."""
         self.files_changed_this_turn.append(entri)
-        # >>> UPDATE-025 commit 25: a successful write breaks the
-        # failed-edit streak (the stagnation detector counts CONSECUTIVE
-        # failures; one success proves the loop is still working). <<<
         self.edit_gagal_beruntun = 0
         self.tutup_debt_verifikasi("stall")
 
     def catat_edit_gagal(self, path: str, alasan: str) -> None:
         """Record ONE failed write_file/edit_file attempt (UPDATE-022 ledger)."""
         self._edit_urutan += 1
-        # >>> UPDATE-025 commit 25: consecutive-failure streak for the
-        # stagnation detector (transcript: 9 failed edits of App.jsx in
-        # one turn, read-edit-fail thrash across 12 compressions). <<<
         self.edit_gagal_beruntun += 1
         self.edit_gagal.append(
             {"urutan": self._edit_urutan, "path": path, "alasan": alasan}
@@ -262,31 +140,14 @@ class SessionState:
         """Record ONE successful write_file/edit_file (UPDATE-022 ledger)."""
         self._edit_urutan += 1
         self.edit_sukses.append({"urutan": self._edit_urutan, "path": path})
-        # >>> UPDATE-025 commit 25: success breaks the failure streak. <<<
         self.edit_gagal_beruntun = 0
 
     def cap_iterasi_maks(self, basis: int) -> int:
-        """UPDATE-025 commit 25: adaptive iteration ceiling.
-
-        ``basis + 4`` per OPEN verification debt: a turn that carries an
-        unpaid ordered verification gets room to actually perform it
-        (transcript 2026-11-01: the turn burned its budget on read-edit
-        thrash, then closed with the ordered check still undone). The
-        caller clamps to the safety brake; debts are session-scoped so a
-        carried debt widens the NEXT turn's ceiling too — paying it is
-        cheaper than carrying it.
-        """
+        """UPDATE-025 commit 25: adaptive iteration ceiling."""
         return basis + 4 * len(self.debt_verifikasi)
 
     def catat_debt_verifikasi(self, jenis: str, perintah: str) -> None:
-        """Open ONE verification debt (idempotent per jenis while open).
-
-        ``jenis``: gaya | perintah_tool | implementasi | nihil_mutasi |
-        stagnasi | stall. ``perintah``: the user's own ordered sentence,
-        verbatim-truncated — the anchor rides the USER's words, never a
-        vocabulary keyword (commit 23 lesson). Never raises: bookkeeping
-        must not kill a turn.
-        """
+        """Open ONE verification debt (idempotent per jenis while open)."""
         try:
             if any(d.get("jenis") == jenis for d in self.debt_verifikasi):
                 return
@@ -310,9 +171,7 @@ class SessionState:
         return [dict(d) for d in self.debt_verifikasi]
 
     def tutup_debt_verifikasi(self, jenis: str) -> bool:
-        """Close ONE open debt: evidence landed, or a decline about an
-        OLDER debt reached the user. Returns True when something closed.
-        """
+        """Close ONE open debt: evidence landed, or a decline about an OLDER debt."""
         sebelum = len(self.debt_verifikasi)
         self.debt_verifikasi = [
             d for d in self.debt_verifikasi if d.get("jenis") != jenis
@@ -323,13 +182,7 @@ class SessionState:
         return False
 
     def edit_gagal_belum_pulih(self) -> list:
-        """Failed edits that NEVER succeeded afterwards, oldest first.
-
-        One entry per path (the LATEST unrecovered failure — its `alasan` is
-        the most relevant). A success for the same path with a higher
-        `urutan` than the failure means the file recovered: the model retried
-        and the retry worked, so the claim gate has nothing to challenge.
-        """
+        """Failed edits that NEVER succeeded afterwards, oldest first."""
         sukses_terakhir: dict = {}
         for entri in self.edit_sukses:
             path = entri["path"]
@@ -338,18 +191,12 @@ class SessionState:
         terbaru: dict = {}
         for entri in sorted(self.edit_gagal, key=lambda e: e["urutan"]):
             if sukses_terakhir.get(entri["path"], -1) > entri["urutan"]:
-                continue  # recovered by a later success
+                continue
             terbaru[entri["path"]] = entri
         return sorted(terbaru.values(), key=lambda e: e["urutan"])
 
     def ringkasan_ledger(self) -> str:
-        """Checkpoint-report summary of the ledger (UPDATE-022).
-
-        Returns '' when NO failure was ever recorded this turn, so reports
-        of all-failure-free turns stay byte-identical to the pre-022 shape
-        (the SSE harness contract). When failures exist, lists every failed
-        attempt with its reason and whether a later attempt recovered it.
-        """
+        """Checkpoint-report summary of the ledger (UPDATE-022)."""
         if not self.edit_gagal:
             return ""
         sukses_terakhir: dict = {}
@@ -373,22 +220,13 @@ class SessionState:
         self.pending_system_notices.append(notice)
 
     def reset_per_turn(self) -> None:
-        """Clear the turn-scoped records when the state is reused for a new turn.
-
-        analyzed_files and the two quota counters are NOT cleared: the
-        read-redundancy guard and the nudge/claim quotas span the whole run,
-        matching the pre-SessionState behaviour where they were initialized
-        once per request. The UPDATE-022 edit ledger IS turn-scoped: like
-        files_changed_this_turn, it is evidence about THIS turn's claims.
-        """
+        """Clear the turn-scoped records when the state is reused for a new turn."""
         self.files_changed_this_turn = []
         self.pending_system_notices = []
         self.edit_gagal = []
         self.edit_sukses = []
         self._edit_urutan = 0
         self.current_iter = 0
-        # >>> UPDATE-025 commit 25: per-turn stagnation counters reset;
-        # the debt ledger is SESSION-scoped and deliberately survives. <<<
         self.nir_mutasi_beruntun = 0
         self.tulis_akhir_iterasi = 0
         self.edit_gagal_beruntun = 0
@@ -402,15 +240,10 @@ class SessionState:
         self.lampiran_note_turn = 0
         self.lampiran_blok = ""
         self.turn_ke += 1
+        self.sentuh_aktivitas()
 
     def sisa_todo(self, todo_manager) -> list:
-        """Todo items still pending/in_progress ([] when todo_manager is absent).
-
-        Equivalent to the old inline guard
-        `todo_manager and todo_manager.has_pending_or_in_progress()` followed
-        by the same comprehension — the comprehension itself is the source of
-        truth, has_pending_or_in_progress() is exactly `bool()` of it.
-        """
+        """Todo items still pending/in_progress ([] when todo_manager is absent)."""
         if todo_manager is None:
             return []
         return [
@@ -420,16 +253,26 @@ class SessionState:
         ]
 
     # >>> P9.0: Multi-Session Hardening & Pause-Resume Persistence ===========
-    def simpan_checkpoint(self, project_path: str, catatan_terakhir: str = "") -> None:
-        """Simpan state lintas-giliran ke .orion/session_checkpoint.json secara atomik."""
+    def simpan_checkpoint(
+        self,
+        project_path: str,
+        catatan_terakhir: str = "",
+        session_id: str | None = None,
+    ) -> None:
+        """Simpan state lintas-giliran ke file checkpoint sesi secara atomik."""
         if not project_path:
             return
+        sid = normalisasi_session_id(
+            session_id if session_id is not None else self.session_id
+        )
+        self.session_id = sid
+        self.sentuh_aktivitas()
+        target = jalur_file_sesi(project_path, "session_checkpoint.json", sid)
+        tmp = f"{target}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
         try:
-            orion_dir = os.path.join(project_path, ".orion")
-            os.makedirs(orion_dir, exist_ok=True)
-            target = os.path.join(orion_dir, "session_checkpoint.json")
-            tmp = target + ".tmp"
+            os.makedirs(os.path.dirname(target), exist_ok=True)
             payload = {
+                "session_id": sid,
                 "analyzed_files": sorted(self.analyzed_files)[-200:],
                 "debt_verifikasi": list(self.debt_verifikasi),
                 "utas_gagal": self.utas_gagal,
@@ -442,15 +285,22 @@ class SessionState:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
             os.replace(tmp, target)
         except Exception:  # noqa: BLE001 - persistensi tidak boleh mematikan stream
-            pass
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
 
     @classmethod
-    def muat_checkpoint(cls, project_path: str) -> "SessionState":
-        """Muat SessionState dari .orion/session_checkpoint.json jika ada."""
-        state = cls()
+    def muat_checkpoint(
+        cls, project_path: str, session_id: str | None = "default"
+    ) -> "SessionState":
+        """Muat SessionState dari file checkpoint sesi jika ada."""
+        sid = normalisasi_session_id(session_id)
+        state = cls(session_id=sid)
         if not project_path:
             return state
-        target = os.path.join(project_path, ".orion", "session_checkpoint.json")
+        target = jalur_file_sesi(project_path, "session_checkpoint.json", sid)
         if not os.path.isfile(target):
             return state
         try:
@@ -467,14 +317,17 @@ class SessionState:
                 )
         except Exception:  # noqa: BLE001
             pass
+        state.sentuh_aktivitas()
         return state
 
     @staticmethod
-    def hapus_checkpoint(project_path: str) -> None:
-        """Hapus file checkpoint saat /clear-chat."""
+    def hapus_checkpoint(
+        project_path: str, session_id: str | None = "default"
+    ) -> None:
+        """Hapus file checkpoint sesi saat /clear-chat."""
         if not project_path:
             return
-        target = os.path.join(project_path, ".orion", "session_checkpoint.json")
+        target = jalur_file_sesi(project_path, "session_checkpoint.json", session_id)
         try:
             if os.path.exists(target):
                 os.remove(target)
