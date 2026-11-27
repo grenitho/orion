@@ -245,6 +245,7 @@ class SessionState:
         # failed-edit streak (the stagnation detector counts CONSECUTIVE
         # failures; one success proves the loop is still working). <<<
         self.edit_gagal_beruntun = 0
+        self.tutup_debt_verifikasi("stall")
 
     def catat_edit_gagal(self, path: str, alasan: str) -> None:
         """Record ONE failed write_file/edit_file attempt (UPDATE-022 ledger)."""
@@ -289,10 +290,15 @@ class SessionState:
         try:
             if any(d.get("jenis") == jenis for d in self.debt_verifikasi):
                 return
+            from app.services import guard_rules
+
+            teks_perintah = str(perintah or "").strip()
+            if not teks_perintah or guard_rules.adalah_kata_lanjut(teks_perintah):
+                teks_perintah = "(lanjutan tugas sebelumnya)"
             self.debt_verifikasi.append(
                 {
                     "jenis": jenis,
-                    "perintah": str(perintah)[:300],
+                    "perintah": teks_perintah[:300],
                     "turn_dibuat": self.turn_ke,
                 }
             )

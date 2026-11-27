@@ -23,9 +23,7 @@ class _TodoPalsu:
         return self._todos
 
     def has_pending_or_in_progress(self):
-        return any(
-            t.get("status") in ("pending", "in_progress") for t in self._todos
-        )
+        return any(t.get("status") in ("pending", "in_progress") for t in self._todos)
 
 
 def test_state_baru_bersih_dan_independen():
@@ -116,3 +114,16 @@ def test_sisa_todo_memfilter_status_dan_none_safe():
 
     kosong = _TodoPalsu([{"id": "1", "text": "a", "status": "completed"}])
     assert state.sisa_todo(kosong) == []
+
+
+def test_debt_stall_tidak_merekam_kata_lanjut_dan_tertutup_saat_mutasi():
+    state = SessionState()
+    state.catat_debt_verifikasi("stall", "lanjut")
+    state.catat_debt_verifikasi("gaya", "periksa getComputedStyle")
+    utang = state.utang_verifikasi_terbuka()
+    assert len(utang) == 2
+    assert utang[0]["perintah"] == "(lanjutan tugas sebelumnya)"
+
+    state.catat_file_berubah("- `app/main.py` (edit_file)")
+    sisa = state.utang_verifikasi_terbuka()
+    assert [u["jenis"] for u in sisa] == ["gaya"]

@@ -1425,6 +1425,19 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
         state.permintaan_turn_ini, state.lampiran_blok = guard_rules.pisahkan_lampiran(
             state.permintaan_turn_ini
         )
+
+        if guard_rules.adalah_kata_lanjut(state.permintaan_turn_ini):
+            for _m_prev in reversed(deps.context_manager.get_history()):
+                if _m_prev.get("role") != "user":
+                    continue
+                _t_prev = str(_m_prev.get("content", ""))
+                if _t_prev.startswith(("[SYSTEM", "[SISTEM")):
+                    continue
+                _t_prev_murni = guard_rules.pisahkan_lampiran(_t_prev)[0]
+                if _t_prev_murni and not guard_rules.adalah_kata_lanjut(_t_prev_murni):
+                    state.permintaan_turn_ini = _t_prev_murni
+                    break
+
         # >>> UPDATE-025 commit 13 (owner: Orion answers in English to an
         # Indonesian user): the LANGUAGE RULE in SYSTEM_PROMPT was losing
         # to the loop's own English system-voice (checkpoint template,
@@ -2596,6 +2609,7 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                                 )
                             ):
                                 state.terminal_ok += 1
+                                state.tutup_debt_verifikasi("stall")
                             if _ls:
                                 yield deps.kirim_status(_ls)
 
@@ -4117,12 +4131,23 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         )
 
                         # PAUSE: wait for the user's response
+                        _belum_tuntas = bool(
+                            pending_items or state.utang_verifikasi_terbuka()
+                        )
                         yield sse.ev(
                             "ask_user",
-                            question=_L(
-                                state,
-                                "Task complete. Is there anything to adjust, or shall I continue to the next task?",
-                                "Tugas selesai. Ada yang perlu disesuaikan, atau saya lanjut ke tugas berikutnya?",
+                            question=(
+                                _L(
+                                    state,
+                                    "Task not yet complete (pending items or open verification debt remain). Shall I continue resolving them?",
+                                    "Tugas belum sepenuhnya selesai (masih ada item tertunda atau utang verifikasi terbuka). Apakah saya lanjut menyelesaikannya?",
+                                )
+                                if _belum_tuntas
+                                else _L(
+                                    state,
+                                    "Task complete. Is there anything to adjust, or shall I continue to the next task?",
+                                    "Tugas selesai. Ada yang perlu disesuaikan, atau saya lanjut ke tugas berikutnya?",
+                                )
                             ),
                         )
                         yield sse.ev("done")

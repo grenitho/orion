@@ -781,3 +781,26 @@ def saran_perlu_ditantang(
     challenge per turn — same one-shot philosophy as UPDATE-023's soft
     claim challenge, so the gate cannot become a new loop."""
     return utas_aktif and not ada_saran and sudah_ditantang < maks_tantangan
+
+
+KATA_LANJUT = frozenset(
+    {
+        "lanjut",
+        "lanjutkan",
+        "continue",
+        "ya",
+        "iya",
+        "yes",
+        "ok",
+        "oke",
+        "gas",
+        "silakan",
+        "teruskan",
+    }
+)
+
+
+def adalah_kata_lanjut(teks: str) -> bool:
+    """True bila pesan user hanyalah balasan singkat untuk melanjutkan giliran sebelumnya."""
+    bersih = re.sub(r"[^\w\s]", "", (teks or "").strip().lower()).strip()
+    return bool(bersih) and len(bersih) <= 25 and bersih in KATA_LANJUT
