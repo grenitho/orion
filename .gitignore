@@ -53,6 +53,7 @@ transcripts/
 *.jsonl
 *.ndjson
 *.dump
+.orion_context/
 
 # ---- PYTHON ----
 __pycache__/
