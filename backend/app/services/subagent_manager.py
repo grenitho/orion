@@ -657,7 +657,7 @@ def _semua_error(outcomes) -> bool:
     return bool(reports) and all(PREFIX_ERROR in o for o in reports)
 
 
-def _format_report(role: str, outcome: dict) -> str:
+def _format_report(role: str, outcome: dict, *, strict_worker: bool = False) -> str:
     teks = (
         f"{PREFIX_REPORT} • {role} • {outcome['iterations']} iterations, "
         f"{outcome['tool_calls']} tool calls, status {outcome['status']}]\n"
@@ -665,13 +665,16 @@ def _format_report(role: str, outcome: dict) -> str:
     )
     salvage = str(outcome.get("salvage") or "")
     if salvage and outcome.get("status") in ("error", "capped"):
+        _lanjut = (
+            "inspect the remaining diff and dispatch a focused follow-up `delegate_workers` task (direct write_file/edit_file is blocked)"
+            if strict_worker and role == WORKER
+            else "continue FROM it with your own tools; do NOT re-read files it already read. Delegating this same role again is allowed on a NEXT turn, never in this one"
+        )
         teks += (
             f"\n\n{PREFIX_PARTIAL} the {role} sub-run ended early "
             f"(status: {outcome['status']}, retries spent: "
             f"{outcome.get('retries', 0)}). What it already accomplished "
-            "survives below — continue FROM it with your own tools; do NOT "
-            "re-read files it already read. Delegating this same role again "
-            "is allowed on a NEXT turn, never in this one.\n"
+            f"survives below — {_lanjut}.\n"
             f"{salvage}"
         )
     return teks
@@ -760,7 +763,7 @@ async def dispatch(
                 outcome.get("status", "error"),
                 outcome.get("retries", 0),
             )
-            return f"--- worker {index + 1} ---\n{_format_report(WORKER, outcome)}"
+            return f"--- worker {index + 1} ---\n{_format_report(WORKER, outcome, strict_worker=is_strict_worker_coding(config))}"
 
         outcomes = await asyncio.gather(
             *[_one(i, t) for i, t in enumerate(tasks) if isinstance(t, dict)]

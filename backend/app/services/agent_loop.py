@@ -520,6 +520,15 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
             print(
                 f"[ORION MCP] {len(_mcp_tools)} MCP tool(s) added to this turn's schema."
             )
+    if subagent_manager.is_strict_worker_coding(deps.config):
+        tools_for_llm = [
+            t
+            for t in tools_for_llm
+            if t.get("function", {}).get("name") not in ("write_file", "edit_file")
+        ]
+        print(
+            "[ORION STRICT WORKER MODE] Removed write_file/edit_file from main-agent tool schema."
+        )
     # >>> END OF UPDATE-014 tools merge
 
     try:
@@ -2416,9 +2425,14 @@ async def aliran_agent(state: SessionState, deps: Deps) -> AsyncIterator[str]:
                         break
 
                 if has_terminal_error:
+                    _fix_action = (
+                        "delegate to `delegate_workers` with exact `files` scope to fix it RIGHT NOW"
+                        if subagent_manager.is_strict_worker_coding(deps.config)
+                        else "use edit_file to fix it RIGHT NOW"
+                    )
                     deps.context_manager.add_message(
                         "user",
-                        f"[SYSTEM AUTO-CORRECTION MODE]: A terminal command failed.\nError Snippet: {error_snippet}\n\nTASK: do NOT ask the user. Analyze this error. Do NOT use full read_file. Use read_file_range if you need to see context, then use edit_file to fix it RIGHT NOW. Perform at most 2 automatic fix iterations.",
+                        f"[SYSTEM AUTO-CORRECTION MODE]: A terminal command failed.\nError Snippet: {error_snippet}\n\nTASK: do NOT ask the user. Analyze this error. Do NOT use full read_file. Use read_file_range if you need to see context, then {_fix_action}. Perform at most 2 automatic fix iterations.",
                     )
                     print(
                         "[ORION SELF-CORRECT] Error detected. Forcing auto-fix mode (token-efficient)."

@@ -983,6 +983,7 @@ def _config_defaults() -> dict:
         "max_iterations": 20,
         "token_budget_threshold": 12000,
         "subagents_enabled": True,
+    "strict_worker_coding": True,
         "subagent_max_per_turn": 3,
         "subagent_max_iterations": 6,
         "subagent_workers_max": 3,
