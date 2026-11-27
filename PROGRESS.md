@@ -12,8 +12,8 @@
 - git: 2.54.0.windows.1 ✅
 - venv: `backend\venv` (aktif saat perintah dijalankan)
 - Backend version: 0.10.44 (dari GET /health via GET /)
-- Extension version: 0.4.5 (dari package.json — akan diverifikasi)
-- Test baseline: **663 passed, 1 skipped** (142 detik)
+- Extension version: 0.5.1 (dari package.json)
+- Test baseline: **689 passed, 1 skipped** (~180 detik)
 - Branch: main, up-to-date dengan origin
 
 ## Status Fase
@@ -231,13 +231,19 @@
 - ✅ Verifikasi visual: semua tab tampil rapi, data akurat (4 Gemini keys, 2 MCP servers connected).
 
 **Status P7:** ✅ SELESAI.
-**Berikutnya:** P8 — Non-Coding Tasks (eksperimental, TBD) atau P9 — UI di Luar VS Code (vision, post-1.0).
 
-**Berikutnya:** Panduan GitHub untuk Pengguna Lain (Dokumentasi) & P6 Pencarian Semantik.
+### Sesi 19 — 2026-11-27 — Audit & Perbaikan Guard, Stall Debt, dan Checkpoint
+**Tujuan:** Menutup bug interaksi gate, utang verifikasi `[stall]` menggantung pada kata `"lanjut"`, kontradiksi prompt `ask_user`, serta false-positive kalimat tanya pada gate stagnasi.
+**Hasil:**
+- ✅ `guard_rules.py`, `session_state.py`, & `agent_loop.py` (commit `88baf8b`): mencegah kata balasan singkat (`"lanjut"`) mengunci utang `[stall]`, menutup utang `stall` otomatis saat mutasi file/eksekusi terminal berhasil, dan menyelaraskan pertanyaan `ask_user` pada `CHECKPOINT`.
+- ✅ `guard_rules.py` (commit `8120ee4`): mengecualikan kalimat tanya pada `kalimat_perintah_kerja()` dengan pemecah kalimat yang aman terhadap nama file bertitik (`App.jsx`), serta memperluas pola `zero_mutasi_diperintah()` bilingual.
+- ✅ Test suite naik menjadi **689 passed, 1 skipped** (100% hijau).
+
+**Berikutnya:** Refactoring `agent_loop.py` (memecah fungsi helper blok laporan/debt ke modul terpisah).
 
 ## Catatan Penting
 - DNA Orion 100% dari Qwen; Qwen free tier sekarang ketat → asisten cadangan dibutuhkan
 - Model utama: Gemini Flash Lite ×4 key + fallback OpenRouter/Cloudflare
 - Proyek uji: InvoiceFlow
 - Misi: membantu pemula belajar coding gratis + disclaimer kualitas model gratis
-- **Baseline test adalah 663 passed, bukan 393** — dokumentasi basi, akan dikoreksi
+- **Baseline test terkini adalah 689 passed, 1 skipped**
