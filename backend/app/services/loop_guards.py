@@ -51,23 +51,28 @@ Why the nudge/checkpoint/challenge rules look the way they do (history):
 
 from __future__ import annotations
 
+import re
 from enum import Enum, auto
 
 from app.services import guard_rules
+
+_THINKING_RE = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
 
 
 class Keputusan(Enum):
     """The end-of-iteration decision (see the module docstring's table)."""
 
-    LANJUT_TODO = auto()    # todos still pending: nudge the model, keep looping
-    TANTANG_KLAIM = auto()  # completion claim with zero evidence: challenge, keep looping
+    LANJUT_TODO = auto()  # todos still pending: nudge the model, keep looping
+    TANTANG_KLAIM = (
+        auto()
+    )  # completion claim with zero evidence: challenge, keep looping
     # >>> UPDATE-022: completion claim while the edit ledger holds failures
     # that never recovered — challenged by NAMING the failed files, even
     # when other files really changed (InvoiceFlow M1: partial evidence
     # must not launder a failed edit). Shares the TANTANG_KLAIM quota and
     # the challenge mechanism; only the message/status text differs.
     TANTANG_EDIT_GAGAL = auto()
-    CHECKPOINT = auto()     # real work, nothing pending: report + ask_user, stop
+    CHECKPOINT = auto()  # real work, nothing pending: report + ask_user, stop
     # >>> UPDATE-025 commit 9 (owner: "Orion tidak boleh seperti kuda yang
     # ditutup matanya"): an OPEN FAILURE THREAD (a user report of a
     # still-failing behaviour, sticky across turns) whose closing answer
@@ -82,9 +87,9 @@ class Keputusan(Enum):
     # thrashed ~10 failed edits of App.jsx across overlapping line ranges,
     # then closed with the ordered verification still undone. <<<
     TANTANG_STAGNASI = auto()
-    JAWAB_NORMAL = auto()   # ordinary answer: stream it, stop
+    JAWAB_NORMAL = auto()  # ordinary answer: stream it, stop
     PAUSE_ITERASI = auto()  # short reply at the iteration cap: pause message, stop
-    TERUSKAN = auto()       # short reply below the cap: store it, keep looping silently
+    TERUSKAN = auto()  # short reply below the cap: store it, keep looping silently
 
 
 def evaluasi_akhir_iterasi(
@@ -106,10 +111,11 @@ def evaluasi_akhir_iterasi(
     max_iter`. `sisa_todo` is precomputed by the caller via
     `state.sisa_todo(todo_manager)` so this function stays dependency-free.
     """
-    is_task_complete = guard_rules.kata_klaim(konten)
+    konten_bersih = _THINKING_RE.sub("", konten or "")
+    is_task_complete = guard_rules.kata_klaim(konten_bersih)
 
     # Gate 1: a short reply without a tool call is not a real answer.
-    if len(konten.strip()) < 50 and not is_task_complete:
+    if len(konten_bersih.strip()) < 50 and not is_task_complete:
         if iterasi + 1 >= max_iter:
             return Keputusan.PAUSE_ITERASI
         return Keputusan.TERUSKAN
@@ -186,7 +192,7 @@ def evaluasi_akhir_iterasi(
     # turn, same philosophy as UPDATE-023's soft claim challenge.
     if guard_rules.saran_perlu_ditantang(
         bool(getattr(state, "utas_gagal", "")),
-        guard_rules.kata_saran(konten),
+        guard_rules.kata_saran(konten_bersih),
         int(getattr(state, "saran_count", 0)),
         min(1, maks_verifikasi),
     ):

@@ -14,6 +14,8 @@ import re
 from app import logging_setup
 from app.services import guard_rules, project_facts, subagent_manager
 
+_THINKING_RE = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
+
 
 def _L(state, en: str, idn: str) -> str:
     """UPDATE-025 commit 13: user-facing literals follow the detected
@@ -211,32 +213,51 @@ def _token_desain_dari_referensi(project_path, maks: int = 14) -> list:
     return token
 
 
+_BROWSER_ERR_PREFIXES = (
+    "[mcp",
+    "error:",
+    "error ",
+    "failed:",
+    "failure:",
+    "exception:",
+    "traceback",
+    "### error",
+)
+
+_BROWSER_ERR_SIGNATURES = (
+    "err_connection_",
+    "err_name_not_resolved",
+    "err_timed_out",
+    "err_aborted",
+    "err_failed",
+    "err_empty_response",
+    "err_ssl_",
+    "net::",
+    "cannot navigate",
+    "protocol is blocked",
+    "navigation failed",
+    "timeout exceeded",
+    "waiting for selector",
+    "page.goto:",
+    "locator.click:",
+    "browsertype.launch:",
+    "target closed",
+    "execution context was destroyed",
+)
+
+
 def _browser_hasil_sukses(result) -> bool:
     """UPDATE-025 commit 26: a browser call honours a named order ONLY
-    when its result is not an error-shaped payload. The 0.10.29 re-exam
-    showed compliance theater: a navigate that died on the file: protocol
-    came back as a plain result string, counted as 'order honoured', and
-    closed the perintah_tool debt prematurely."""
+    when its result is not an error-shaped payload. Checks structured
+    MCP/Playwright error headers and network/protocol failure signatures
+    without false-positiving on valid web page DOM/JSON content (e.g.
+    status badges or CSS classes containing words like 'failed' or 'error')."""
     teks = str(result or "")
-    if teks.lstrip().startswith("[MCP"):
+    stripped_low = teks.lstrip().lower()
+    if stripped_low.startswith(_BROWSER_ERR_PREFIXES):
         return False
-    low = teks[:400].lower()
-    return not any(
-        m in low
-        for m in (
-            "error:",
-            "error ",
-            "failed",
-            "failure",
-            "blocked",
-            "refused",
-            "timeout",
-            "err_",
-            "cannot navigate",
-            "protocol is blocked",
-            "net::",
-        )
-    )
+    low = teks[:500].lower()
+    return not any(sig in low for sig in _BROWSER_ERR_SIGNATURES)
 
 
 def _perlu_nudge_gaya(state, deps) -> bool:
@@ -264,7 +285,10 @@ def _perlu_tantang_klaim_implementasi(state, konten) -> bool:
     # a mutation verb but asks a QUESTION. Challenging it minted a phantom
     # [implementasi] debt on a pure information turn. The question check
     # runs FIRST and skips the whole challenge.
-    if guard_rules.adalah_pertanyaan(getattr(state, "permintaan_turn_ini", "")):
+    permintaan = getattr(state, "permintaan_turn_ini", "")
+    if guard_rules.adalah_pertanyaan(permintaan):
+        return False
+    if guard_rules.adalah_tugas_non_coding(permintaan):
         return False
     if not (
         state.tantang_klaim_implementasi < 1
@@ -272,7 +296,7 @@ def _perlu_tantang_klaim_implementasi(state, konten) -> bool:
         and bool(guard_rules.kalimat_klaim_implementasi(konten))
     ):
         return False
-    if guard_rules.kalimat_perintah_kerja(getattr(state, "permintaan_turn_ini", "")):
+    if guard_rules.kalimat_perintah_kerja(permintaan):
         return True
     rendah = (konten or "").lower()
     return any(k in rendah for k in _KLAIM_KERJA_ORANG_PERTAMA)
@@ -599,8 +623,9 @@ def _blok_persistensi_bila_perlu(state, tool_executor) -> str:
 
 def _tutup_utas_bila_disarankan(state, konten) -> None:
     """The thread closes ONLY on demonstrated advisory wording in the
-    model's own text — boilerplate blocks never close it for it."""
-    if getattr(state, "utas_gagal", "") and guard_rules.kata_saran(konten):
+    model's own visible text — boilerplate blocks and <thinking> never close it."""
+    konten_bersih = _THINKING_RE.sub("", konten or "")
+    if getattr(state, "utas_gagal", "") and guard_rules.kata_saran(konten_bersih):
         state.utas_gagal = ""
 
 
@@ -739,7 +764,7 @@ def _permintaan_pengguna_terakhir(history) -> str:
                 if isinstance(part, dict) and part.get("type") == "text"
             )
         content = str(content or "").strip()
-        if not content or content.startswith("[SYSTEM"):
+        if not content or content.startswith(("[SYSTEM", "[SISTEM")):
             continue
         return content
     return ""
@@ -789,7 +814,11 @@ def _teks_user(msg) -> str:
             if isinstance(p, dict) and p.get("type") == "text"
         )
     content = str(content or "").strip()
-    if not content or content.startswith("[SYSTEM") or content.startswith("[SUMMARY"):
+    if (
+        not content
+        or content.startswith(("[SYSTEM", "[SISTEM"))
+        or content.startswith("[SUMMARY")
+    ):
         return ""
     return content
 

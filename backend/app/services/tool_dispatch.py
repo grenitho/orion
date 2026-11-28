@@ -4,10 +4,10 @@ tool_dispatch.py — dispatch table for the "simple" tools (Phase B of the main.
 Before this module existed, 22 tools were handled by an `elif func_name == ...`
 chain hundreds of lines long inside the stream generator. Most branches had
 only the shape: send status -> call executor method -> send completion status.
-This module moves those 14 pure branches into a TABLE, so that:
+This module moves those pure branches into a TABLE, so that:
 
-  * main.py only keeps the genuinely complex and interactive branches
-    (ask_user, update_todos, write_file, edit_file, run_terminal,
+  * main.py / agent_loop.py only keeps the genuinely complex and interactive
+    branches (ask_user, update_todos, write_file, edit_file, run_terminal,
     read_file/read_file_range with their redundancy guards, git_diff);
   * adding a simple tool later means adding one table row, not touching the
     stream generator;
@@ -74,20 +74,11 @@ TABLE: dict[str, tuple[Label, Optional[Label]]] = {
     ),
 }
 
-# For these 14 entries, tool name == method name on ToolExecutor.
+# Tool name == method name on ToolExecutor.
 # If that ever diverges, just change this dict.
 METHOD: dict[str, str] = {nama: nama for nama in TABLE}
 
-# >>> P5: GitHub Tools (Routing ke github_manager)
-from app.services import github_manager
-
-
-def jalankan(nama: str, executor, args: dict):
-    method = getattr(executor, METHOD[nama])
-    return method(**(args or {}))
-
-
-# Tools that MUST stay handled by main.py because they have guards/interaction.
+# Tools that MUST stay handled by agent_loop.py because they have guards/interaction.
 # Listed explicitly so this decision is readable, not implicit.
 WAJIB_DI_MAIN = {
     "ask_user",  # stops the stream, waits for the user's answer
@@ -97,11 +88,11 @@ WAJIB_DI_MAIN = {
     "write_file",  # permission_manager + post_edit_verifier
     "edit_file",  # permission_manager + post_edit_verifier
     "run_terminal",  # confirmation modal + heartbeat + kill tree
-    "git_diff",  # special handling of large output 
+    "git_diff",  # special handling of large output
 }
 
 
-# The 22 tool names that REALLY have a dispatch branch in the agent loop
+# Tool names that REALLY have a dispatch branch in the agent loop
 # (agent_loop.py). Lives here since Phase C step 4; main.py's startup
 # consistency checker and the loop's unknown-tool message both use it.
 NAMA_TOOL_AKTIF = {
@@ -132,6 +123,10 @@ NAMA_TOOL_AKTIF = {
     "delegate_explorer",
     "delegate_verifier",
     "delegate_workers",
+    # >>> P5: GitHub tools
+    "github_repo_info",
+    "github_list_issues",
+    "github_create_pr",
     # >>> P6.3: semantic search — pencarian berbasis makna
     "semantic_search",
     "index_semantic_search",

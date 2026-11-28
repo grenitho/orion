@@ -116,10 +116,8 @@ KLAIM_VISUAL = (
 
 
 def kalimat_klaim_visual(teks: str) -> str:
-    """The first sentence of `teks` carrying a visual-verification claim
-    (empty string = no claim). The challenge quotes it verbatim — the
-    commit-14 lesson: a challenge that does not quote the real thing
-    gets rationalized away as noise."""
+    """The first sentence of `teks` carrying a non-negated visual-verification
+    claim (empty string = no claim)."""
     if not teks:
         return ""
     rendah = teks.lower()
@@ -127,9 +125,19 @@ def kalimat_klaim_visual(teks: str) -> str:
         return ""
     for kalimat in re.split(r"(?<=[.!?\n])", teks):
         potongan = kalimat.strip()
-        if potongan and any(k in potongan.lower() for k in KLAIM_VISUAL):
-            return potongan[:200]
-    return teks.strip()[:200]
+        if not potongan or potongan.endswith("?"):
+            continue
+        rp = potongan.lower()
+        for k in KLAIM_VISUAL:
+            pos = 0
+            while True:
+                idx = rp.find(k, pos)
+                if idx < 0:
+                    break
+                if not _ternegasi_jendela(rp, idx):
+                    return potongan[:200]
+                pos = idx + len(k)
+    return ""
 
 
 KLAIM_IMPLEMENTASI = (
@@ -280,9 +288,9 @@ def kalimat_perintah_kerja(teks: str) -> str:
 # asks a QUESTION — treating it as a work order minted a phantom
 # [implementasi] debt on a pure information request (owner uji-1 2026-11-02).
 # Detection is deliberately conservative: Indonesian and English question
-# markers at the START of any sentence, plus "di mana / where" anywhere —
-# a genuine work order ("implementasikan fitur X di file Y") never contains
-# these patterns.
+# markers at the START of any sentence/clause, plus "di mana / ke mana / yang mana"
+# — avoiding bare mid-clause "when"/"where" conjunctions in real work orders
+# (e.g. "Perbaiki crash when saving invoice").
 _POLA_PERTANYAAN = re.compile(
     r"(?:^|[.!?\n])\s*"
     r"(?:apa|apakah|bagaimana|gimana|mengapa|kenapa|kapan|di\s*mana|ke\s*mana|"
@@ -291,8 +299,8 @@ _POLA_PERTANYAAN = re.compile(
     r"do|does|did|tell me|jelaskan|sebutkan|tunjukkan|beritahu)\b",
     re.IGNORECASE,
 )
-_POLA_MANA_KAPAN = re.compile(
-    r"\b(?:mana|where|when)\b",
+_POLA_MANA_TANYA = re.compile(
+    r"\b(?:di\s*mana|ke\s*mana|dari\s*mana|yang\s*mana)\b",
     re.IGNORECASE,
 )
 
@@ -303,7 +311,7 @@ def adalah_pertanyaan(teks: str) -> bool:
     stripped = teks.strip()
     if stripped.endswith("?"):
         return True
-    return bool(_POLA_PERTANYAAN.search(stripped) or _POLA_MANA_KAPAN.search(stripped))
+    return bool(_POLA_PERTANYAAN.search(stripped) or _POLA_MANA_TANYA.search(stripped))
 
 
 _POLA_NON_CODING = re.compile(
@@ -689,11 +697,6 @@ def utas_tentang_data(teks: str) -> bool:
 
 # >>> UPDATE-025 commit 13 (owner: "Orion cenderung memakai bahasa Inggris
 # walau user berbahasa Indonesia"): deterministic user-language detection.
-# The SYSTEM_PROMPT LANGUAGE RULE already exists and still lost — because
-# every deterministic block the loop appends (checkpoint template,
-# disclosures) spoke English, so the model mirrored the dominant system
-# voice. Detection lets those blocks speak the USER's language; lexical,
-# cheap, and testable, like every other guard here.
 KATA_ID = (
     "yang",
     "dan",
@@ -707,7 +710,12 @@ KATA_ID = (
     "anda",
     "kamu",
     "tolong",
+    "apa",
     "apakah",
+    "bagaimana",
+    "gimana",
+    "kapan",
+    "siapa",
     "kenapa",
     "mengapa",
     "berapa",
@@ -733,12 +741,6 @@ KATA_ID = (
     "kasih",
     "sekalian",
     "dong",
-    # >>> UPDATE-026 commit 40 (owner B13, 2026-11-03): the regression-test
-    # order "Kerjakan penambahan komentar header di frontend/src/App.jsx
-    # sekarang." scored 0-0 (no catalog hit either way) and fell through
-    # to 'en', so the disclosure blocks spoke English to an Indonesian
-    # owner. Core prepositions and the common imperative forms now carry
-    # the anchor; space-delimited, so English prose stays safe. <<<
     "di",
     "ke",
     "pada",
@@ -809,15 +811,9 @@ _POLA_AFIKS_ID = re.compile(
 
 
 def deteksi_bahasa(teks: str) -> str:
-    """'id' when the user's message reads Indonesian, else 'en'.
-
-    >>> UPDATE-026 commit 40: affix tie-break. A zero-zero score (short
-    technical order, no catalog word either way) used to fall through to
-    'en'; Indonesian morphology (me-/ber-/ter-/di-/pe- … -kan/-an) is now
-    a positive ID signal on ties, so "Kerjakan penambahan komentar ..."
-    speaks Indonesian back. <<<
-    """
-    rendah = f" {(teks or '').lower()} "
+    """'id' when the user's message reads Indonesian, else 'en'."""
+    bersih = re.sub(r"[^\w\s]", " ", (teks or "").lower())
+    rendah = f" {bersih} "
     id_ = sum(rendah.count(f" {k} ") for k in KATA_ID)
     en_ = sum(rendah.count(k) for k in KATA_EN)
     if id_ == en_ and _POLA_AFIKS_ID.search(rendah):

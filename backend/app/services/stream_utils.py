@@ -48,16 +48,6 @@ async def jamin_done(aliran: AsyncIterator[str], logger=None) -> AsyncIterator[s
         yield buat_event_done()
 
 
-# >>> UPDATE-025 commit 25+26: planning-prose stripper (InvoiceFlow
-# transcripts 2026-11-01: "Let's check git_diff … Wait, what was the user's
-# prompt…" AND, on the 0.10.29 re-exam, "Ah, read_file … was truncated.
-# Let's use search_code…"). The <thinking> stripper only removes PAIRED
-# tags; this catches untagged monologue by SHAPE. Commit 26 INVERTS the
-# default for tool-call message content: the user frame gets the work,
-# not the mumbling — content is suppressed unless it clearly addresses
-# the user (question, second-person, summary markers, user-facing
-# markup). Deterministic on purpose — a vocabulary wish in the prompt is
-# not a tooth. <<<
 _OPENER_PERENCANAAN = (
     "let's",
     "let me",
@@ -187,24 +177,11 @@ _TOKEN_TOOL = (
     "pytest",
     "browser_",
 )
-# Markers that mean the text IS user-facing: keep it in the chat frame.
-# >>> Commit 27: boundary-aware — the bare substrings "here are"/"berikut"
-# false-positived inside "there are any pending todos" and "langkah
-# berikutnya", letting monologue escape as user-addressed. <<<
-# >>> UPDATE-025 commit 29: the presentational markers (" here is",
-# " here are", "ini adalah", "ringkasan", "summary") were substring-
-# matched and false-positived mid-sentence — the 0.10.32 exam's planning
-# paragraph said "live total summary row" (an InvoiceFlow UI element
-# name, not a user address) and escaped the stripper. They still escape
-# at TEXT START via _PENANDA_AWAL; only genuinely user-addressed markers
-# remain in the substring scan. <<<
-_PENANDA_UNTUK_USER = (
-    "anda",
-    "kamu",
-    " you",
-    " your",
-    "jawab:",
-    "answer:",
+# Boundary-aware user-addressed markers so substrings inside words like
+# "standar" / "standard" / "menandai" never escape as user-addressed.
+_RE_PENANDA_USER = re.compile(
+    r"(?:\b(?:anda|kamu|you|your)\b|jawab:|answer:)",
+    re.IGNORECASE,
 )
 _PENANDA_AWAL = (
     "here is",
@@ -216,31 +193,24 @@ _PENANDA_AWAL = (
 )
 
 
+def _ada_penanda_user(teks: str) -> bool:
+    return bool(_RE_PENANDA_USER.search(teks or ""))
+
+
 def prose_perencanaan(teks: str) -> bool:
     """True when a tool-call message's content is planning monologue that
     must stay OUT of the user frame (the context keeps the raw text, so
-    the model still remembers its own plan). Commit 26: shape-based with
-    an escape hatch for genuinely user-addressed notes; a single planning
-    sentence anywhere in a short, markup-free, non-addressed text marks
-    the whole blob (the leak shape: observation sentence followed by
-    "Let's …")."""
+    the model still remembers its own plan)."""
     t = (teks or "").strip()
     if not t or len(t) > 600:
         return False
     low = t.lower()
-    # >>> The honest OR branch outranks the stripper: a plain decline must
-    # ALWAYS reach the user frame, never be rerouted as mumbling. <<<
     if guard_rules.ada_penolakan_jujur(t):
         return False
-    if any(m in low for m in _PENANDA_UNTUK_USER):
+    if _ada_penanda_user(t):
         return False
     if low.startswith(_PENANDA_AWAL):
         return False
-    # >>> UPDATE-025 commit 27: the markup/numbered-list escape was a
-    # hole — the 0.10.30 exam leaked a markdown-structured planning blob
-    # ("Let's check code implementation … 1. **Revisi 1a** …") straight
-    # through it. User-addressed markers and the honest-decline escape
-    # remain the ONLY escapes. <<<
     if not (any(v in low for v in _VERB_RENCANA) or any(v in low for v in _TOKEN_TOOL)):
         return False
     kalimat = [s.strip().lower() for s in re.split(r"[\n;]+|\.\s", t) if s.strip()]
@@ -259,7 +229,6 @@ def catatan_untuk_user(teks: str) -> bool:
     if any(m.lower() in low for m in MARKER_SUNTIKAN_TANTANGAN):
         return False
 
-    # >>> FIX P2: Blokir monolog perencanaan bahasa Inggris
     _kata_terlarang = (
         "let's verify",
         "let's check",
@@ -274,35 +243,27 @@ def catatan_untuk_user(teks: str) -> bool:
     if any(k in low for k in _kata_terlarang):
         return False
 
+    if prose_perencanaan(t):
+        return False
+
     if low.startswith(_PENANDA_AWAL):
         return True
-    if any(m in low for m in _PENANDA_UNTUK_USER):
+    if _ada_penanda_user(t):
         return True
     return t.rstrip().endswith("?")
 
 
 def buang_paragraf_perencanaan_awal(teks: str) -> str:
     """UPDATE-025 commit 29: strip LEADING planning paragraphs from a
-    closing text. The 0.10.32 exam's final answer opened with four
-    "Let's …" monologue paragraphs before the real report; the tool-call
-    gate does not apply to closings and the reroute predicate caps at 600
-    chars per blob. Paragraph-wise stripping keeps every existing escape
-    (decline / user-addressed / question) intact; when EVERY paragraph
-    would be stripped the original is returned untouched — an empty
-    answer is never emitted."""
+    closing text without stopping on extra blank lines."""
     if not teks:
         return teks
-    par = teks.split("\n\n")
+    par = [p for p in re.split(r"\n{2,}", teks) if p.strip()]
+    if not par:
+        return teks
     i = 0
     while i < len(par) and prose_perencanaan_closing(par[i]):
         i += 1
-    # >>> Commit 34 (handoff §6 residual 2): a LEADING quote paragraph
-    # (the user's own words quoted back) froze the chain and let a
-    # one-line monologue survive as paragraph 2. One quote-skip: when
-    # paragraph 0 is a quote and a planning run starts at paragraph 1,
-    # strip the run and keep the quote plus the real answer. When
-    # NOTHING survives besides the quote the original is returned —
-    # an empty answer is never emitted. <<<
     if i == 0 and len(par) > 1 and par[0].lstrip().startswith(_AWAL_KUTIPAN):
         j = 1
         while j < len(par) and prose_perencanaan_closing(par[j]):
@@ -315,20 +276,6 @@ def buang_paragraf_perencanaan_awal(teks: str) -> str:
     return "\n\n".join(par[i:]).lstrip()
 
 
-# >>> UPDATE-026 commit 33 (owner incident 2026-11-02: a confirmation-only
-# turn's closing opened with six English monologue paragraphs AND quoted
-# the mid-turn challenge verbatim — "[SISTEM - PEMERIKSAAN BUKTI] …" —
-# into the user frame; the owner could not find the real answer inside
-# it). Three deterministic holes, three code fixes: (1) monologue openers
-# the tool-call gate never needed ("Look at …", "The user's prompt …",
-# "And the system check says …") join a CLOSING-only predicate superset;
-# (2) paragraphs that echo the challenge injection or quote the turn's
-# prompt/system-check are scaffolding, never user prose — removed anywhere
-# in the closing; (3) the RAW closing is recorded to
-# .orion/logs/respon_orion.log so forensics survive outside the chat panel
-# (owner directive: keep the panel clean, keep a record). The honest-decline
-# escape and the debt block are untouched — disclosure still outranks every
-# suppressor. <<<
 MARKER_SUNTIKAN_TANTANGAN = (
     "[SISTEM - PEMERIKSAAN BUKTI]",
     "[SYSTEM - EVIDENCE CHECK]",
@@ -347,14 +294,6 @@ _OPENER_TAMBAH_CLOSING = (
     "the system check",
     "and the system",
 )
-# >>> Commit 35 (owner transcript 2026-11-02, turn "pelajari file ini"):
-# a NEW monologue shape escaped — "Let's follow the rule: 1. Answer the
-# question … in your FIRST sentence …" — because (a) it carries no
-# verb/tool token from the base lists and (b) the self-referential
-# "your" bought the user-addressed escape. These exact self-referential
-# meta phrases are planning, never user prose: they outrank the
-# user-addressed escape inside the CLOSING predicate only. Bullet
-# leaders ("- First sentence: …") are unlabeled planning too. <<<
 _META_JELAS = (
     "follow the rule",
     "craft the response",
@@ -368,11 +307,7 @@ _BULLET_LEADER = "-•* \t"
 
 
 def prose_perencanaan_closing(teks: str) -> bool:
-    """Closing-only superset of ``prose_perencanaan``: same shape rules,
-    plus the monologue openers observed in the wild on 2026-11-02 that the
-    tool-call gate never sees (closings bypass that gate). Every escape
-    (decline / user-addressed / presentational start) is shared with the
-    base predicate, so a genuine answer paragraph still stops the chain."""
+    """Closing-only superset of ``prose_perencanaan``."""
     if prose_perencanaan(teks):
         return True
     t = (teks or "").strip()
@@ -381,23 +316,14 @@ def prose_perencanaan_closing(teks: str) -> bool:
     low = t.lower()
     if guard_rules.ada_penolakan_jujur(t):
         return False
-    # >>> Commit 35: self-referential meta planning outranks the
-    # user-addressed escape ("… in your FIRST sentence …" is the model
-    # talking to itself, not to the user). <<<
     if any(m in low for m in _META_JELAS):
         return True
-    # >>> Commit 38 (owner turn-uji 2026-11-02): a paragraph OPENING with
-    # a self-referential planning opener is monologue even when it
-    # contains user-marker substrings — "Let's write a concise, direct,
-    # factual answer:" bought the "answer:" escape and leaked into the
-    # panel. Opener-at-start + verb/tool token outranks the marker
-    # escape; the decline escape above still outranks everything. <<<
     _kepala = low.lstrip(_BULLET_LEADER)
     if _kepala.startswith(_OPENER_PERENCANAAN + _OPENER_TAMBAH_CLOSING) and (
         any(v in low for v in _VERB_RENCANA) or any(v in low for v in _TOKEN_TOOL)
     ):
         return True
-    if any(m in low for m in _PENANDA_UNTUK_USER):
+    if _ada_penanda_user(t):
         return False
     if low.startswith(_PENANDA_AWAL):
         return False
@@ -420,39 +346,24 @@ def _paragraf_gema_suntikan(teks: str) -> bool:
 
 def buang_gema_suntikan(teks: str) -> str:
     """Drop paragraphs that echo the mid-turn challenge injection or quote
-    the turn's prompt/system-check back at the user. The challenge already
-    reaches the user frame through the structured debt block; the raw
-    injection text inside a closing is scaffolding leak. When EVERY
-    paragraph is echo the original is returned untouched — an empty answer
-    is never emitted."""
+    the turn's prompt/system-check back at the user."""
     if not teks:
         return teks
-    par = teks.split("\n\n")
-    sisa = [p for p in par if not _paragraf_gema_suntikan(p)]
+    par = re.split(r"\n{2,}", teks)
+    sisa = [p for p in par if p.strip() and not _paragraf_gema_suntikan(p)]
     if not sisa:
         return teks
     return "\n\n".join(sisa).strip()
 
 
 def bersih_closing(teks: str, file_berubah: int | None = None) -> str:
-    """One entry point for both closing sites: echo removal first (anywhere
-    in the text), then zero-change claim removal, then the leading
-    planning-paragraph chain. ``file_berubah`` = code-captured count of
-    files changed this turn; None skips the claim tooth (unknown)."""
+    """One entry point for both closing sites."""
     teks = buang_gema_suntikan(teks)
     if file_berubah is not None:
         teks = buang_klaim_file_bila_nihil(teks, file_berubah)
     return buang_paragraf_perencanaan_awal(teks)
 
 
-# >>> Commit 34 (handoff §6 residual 5, exam 6 shape): the checkpoint's
-# file list is code-captured, but the MODEL'S OWN PROSE above it could
-# still claim "changed `app/main.py`" on a turn with ZERO tracked
-# changes — two contradictory lists in one message. On a zero-change
-# turn, non-negated file-change claim paragraphs that name a path are
-# scaffolding-free fiction: stripped. Negated sentences ("tidak ada
-# file yang berubah", "no files changed") and honest declines stay —
-# disclosure outranks every suppressor. <<<
 _MARKER_KLAIM_FILE = (
     "files changed",
     "file berubah",
@@ -490,12 +401,11 @@ def _paragraf_klaim_file(teks: str) -> bool:
 
 def buang_klaim_file_bila_nihil(teks: str, jumlah_file_berubah: int) -> str:
     """Drop non-negated file-change claim paragraphs when the code ledger
-    says ZERO files changed this turn. Any non-zero count returns the
-    text untouched — real work keeps its prose."""
+    says ZERO files changed this turn."""
     if jumlah_file_berubah or not teks:
         return teks
-    par = teks.split("\n\n")
-    sisa = [p for p in par if not _paragraf_klaim_file(p)]
+    par = re.split(r"\n{2,}", teks)
+    sisa = [p for p in par if p.strip() and not _paragraf_klaim_file(p)]
     if not sisa:
         return teks
     return "\n\n".join(sisa).strip()
@@ -504,8 +414,7 @@ def buang_klaim_file_bila_nihil(teks: str, jumlah_file_berubah: int) -> str:
 def rekam_respon_mentah(mentah: str, bersih: str, logger=None) -> None:
     """Owner directive 2026-11-02: record the RAW backend closing to
     ``.orion/logs/respon_orion.log`` so the chat panel carries only the
-    cleaned text while forensics stay recoverable. Logging must never
-    break a closing — every failure is swallowed."""
+    cleaned text while forensics stay recoverable."""
     if logger is None:
         try:
             from app import logging_setup
@@ -533,12 +442,7 @@ def rekam_respon_mentah(mentah: str, bersih: str, logger=None) -> None:
 
 def tambah_ledger_gaya(teks: str, bukti) -> str:
     """UPDATE-025 commit 30: append the code-captured read values to a
-    closing text. The 0.10.33 exam proved the model's closing can lose
-    the values (five 'Memory full, compressing context' events between
-    evaluate and closing); state survives compression, so the ledger
-    section is appended deterministically by CODE. Snippets already
-    present are not duplicated; max six entries; empty ledger is a
-    no-op."""
+    closing text."""
     sisa = [b for b in (bukti or []) if b and b not in (teks or "")]
     if not sisa:
         return teks or ""
