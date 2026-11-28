@@ -25,6 +25,11 @@ from datetime import datetime
 _SESSION_ID_INVALID = re.compile(r"[^a-zA-Z0-9_-]")
 MAX_SESSION_ID_LEN = 64
 
+_FILE_TOKEN_RE = re.compile(
+    r"(?:[\w.-]+/)*[\w.-]+\.(?:py|js|jsx|ts|tsx|json|html|css|scss|md|sql|sh|ps1|yaml|yml)\b",
+    re.IGNORECASE,
+)
+
 
 def normalisasi_session_id(session_id: str | None) -> str:
     """Normalize a client-provided session_id into a safe filesystem token.
@@ -122,11 +127,19 @@ class SessionState:
         """Perbarui timestamp aktivitas terakhir untuk pelacakan idle eviction."""
         self.last_accessed = time.time()
 
+    def _tutup_utang_pemulihan_mutasi(self) -> None:
+        """Close recovery-resolved debts once a real mutation lands cleanly."""
+        self.tutup_debt_verifikasi("stall")
+        self.tutup_debt_verifikasi("nihil_mutasi")
+        if not self.edit_gagal_belum_pulih():
+            self.tutup_debt_verifikasi("stagnasi")
+
     def catat_file_berubah(self, entri: str) -> None:
         """Record one piece of real-work evidence (a successfully changed file)."""
         self.files_changed_this_turn.append(entri)
         self.edit_gagal_beruntun = 0
-        self.tutup_debt_verifikasi("stall")
+        self.nir_mutasi_beruntun = 0
+        self._tutup_utang_pemulihan_mutasi()
 
     def catat_edit_gagal(self, path: str, alasan: str) -> None:
         """Record ONE failed write_file/edit_file attempt (UPDATE-022 ledger)."""
@@ -141,6 +154,46 @@ class SessionState:
         self._edit_urutan += 1
         self.edit_sukses.append({"urutan": self._edit_urutan, "path": path})
         self.edit_gagal_beruntun = 0
+        self.nir_mutasi_beruntun = 0
+        self._tutup_utang_pemulihan_mutasi()
+
+    def catat_bukti_todo(self, target: str, bukti: str) -> None:
+        """Record concrete per-file/per-command evidence for todo completion checks."""
+        norm = str(target or "").replace("\\", "/").strip()
+        if not norm:
+            return
+        self.bukti_todo.setdefault(norm, []).append(str(bukti or "ok"))
+
+    def ada_bukti_untuk_todo(self, teks_todo: str) -> bool:
+        """Verify that every file path explicitly named in a todo item has
+        mutation/verification evidence in this session or turn."""
+        if not teks_todo:
+            return bool(self.files_changed_this_turn or self.terminal_ok > 0)
+        targets = _FILE_TOKEN_RE.findall(teks_todo)
+        if not targets:
+            return bool(
+                self.files_changed_this_turn
+                or self.terminal_ok > 0
+                or self.analyzed_files
+            )
+        changed_norm = [
+            str(p).replace("\\", "/").lower()
+            for p in (
+                list(self.files_changed_this_turn)
+                + list(self._checkpoint_file_terakhir)
+                + list(self.bukti_todo.keys())
+            )
+        ]
+        for raw_t in targets:
+            t = raw_t.replace("\\", "/").lower()
+            base = os.path.basename(t)
+            matched = any(
+                c == t or c.endswith("/" + t) or os.path.basename(c) == base
+                for c in changed_norm
+            )
+            if not matched:
+                return False
+        return True
 
     def cap_iterasi_maks(self, basis: int) -> int:
         """UPDATE-025 commit 25: adaptive iteration ceiling."""
@@ -223,6 +276,23 @@ class SessionState:
         """Clear the turn-scoped records when the state is reused for a new turn."""
         self.files_changed_this_turn = []
         self.pending_system_notices = []
+        self.subagent_calls = 0
+        self.terminal_ok = 0
+        self.fallback_ipv4_count = 0
+        self.last_tool_note = ""
+        self.delegasi_terpakai = set()
+        self.nasib_role = {}
+        self.saran_count = 0
+        self.lampiran_dibaca_turn_ini = set()
+        self.nudge_referensi = 0
+        self.gaya_diperiksa_turn_ini = False
+        self.nudge_gaya = 0
+        self.tantang_klaim_visual = 0
+        self.tantang_klaim_implementasi = 0
+        self.tantang_perintah_tool = 0
+        self.tantang_nihil_mutasi = 0
+        self.panggilan_browser_turn_ini = 0
+        self.perintah_tool_eksplisit = ""
         self.edit_gagal = []
         self.edit_sukses = []
         self._edit_urutan = 0
@@ -239,6 +309,7 @@ class SessionState:
         self.probe_tool_hilang = 0
         self.lampiran_note_turn = 0
         self.lampiran_blok = ""
+        self.bukti_todo = {}
         self.turn_ke += 1
         self.sentuh_aktivitas()
 
@@ -321,9 +392,7 @@ class SessionState:
         return state
 
     @staticmethod
-    def hapus_checkpoint(
-        project_path: str, session_id: str | None = "default"
-    ) -> None:
+    def hapus_checkpoint(project_path: str, session_id: str | None = "default") -> None:
         """Hapus file checkpoint sesi saat /clear-chat."""
         if not project_path:
             return
