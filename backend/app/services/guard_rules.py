@@ -51,13 +51,45 @@ KATA_KLAIM = (
     "tidak ada error",
 )
 
+# A negation immediately before the keyword turns a claim into an honest
+# OR-branch sentence ("belum diimplementasikan", "not added") - such a
+# sentence must NEVER trip the challenge.
+_NEGASI_SEBELUM = ("belum", "tidak", "bukan", "not", "never", "no", "jangan")
+
+
+def _ternegasi(rendah: str, idx: int) -> bool:
+    kata = rendah[:idx].split()
+    return bool(kata) and kata[-1] in _NEGASI_SEBELUM
+
+
+def _ternegasi_jendela(rendah: str, idx: int, lebar: int = 3) -> bool:
+    """True when a negation token appears within `lebar` words before `idx`
+    (e.g. 'belum sepenuhnya selesai', 'not yet done', 'tidak berhasil')."""
+    kata = rendah[:idx].split()
+    return any(w in _NEGASI_SEBELUM for w in kata[-lebar:])
+
 
 def kata_klaim(teks: str) -> bool:
-    """True when the reply text contains a claim that the work is complete."""
+    """True when the reply text contains a non-negated claim that work is complete."""
     if not teks:
         return False
     rendah = teks.lower()
-    return any(k in rendah for k in KATA_KLAIM)
+    if not any(k in rendah for k in KATA_KLAIM):
+        return False
+    for kalimat in re.split(r"(?<=[.!?\n])", rendah):
+        potongan = kalimat.strip()
+        if not potongan or potongan.endswith("?"):
+            continue
+        for k in KATA_KLAIM:
+            pos = 0
+            while True:
+                idx = potongan.find(k, pos)
+                if idx < 0:
+                    break
+                if not _ternegasi_jendela(potongan, idx):
+                    return True
+                pos = idx + len(k)
+    return False
 
 
 # >>> UPDATE-025 commit 19 (field report 2026-10-31, InvoiceFlow dark
@@ -114,11 +146,6 @@ KLAIM_IMPLEMENTASI = (
     "added an",
 )
 
-# A negation immediately before the keyword turns a claim into an honest
-# OR-branch sentence ("belum diimplementasikan", "not added") - such a
-# sentence must NEVER trip the challenge.
-_NEGASI_SEBELUM = ("belum", "tidak", "bukan", "not", "never", "no", "jangan")
-
 KATA_PERINTAH_TOOL = (
     "playwright",
     "browser_navigate",
@@ -131,11 +158,6 @@ KATA_PERINTAH_TOOL = (
     "lewat mcp",
     "via mcp",
 )
-
-
-def _ternegasi(rendah: str, idx: int) -> bool:
-    kata = rendah[:idx].split()
-    return bool(kata) and kata[-1] in _NEGASI_SEBELUM
 
 
 def _kalimat_pertama_berkata(teks: str, katalog) -> str:
@@ -263,7 +285,7 @@ def kalimat_perintah_kerja(teks: str) -> str:
 # these patterns.
 _POLA_PERTANYAAN = re.compile(
     r"(?:^|[.!?\n])\s*"
-    r"(?:apa|apakah|bagaimana|mengapa|kenapa|kapan|di\s*mana|ke\s*mana|"
+    r"(?:apa|apakah|bagaimana|gimana|mengapa|kenapa|kapan|di\s*mana|ke\s*mana|"
     r"berapa|siapa|bisakah|dapatkah|maukah|bolehkah|"
     r"what|where|when|why|how|which|who|is|are|can|could|would|should|"
     r"do|does|did|tell me|jelaskan|sebutkan|tunjukkan|beritahu)\b",
@@ -278,7 +300,10 @@ _POLA_MANA_KAPAN = re.compile(
 def adalah_pertanyaan(teks: str) -> bool:
     if not teks:
         return False
-    return bool(_POLA_PERTANYAAN.search(teks) or _POLA_MANA_KAPAN.search(teks))
+    stripped = teks.strip()
+    if stripped.endswith("?"):
+        return True
+    return bool(_POLA_PERTANYAAN.search(stripped) or _POLA_MANA_KAPAN.search(stripped))
 
 
 _POLA_NON_CODING = re.compile(
@@ -463,6 +488,15 @@ def stagnasi_perlu_ditantang(
     return (
         (nir_mutasi_beruntun >= 6 and percobaan_edit > 0) or edit_gagal_beruntun >= 3
     ) and sudah_ditantang < maks_tantangan
+
+
+def stagnasi_sudah_pulih(
+    ada_file_berubah: bool,
+    daftar_edit_gagal_belum_pulih: list,
+) -> bool:
+    """True when at least one real file mutation succeeded and no unrecovered
+    failed edits remain in the ledger — so an earlier [stagnasi] debt is paid."""
+    return bool(ada_file_berubah) and not bool(daftar_edit_gagal_belum_pulih)
 
 
 def ada_penolakan_jujur(teks: str) -> bool:

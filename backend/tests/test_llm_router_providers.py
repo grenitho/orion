@@ -35,8 +35,14 @@ import pytest
 
 from app.services import llm_router
 
-_ENV_PREFIXES = ("PROVIDER_", "GEMINI_API_KEY_", "FALLBACK_", "CLOUDFLARE_",
-               "GEMINI_DISABLED", "ROUTER_FALLBACK")
+_ENV_PREFIXES = (
+    "PROVIDER_",
+    "GEMINI_API_KEY_",
+    "FALLBACK_",
+    "CLOUDFLARE_",
+    "GEMINI_DISABLED",
+    "ROUTER_FALLBACK",
+)
 
 
 @pytest.fixture()
@@ -200,7 +206,8 @@ def test_get_ai_response_routes_through_provider_queue(env, monkeypatch):
     assert response == {"ok": True, "model": "deepseek/deepseek-chat"}
     assert len(calls) == 1
     assert calls[0]["temperature"] == 0.2
-    assert llm_router.litellm.api_key == "sk-p1"
+    assert calls[0]["api_key"] == "sk-p1"
+    assert calls[0]["api_base"] is None
 
 
 # --------------------------------------- UPDATE-025 commit 18: router wizard
@@ -268,9 +275,7 @@ def test_router_fallback_tak_dikenal_atau_kosong_diiaskan(env):
     )
     for k, v in base.items():
         env.setenv(k, v)
-    default_labels = [
-        t["provider"] for t in llm_router.build_execution_queue()
-    ]
+    default_labels = [t["provider"] for t in llm_router.build_execution_queue()]
     assert default_labels == [
         "DeepSeek (Provider 1)",
         "Cloudflare (Fallback 2)",

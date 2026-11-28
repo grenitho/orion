@@ -540,17 +540,14 @@ async def get_ai_response(
     for target in execution_queue:
         model_name = target["model"]
         provider_name = target["provider"]
+        # >>> FIX: pass credentials & base_url per-call instead of mutating
+        # os.environ["GEMINI_API_KEY"], litellm.api_key, and litellm.api_base
+        # globally across awaits (prevents race conditions when parallel
+        # sub-agents or concurrent sessions call different providers).
+        target_api_key = target.get("api_key")
+        target_base_url = target.get("base_url")
         # >>> FIX: use this tier's own temperature, not 1.0 for everything.
         target_temperature = target.get("temperature", 0.4)
-
-        # Configure LiteLLM dynamically
-        if "gemini" in model_name.lower():
-            os.environ["GEMINI_API_KEY"] = target["api_key"]
-            litellm.api_key = target["api_key"]
-            litellm.api_base = None
-        else:
-            litellm.api_key = target["api_key"]
-            litellm.api_base = target["base_url"]
 
         print("[LLM_ROUTER] ========================================")
         print(f"[LLM_ROUTER] >> Trying: {model_name}")
@@ -593,6 +590,8 @@ async def get_ai_response(
                     "model": model_name,
                     "messages": req_messages,
                     "tools": req_tools,
+                    "api_key": target_api_key,
+                    "api_base": target_base_url,
                     "timeout": TIMEOUT_SEC,
                     "max_tokens": MAX_OUTPUT_TOKENS,
                     **extra_kwargs,

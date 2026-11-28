@@ -34,8 +34,14 @@ import pytest
 
 from app.services import llm_router
 
-_ENV_PREFIXES = ("PROVIDER_", "GEMINI_API_KEY_", "FALLBACK_", "CLOUDFLARE_",
-               "GEMINI_DISABLED", "ROUTER_FALLBACK")
+_ENV_PREFIXES = (
+    "PROVIDER_",
+    "GEMINI_API_KEY_",
+    "FALLBACK_",
+    "CLOUDFLARE_",
+    "GEMINI_DISABLED",
+    "ROUTER_FALLBACK",
+)
 
 
 @pytest.fixture()
@@ -53,20 +59,24 @@ def env(monkeypatch):
 # build_profile_queue: shape + group resolution
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("rusak", [
-    None,
-    "gemini",
-    42,
-    {},
-    {"group": "gemini"},
-    {"model": "x"},
-    {"group": "", "model": "x"},
-    {"group": "gemini", "model": ""},
-    {"group": "  ", "model": "  "},
-    {"group": "cloudflare", "model": "@cf/llama"},   # not a profile group
-    {"group": "provider_0", "model": "x"},           # N starts at 1
-    {"group": "provider_99999", "model": "x"},       # beyond the 2-digit cap
-])
+
+@pytest.mark.parametrize(
+    "rusak",
+    [
+        None,
+        "gemini",
+        42,
+        {},
+        {"group": "gemini"},
+        {"model": "x"},
+        {"group": "", "model": "x"},
+        {"group": "gemini", "model": ""},
+        {"group": "  ", "model": "  "},
+        {"group": "cloudflare", "model": "@cf/llama"},  # not a profile group
+        {"group": "provider_0", "model": "x"},  # N starts at 1
+        {"group": "provider_99999", "model": "x"},  # beyond the 2-digit cap
+    ],
+)
 def test_profil_rusak_menghasilkan_none(env, rusak):
     assert llm_router.build_profile_queue(rusak) is None
 
@@ -152,6 +162,7 @@ def test_profil_tidak_memasukkan_rahasia_baru(env):
 # model_options: wizard surface, env privacy
 # --------------------------------------------------------------------------
 
+
 def test_model_options_cerminkan_env_tanpa_nilai_kunci(env):
     env.setenv("GEMINI_API_KEY_1", "AIza-rahasia-1")
     env.setenv("GEMINI_API_KEY_2", "AIza-rahasia-2")
@@ -184,6 +195,7 @@ def test_model_options_kosong_bila_env_kosong(env):
 # get_ai_response(profile=...): routing + fallback
 # --------------------------------------------------------------------------
 
+
 def _rekam_acompletion(monkeypatch):
     calls = []
 
@@ -198,7 +210,7 @@ def _rekam_acompletion(monkeypatch):
 def test_get_ai_response_dengan_profil_valid_hanya_satu_target(env, monkeypatch):
     calls = _rekam_acompletion(monkeypatch)
     env.setenv("PROVIDER_1_API_KEY", "sk-p1")
-    env.setenv("PROVIDER_1_MODELS", "main/model")       # main-router model
+    env.setenv("PROVIDER_1_MODELS", "main/model")  # main-router model
     env.setenv("PROVIDER_2_API_KEY", "sk-p2")
     env.setenv("PROVIDER_2_MODELS", "pinned/model")
 
@@ -209,9 +221,10 @@ def test_get_ai_response_dengan_profil_valid_hanya_satu_target(env, monkeypatch)
         )
     )
     assert response == {"ok": True, "model": "pinned/model"}
-    assert len(calls) == 1                      # single target, no main queue
+    assert len(calls) == 1  # single target, no main queue
     assert calls[0]["model"] == "pinned/model"
-    assert llm_router.litellm.api_key == "sk-p2"
+    assert calls[0]["api_key"] == "sk-p2"
+    assert calls[0]["api_base"] is None
 
 
 def test_get_ai_response_profil_rusak_jatuh_ke_router_utama(env, monkeypatch):
@@ -253,5 +266,59 @@ def test_get_ai_response_profil_gemini_mengirim_reasoning_effort(env, monkeypatc
         )
     )
     assert calls[0]["model"] == "gemini/gemini-3.5-flash"
+    assert calls[0]["api_key"] == "g1"
+    assert calls[0]["api_base"] is None
     assert calls[0]["reasoning_effort"] == llm_router.REASONING_EFFORT
     assert "temperature" not in calls[0]  # not sent unless LLM_SEND_TEMPERATURE
+
+
+def test_get_ai_response_paralel_mengisolasi_kredensial(env, monkeypatch):
+    """Parallel sub-agent calls across different providers must pass
+    isolated api_key/api_base per call without mutating global state."""
+    env.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(llm_router.litellm, "api_key", None)
+    monkeypatch.setattr(llm_router.litellm, "api_base", None)
+
+    env.setenv("GEMINI_API_KEY_1", "sk-gem-1")
+    env.setenv("PROVIDER_1_API_KEY", "sk-ds-1")
+    env.setenv("PROVIDER_1_BASE_URL", "https://api.deepseek.com/v1")
+    env.setenv("PROVIDER_1_MODELS", "deepseek/deepseek-chat")
+    env.setenv("PROVIDER_2_API_KEY", "sk-qwen-2")
+    env.setenv("PROVIDER_2_BASE_URL", "https://dashscope.example/v1")
+    env.setenv("PROVIDER_2_MODELS", "qwen-coder")
+
+    observed = {}
+
+    async def fake_acompletion(**kwargs):
+        await asyncio.sleep(0.01)
+        observed[kwargs["model"]] = (kwargs.get("api_key"), kwargs.get("api_base"))
+        return {"ok": True, "model": kwargs["model"]}
+
+    monkeypatch.setattr(llm_router.litellm, "acompletion", fake_acompletion)
+
+    async def run_parallel():
+        return await asyncio.gather(
+            llm_router.get_ai_response(
+                [{"role": "user", "content": "1"}],
+                profile={"group": "gemini", "model": "gemini/gemini-3.5-flash"},
+            ),
+            llm_router.get_ai_response(
+                [{"role": "user", "content": "2"}],
+                profile={"group": "provider_1", "model": "deepseek/deepseek-chat"},
+            ),
+            llm_router.get_ai_response(
+                [{"role": "user", "content": "3"}],
+                profile={"group": "provider_2", "model": "qwen-coder"},
+            ),
+        )
+
+    results = asyncio.run(run_parallel())
+    assert len(results) == 3
+    assert observed == {
+        "gemini/gemini-3.5-flash": ("sk-gem-1", None),
+        "deepseek/deepseek-chat": ("sk-ds-1", "https://api.deepseek.com/v1"),
+        "openai/qwen-coder": ("sk-qwen-2", "https://dashscope.example/v1"),
+    }
+    assert "GEMINI_API_KEY" not in os.environ
+    assert llm_router.litellm.api_key is None
+    assert llm_router.litellm.api_base is None
